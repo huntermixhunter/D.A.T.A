@@ -4156,8 +4156,9 @@ function _startWakeListener() {
     addLog('Wake word: SpeechRecognition not supported (Chrome required)');
     return;
   }
-  // Don't compete with conversation mode or active wake-dictation for the mic
-  if (BRAIN.active || WAKE_DICTATION.active) { _updateWakeButton(); return; }
+  // Don't compete with conversation mode, active wake-dictation, or a
+  // browser-STT dictation session for the mic / recognizer slot
+  if (BRAIN.active || WAKE_DICTATION.active || (typeof _browserRec !== 'undefined' && _browserRec)) { _updateWakeButton(); return; }
 
   if (WAKE.recognizer) { try { WAKE.recognizer.stop(); } catch {} WAKE.recognizer = null; }
 
@@ -4230,7 +4231,8 @@ function _startWakeListener() {
     // Web Speech API auto-stops after ~60s of silence; restart if still on.
     // Skip during dictation / conversation mode so we don't grab the mic
     // while another path owns it.
-    if (WAKE.enabled && !BRAIN.active && !WAKE_DICTATION.active) {
+    if (WAKE.enabled && !BRAIN.active && !WAKE_DICTATION.active &&
+        !(typeof _browserRec !== 'undefined' && _browserRec)) {
       setTimeout(_startWakeListener, 250);
     }
   };
@@ -4298,6 +4300,15 @@ async function startWakeDictation() {
   if (!targetInput) {
     addLog('Wake dictation: no active input found');
     _restartWakeIfEnabled();
+    return;
+  }
+
+  // No server Whisper (core build) — route to the browser-STT fallback.
+  // No auto-send in this mode; the Captain reviews and hits TRANSMIT.
+  if (!(await _serverSttAvailable())) {
+    const btn = document.querySelector(`.dictate-btn[data-target-input="${targetId}"]`)
+             || document.getElementById('dictate-btn');
+    _browserDictationToggle(btn, targetId);
     return;
   }
 
@@ -5626,7 +5637,71 @@ let _dictChunks   = [];
 let _dictActive   = false;
 let _dictAborted  = false;   // set true by Esc to skip transcribe on stop
 
+// ── Browser-STT fallback (Web Speech API) ──────────────────
+// The core build ships without the server Whisper stack, so /transcribe is
+// unavailable. When the bridge reports no server STT, dictation runs on the
+// browser's own SpeechRecognition (Chrome/Edge) and feeds final transcripts
+// straight into the target input.
+let _sttServerAvailable = null;   // null = not probed yet
+let _browserRec = null;           // active SpeechRecognition session
+
+async function _serverSttAvailable() {
+  if (_sttServerAvailable !== null) return _sttServerAvailable;
+  try {
+    const r = await fetch(`${API_BASE}/voice/status`);
+    const d = await r.json();
+    _sttServerAvailable = !!(d.stt_available ?? d.stt_loaded);
+  } catch {
+    _sttServerAvailable = false;
+  }
+  return _sttServerAvailable;
+}
+
+function _browserDictationToggle(btn, targetId) {
+  if (_browserRec) { try { _browserRec.stop(); } catch {} return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    addLog('Dictation unavailable: no server STT and this browser has no SpeechRecognition (use Chrome/Edge)');
+    return;
+  }
+  const input = document.getElementById(targetId) || document.getElementById('chat-input');
+  if (!input) { addLog('Dictation: no input found'); return; }
+
+  const rec = new SR();
+  rec.lang = navigator.language || 'en-US';
+  rec.continuous = true;
+  rec.interimResults = false;
+  rec.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        const txt = e.results[i][0].transcript.trim();
+        if (txt) input.value = (input.value.trimEnd() ? input.value.trimEnd() + ' ' : '') + txt;
+      }
+    }
+  };
+  rec.onerror = (e) => {
+    if (e.error !== 'no-speech' && e.error !== 'aborted') addLog('Dictation error: ' + e.error);
+  };
+  rec.onend = () => {
+    _browserRec = null;
+    if (btn) { btn.textContent = '🎙'; btn.classList.remove('dictating'); }
+    input.focus();
+    addLog('Dictation complete (browser STT)');
+    // Hand the recognizer slot back to the wake-word listener
+    if (typeof _restartWakeIfEnabled === 'function') _restartWakeIfEnabled();
+  };
+
+  _browserRec = rec;
+  if (btn) { btn.textContent = '⏹'; btn.classList.add('dictating'); }
+  addLog('Dictation (browser STT) — speak, click ⏹ to finish');
+  rec.start();
+}
+
 async function toggleDictation(btnFromEvent) {
+  if (_browserRec) {                 // browser-STT session in flight — stop it
+    try { _browserRec.stop(); } catch {}
+    return;
+  }
   if (_dictActive) {
     _dictRecorder?.stop();
     return;
@@ -5636,6 +5711,13 @@ async function toggleDictation(btnFromEvent) {
   // main pane button if invoked without an argument.
   const btn = btnFromEvent || document.getElementById('dictate-btn');
   const targetId = btn?.dataset?.targetInput || _activeInputId || 'chat-input';
+
+  // No server Whisper? Run dictation on the browser's own recognizer.
+  if (!(await _serverSttAvailable())) {
+    _browserDictationToggle(btn, targetId);
+    return;
+  }
+
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });

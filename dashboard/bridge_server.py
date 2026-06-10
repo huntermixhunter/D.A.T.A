@@ -7609,6 +7609,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/voice/status":
             self._json({
                 "ready":         _voice_ready.is_set(),
+                "stt_available": _VOICE_AVAILABLE,
                 "stt_loaded":    local_voice._whisper_model is not None,
                 "tts_loaded":    local_voice._f5_model is not None,
                 "xtts_loaded":   local_voice._xtts_model is not None,
