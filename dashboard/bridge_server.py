@@ -2947,32 +2947,19 @@ def _recompute_next_run(order: dict) -> None:
 
 def _fire_standing_order(order: dict) -> None:
     """Execute one standing order: dispatch its prompt to its provider and
-    push the response to the dashboard as a UI event.
-
-    Special actions bypass the LLM and call a hard-coded handler instead
-    (e.g. action='refresh_news' just re-pulls the news cache)."""
+    push the response to the dashboard as a UI event."""
     action = (order.get("action") or "").strip()
     log.info(f"[orders] firing {order['id']} ({order['name']!r}) → "
              f"{'action=' + action if action else order['provider']}")
-    if action == "refresh_news":
-        try:
-            import news_aggregator
-            payload = news_aggregator.refresh_all()
-            total = sum(len(v) for v in payload.get("sections", {}).values())
-            response = f"Refreshed news cache — {total} item(s) across {len(payload.get('sections', {}))} sections."
-        except Exception as e:
-            log.exception(f"[orders] news refresh failed: {e}")
-            response = f"(News refresh failed: {e})"
-    else:
-        try:
-            response = _dispatch_with_provider(
-                order["provider"],
-                order["prompt"],
-                project_path="",
-            )
-        except Exception as e:
-            log.exception(f"[orders] dispatch failed: {e}")
-            response = f"(Standing order failed: {e})"
+    try:
+        response = _dispatch_with_provider(
+            order["provider"],
+            order["prompt"],
+            project_path="",
+        )
+    except Exception as e:
+        log.exception(f"[orders] dispatch failed: {e}")
+        response = f"(Standing order failed: {e})"
     order["last_run"]    = time.time()
     order["last_result"] = response[:2000]
     _push_ui_event("standing_order_fired", {
@@ -7221,101 +7208,6 @@ def build_skills_full() -> dict:
     return {"categories": categories}
 
 
-# ── Local weather (NWS / api.weather.gov) ─────────────────
-# Forecast location — set DATA_WEATHER_LAT / DATA_WEATHER_LON env vars (or
-# .env entries) to your coordinates. NWS covers US locations only. Defaults
-# to New York City so a fresh install shows something sensible.
-WEATHER_LAT = float(os.environ.get("DATA_WEATHER_LAT", "40.713"))
-WEATHER_LON = float(os.environ.get("DATA_WEATHER_LON", "-74.006"))
-WEATHER_UA  = "DATA-dashboard (self-hosted; github.com/data-dashboard)"
-_weather_cache = {"data": None, "ts": 0.0}
-_weather_grid  = {"forecast": None, "hourly": None, "stations": None, "loc": None}
-_weather_lock  = threading.Lock()
-WEATHER_TTL    = 600  # seconds — NWS updates roughly hourly; 10 min is plenty
-
-
-def _nws_get(url):
-    req = urllib.request.Request(url, headers={
-        "User-Agent": WEATHER_UA,
-        "Accept": "application/geo+json",
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
-def _weather_resolve_grid():
-    """Resolve lat/lon → NWS grid forecast URLs (cached for process life)."""
-    if _weather_grid["forecast"]:
-        return
-    pts = _nws_get(f"https://api.weather.gov/points/{WEATHER_LAT},{WEATHER_LON}")
-    p = pts["properties"]
-    _weather_grid["forecast"] = p["forecast"]
-    _weather_grid["hourly"]   = p["forecastHourly"]
-    _weather_grid["stations"] = p["observationStations"]
-    rl = (p.get("relativeLocation") or {}).get("properties") or {}
-    _weather_grid["loc"] = {
-        "city":  rl.get("city"),
-        "state": rl.get("state"),
-        "office": p.get("cwa"),
-    }
-
-
-def _weather_current():
-    """Latest observation from the nearest station. Best-effort; None on failure."""
-    try:
-        st = _nws_get(_weather_grid["stations"])
-        feats = st.get("features") or []
-        if not feats:
-            return None
-        sid = feats[0]["properties"]["stationIdentifier"]
-        obs = _nws_get(f"https://api.weather.gov/stations/{sid}/observations/latest")
-        op = obs["properties"]
-        def c2f(c):
-            return round(c * 9 / 5 + 32) if isinstance(c, (int, float)) else None
-        temp_c = (op.get("temperature") or {}).get("value")
-        wind_c = (op.get("windSpeed") or {}).get("value")          # km/h
-        gust_c = (op.get("windGust") or {}).get("value")
-        rh     = (op.get("relativeHumidity") or {}).get("value")
-        return {
-            "station":      sid,
-            "text":         op.get("textDescription"),
-            "icon":         op.get("icon"),
-            "temp_f":       c2f(temp_c),
-            "wind_mph":     round(wind_c * 0.621371) if isinstance(wind_c, (int, float)) else None,
-            "gust_mph":     round(gust_c * 0.621371) if isinstance(gust_c, (int, float)) else None,
-            "wind_dir":     (op.get("windDirection") or {}).get("value"),
-            "humidity":     round(rh) if isinstance(rh, (int, float)) else None,
-            "observed_at":  op.get("timestamp"),
-        }
-    except Exception:
-        return None
-
-
-def get_weather(force=False):
-    """Return a clean weather payload for the dashboard, cached for WEATHER_TTL."""
-    with _weather_lock:
-        now = time.time()
-        if (not force) and _weather_cache["data"] and (now - _weather_cache["ts"] < WEATHER_TTL):
-            return _weather_cache["data"]
-
-        _weather_resolve_grid()
-        fc = _nws_get(_weather_grid["forecast"])
-        periods = fc["properties"]["periods"]
-        payload = {
-            "location":   _weather_grid["loc"],
-            "lat":        WEATHER_LAT,
-            "lon":        WEATHER_LON,
-            "updated":    fc["properties"].get("updateTime"),
-            "current":    _weather_current(),
-            "periods":    periods,
-            "source_url": f"https://forecast.weather.gov/MapClick.php?lon={WEATHER_LON}&lat={WEATHER_LAT}",
-            "fetched_at": datetime.datetime.now().isoformat(),
-        }
-        _weather_cache["data"] = payload
-        _weather_cache["ts"]   = now
-        return payload
-
-
 # ── HTTP handler ──────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
 
@@ -7583,22 +7475,6 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/standing_orders":
             with _orders_lock:
                 self._json({"orders": list(_standing_orders)})
-
-        elif path == "/news":
-            import news_aggregator
-            self._json(news_aggregator.get_cached())
-
-        elif path == "/news/sources":
-            import news_aggregator
-            self._json({"sources": news_aggregator.get_sources()})
-
-        elif path == "/weather":
-            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            force = qs.get("refresh", ["0"])[0] in ("1", "true", "yes")
-            try:
-                self._json(get_weather(force=force))
-            except Exception as e:
-                self._json({"error": f"weather fetch failed: {e}"}, 502)
 
         elif path == "/tunnel_url":
             # Read the URL that launcher.py writes after cloudflared comes up.
@@ -8089,34 +7965,6 @@ class Handler(BaseHTTPRequestHandler):
                     _save_standing_orders()
                 log.info(f"[orders] updated {oid}: {order['name']!r}")
                 self._json({"order": order}); return
-
-        # ── /news/refresh — pull every feed, return new payload ─
-        if path == "/news/refresh":
-            try:
-                # Hot-reload so edits to news_aggregator.py take effect without
-                # a bridge restart (Python caches imports per-process).
-                import importlib, sys as _sys
-                if "news_aggregator" in _sys.modules:
-                    importlib.reload(_sys.modules["news_aggregator"])
-                news_aggregator = _sys.modules.get("news_aggregator") or importlib.import_module("news_aggregator")
-                payload = news_aggregator.refresh_all()
-                self._json(payload)
-            except Exception as e:
-                log.exception(f"/news/refresh error: {e}")
-                self._json({"error": str(e)}, 500)
-            return
-
-        # ── /news/sources — save the source list ─────────────
-        if path == "/news/sources":
-            try:
-                data = json.loads(body) if body else {}
-                import news_aggregator
-                news_aggregator.save_sources(data.get("sources") or {})
-                self._json({"saved": True, "sources": news_aggregator.get_sources()})
-            except Exception as e:
-                log.exception(f"/news/sources POST error: {e}")
-                self._json({"error": str(e)}, 500)
-            return
 
         # ── /speak — raw binary audio, DO NOT JSON-parse ──────
         if path == "/speak":
@@ -9012,35 +8860,12 @@ if __name__ == "__main__":
     _start_cloudflared_if_configured()
     # Standing orders: load from disk, recompute next_run for each, start scheduler
     _load_standing_orders()
-    # Auto-seed the news-refresh order if it doesn't exist yet — hourly pull,
-    # bypasses the LLM (action=refresh_news).
     with _orders_lock:
-        if not any(o.get("id") == "so-news-refresh" for o in _standing_orders):
-            _standing_orders.append({
-                "id":       "so-news-refresh",
-                "name":     "News refresh",
-                "cron":     "0 * * * *",                 # top of every hour
-                "prompt":   "(internal — refreshes the news cache)",
-                "provider": "claude-cli",                # placeholder, unused with action
-                "enabled":  True,
-                "action":   "refresh_news",
-                "next_run": 0,
-                "last_run": 0,
-                "last_result": "",
-                "notify_telegram": False,
-            })
-            log.info("[orders] auto-seeded so-news-refresh (hourly)")
         for _o in _standing_orders:
             _recompute_next_run(_o)
         _save_standing_orders()
     print(f"Loaded {len(_standing_orders)} standing order(s).")
     threading.Thread(target=_scheduler_loop, daemon=True).start()
-    # Kick an immediate initial news refresh in the background so the page
-    # has something to show on first load.
-    threading.Thread(
-        target=lambda: __import__("news_aggregator").refresh_all(),
-        daemon=True, name="news-initial-refresh",
-    ).start()
 
     # Telegram bot — only starts if TELEGRAM_BOT_TOKEN env is set
     try:

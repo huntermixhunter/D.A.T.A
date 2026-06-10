@@ -4702,3 +4702,33 @@ body.theme-minimal .header-right-cap::after { display: none; }
 body.theme-minimal .right-divider,
 body.theme-minimal [class*="right"] .sidebar-divider { background: var(--min-border); height: 1px; }
 body.theme-minimal .theme-toggle-label { color: var(--data-text-dim); letter-spacing: 0.12em; }
+
+/* == Minimal: Master Systems Display (ship vitals fullscreen) == */
+body.theme-minimal .msd { --msd-accent-rgb: 77, 159, 255; background: #0B0D10; }
+body.theme-minimal .msd-frame { background: #0B0D10; }
+body.theme-minimal .msd-topbar {
+  font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 0.1em;
+  border-bottom-color: #20262E;
+}
+body.theme-minimal .msd-brand { letter-spacing: 0.14em; }
+body.theme-minimal .msd-stat span:last-child {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+body.theme-minimal .msd-metric {
+  background: #14181D;
+  border: 1px solid #20262E;
+  border-radius: 8px;
+}
+body.theme-minimal .msd-label {
+  font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 0.12em;
+}
+body.theme-minimal .msd-value {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+body.theme-minimal .msd-leaders-global line { stroke: rgba(77, 159, 255, 0.35); }
+body.theme-minimal .msd-close { border-radius: 6px; }
+body.theme-minimal .msd-alert { border-radius: 6px; }

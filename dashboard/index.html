@@ -75,25 +75,7 @@
           <button class="data-btn blue" onclick="showPanel('orders')">
             STANDING ORDERS
           </button>
-          <button class="data-btn teal" onclick="showPanel('news')">
-            NEWS FEED
-          </button>
-        </div>
-
-        <div class="sidebar-divider"></div>
-
-        <div class="sidebar-section">
-          <div class="section-label">VOICE SYSTEMS</div>
-          <div class="status-row">
-            <span class="status-label">TTS</span>
-            <span class="status-indicator active" id="tts-indicator">F5-TTS</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">STT</span>
-            <span class="status-indicator active" id="stt-indicator">WHISPER</span>
-          </div>
-
-        </div>
+</div>
 
         <div class="sidebar-divider"></div>
 
@@ -394,80 +376,6 @@
           </div>
         </div>
 
-        <!-- PANEL: NEWS FEED (news + YouTube aggregator) -->
-        <div class="panel" id="panel-news">
-          <div class="panel-header">
-            <div class="panel-title-bar">
-              <span class="panel-title">NEWS FEED — INCOMING TRANSMISSIONS</span>
-              <div class="panel-pills">
-                <span class="pill teal" id="news-timestamp">NEVER</span>
-                <button class="data-btn-sm green" onclick="showPanel('weather')">LOCAL WEATHER</button>
-                <button class="data-btn-sm yellow" onclick="openNewsSources()">SOURCES</button>
-                <button class="data-btn-sm orange" onclick="refreshNews()" id="news-refresh-btn">REFRESH</button>
-              </div>
-            </div>
-          </div>
-          <div class="news-filter-row" id="news-filter-row"></div>
-          <div id="news-mix" class="news-mix">
-            <div class="news-empty">Loading…</div>
-          </div>
-
-          <!-- Sources management dialog -->
-          <div id="news-sources-dialog" class="orders-dialog hidden">
-            <div class="orders-dialog-card" style="width:560px;">
-              <div class="orders-dialog-title">NEWS SOURCES</div>
-              <p style="color:#aaa;font-size:11px;font-family:var(--font-mono);line-height:1.5;">
-                One URL per line. RSS feeds from any site. YouTube channels:
-                paste a channel URL like <code>https://www.youtube.com/@channelname</code> —
-                the bridge resolves it to the RSS feed automatically.
-              </p>
-              <label class="orders-field">
-                <span>$ MARKETS</span>
-                <textarea id="news-src-markets" rows="3"
-                  placeholder="Stocks, commodities, gold/silver, energy, macro — anything that informs trading & investing"></textarea>
-              </label>
-              <label class="orders-field">
-                <span>₿ CRYPTO</span>
-                <textarea id="news-src-crypto" rows="3"></textarea>
-              </label>
-              <label class="orders-field">
-                <span>🕉 SPIRITUAL</span>
-                <textarea id="news-src-spiritual" rows="3"></textarea>
-              </label>
-              <label class="orders-field">
-                <span>▶ YOUTUBE</span>
-                <textarea id="news-src-youtube" rows="4"
-                  placeholder="https://www.youtube.com/@channelhandle
-or
-https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxx"></textarea>
-              </label>
-              <div class="orders-dialog-actions">
-                <button class="data-btn-sm blue" onclick="closeNewsSources()">CANCEL</button>
-                <button class="data-btn-sm orange" onclick="saveNewsSources()">SAVE & REFRESH</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- PANEL: LOCAL WEATHER (NWS / api.weather.gov, Sandpoint ID) -->
-        <div class="panel" id="panel-weather">
-          <div class="panel-header">
-            <div class="panel-title-bar">
-              <span class="panel-title">LOCAL WEATHER — <span id="weather-loc">—</span></span>
-              <div class="panel-pills">
-                <button class="data-btn-sm teal" onclick="showPanel('news')">‹ NEWS</button>
-                <span class="pill teal" id="weather-timestamp">NEVER</span>
-                <a class="data-btn-sm yellow" id="weather-source" href="https://forecast.weather.gov" target="_blank" rel="noopener" style="text-decoration:none;">NWS</a>
-                <button class="data-btn-sm orange" onclick="refreshWeather()" id="weather-refresh-btn">REFRESH</button>
-              </div>
-            </div>
-          </div>
-          <div id="weather-current" class="weather-current"></div>
-          <div id="weather-forecast" class="weather-forecast">
-            <div class="weather-empty">Loading forecast…</div>
-          </div>
-        </div>
-
       </main>
 
       <!-- RIGHT PANEL -->
@@ -503,8 +411,6 @@ https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxx"></textarea>
           <div class="activity-log" id="activity-log">
             <div class="log-entry">System initialized</div>
             <div class="log-entry">SOUL.md loaded</div>
-            <div class="log-entry">F5-TTS online (CUDA)</div>
-            <div class="log-entry">faster-whisper online (CUDA)</div>
             <div class="log-entry">Awaiting Captain</div>
           </div>
         </div>
@@ -837,14 +743,6 @@ https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxx"></textarea>
       <!-- Full-frame leader-line layer — populated by JS so each line
            connects a real metric card to the actual on-ship anatomy point. -->
       <svg class="msd-leaders-global" aria-hidden="true"></svg>
-    </div>
-  </div>
-
-  <!-- ── Daily Briefing inline reader (YouTube player + article preview) ── -->
-  <div id="news-reader-modal" class="news-reader-modal" role="dialog" aria-modal="true" hidden onclick="closeNewsReader(event)">
-    <div class="news-reader-card" onclick="event.stopPropagation()">
-      <button class="news-reader-close" type="button" onclick="closeNewsReader()" aria-label="Close">✕</button>
-      <div class="news-reader-body" id="news-reader-body"></div>
     </div>
   </div>
 

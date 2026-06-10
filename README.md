@@ -3,7 +3,7 @@
 A self-hosted, local-first AI operations dashboard. DATA gives you a mission-control
 interface for working with AI: a main chat channel wired to your AI provider, a crew
 of ten specialist agents, persistent per-user memory, project workspaces, standing
-orders (cron-scheduled AI tasks), a news feed, local weather, and live system vitals.
+orders (cron-scheduled AI tasks), and live system vitals.
 
 Two dark themes ship in the box — toggle from the bottom-left of the footer:
 
@@ -103,10 +103,6 @@ Copy `.env.example` to `.env` and edit as needed:
 | `DATA_BRIDGE_TOKEN` | Optional shared secret for the bridge API (leave empty for localhost) |
 | `DATA_LIFECYCLE_MODE` | `auto` (default — bridge exits when the tab closes) or `daemon` |
 | `DATA_PORT` | Port for the bridge server (default `7777`) |
-| `DATA_WEATHER_LAT` / `DATA_WEATHER_LON` | Your coordinates for the weather panel (US only — NWS) |
-
-News sources live in `dashboard/news_sources.json` — plain RSS/Atom URLs, organized
-by section. Edit freely.
 
 ## What's inside
 
@@ -116,8 +112,7 @@ DATA/
 │   ├── bridge_server.py    # the bridge — HTTP server + AI provider dispatch
 │   ├── index.html          # the dashboard UI
 │   ├── app.js              # dashboard logic
-│   ├── theme.css           # CYBER theme
-│   ├── news_aggregator.py  # RSS/YouTube news feed
+│   ├── theme.css           # MINIMAL + CYBER themes
 │   └── assets/             # schematics & images
 ├── install/                # per-OS install scripts
 ├── users/                  # created at runtime — per-user memory & history
@@ -140,7 +135,6 @@ completely blank memory.
 - **Neural Matrix** — a live node-graph of the system: skills, memory, crew
 - **System vitals** — engine gauge and subsystem bars driven by real CPU/RAM/GPU
   metrics, with a Master Systems Display
-- **News feed & weather** — RSS aggregator and NWS forecast panels
 
 ## License
 
