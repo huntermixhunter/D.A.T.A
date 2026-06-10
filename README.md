@@ -52,7 +52,7 @@ Linux container — see below).
 ### Windows
 
 ```powershell
-git clone https://github.com/YOUR_USERNAME/DATA.git
+git clone https://github.com/huntermixhunter/DATA.git
 cd DATA
 .\install\install.ps1
 ```
@@ -62,7 +62,7 @@ Then double-click `start_data.bat` (or run it from a terminal).
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/DATA.git
+git clone https://github.com/huntermixhunter/DATA.git
 cd DATA
 bash install/install.sh
 ./start_data.sh
