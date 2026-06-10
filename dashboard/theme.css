@@ -4468,3 +4468,237 @@ body.red-alert-active .data-header-title {
 .wx-period-detail {
   color: #99aabb; font-size: 11px; line-height: 1.45;
 }
+
+
+/* ═══════════════════════════════════════════════════════════
+   MINIMAL THEME — body.theme-minimal overrides  (DEFAULT)
+   Professional, utilitarian, slightly futuristic. Near-black
+   surfaces, hairline borders, one electric-blue accent, system
+   sans typography, no glow, no scanlines, generous breathing
+   room. Built for long sessions and fast reading.
+   ═══════════════════════════════════════════════════════════ */
+body.theme-minimal {
+  /* Functional hues — desaturated, consistent luminance */
+  --data-orange:    #4D9FFF;  /* primary accent  -> electric blue   */
+  --data-orange2:   #2E7CD6;  /* primary-dim                        */
+  --data-yellow:    #E3B341;  /* warning amber                      */
+  --data-blue:      #8FA8C7;  /* secondary steel                    */
+  --data-blue2:     #4D9FFF;
+  --data-lightblue: #9CC9FF;
+  --data-purple:    #A78BFA;
+  --data-teal:      #45C4B0;
+  --data-red:       #E5484D;
+  --data-green:     #46A758;
+  --data-pink:      #D6409F;
+
+  /* Surfaces */
+  --data-bg:        #0B0D10;
+  --data-bg2:       #111418;
+  --data-text:      #E6E9EE;
+  --data-text-dim:  #828B98;
+
+  /* Hairline + surface helpers (minimal-only) */
+  --min-border:     #20262E;
+  --min-surface:    #14181D;
+  --min-surface2:   #1A2026;
+  --min-accent-dim: rgba(77, 159, 255, 0.14);
+
+  /* Quiet geometry */
+  --radius-lg:      10px;
+  --radius-sm:      6px;
+
+  /* Typography — readable sans, technical mono for numbers */
+  --font-main:      'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --font-mono:      'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+body.theme-minimal {
+  background: var(--data-bg);
+  color: var(--data-text);
+  letter-spacing: 0.01em;
+  font-size: 14px;
+}
+body.theme-minimal .scanlines { display: none; }
+
+/* ── Header: flat bar with a hairline, not a colored rail ── */
+body.theme-minimal .data-header {
+  background: var(--data-bg);
+  border-bottom: 1px solid var(--min-border);
+}
+body.theme-minimal .data-header > div,
+body.theme-minimal .data-header .header-cap,
+body.theme-minimal .data-header .header-seg {
+  background: transparent;
+  border-radius: 0;
+}
+body.theme-minimal .system-name {
+  color: var(--data-text);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+body.theme-minimal .header-title .separator { color: var(--data-orange); }
+body.theme-minimal .header-title .ship-name { color: var(--data-text-dim); font-weight: 400; }
+body.theme-minimal .header-stardate,
+body.theme-minimal .stardate-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+body.theme-minimal .stardate-label { color: var(--data-text-dim); }
+
+/* ── Sidebar: kill the elbows, hairline sections ── */
+body.theme-minimal .sidebar-elbow-top,
+body.theme-minimal .sidebar-elbow-bottom { background: transparent; }
+body.theme-minimal .sidebar-elbow-top::after,
+body.theme-minimal .sidebar-elbow-bottom::after { display: none; }
+body.theme-minimal .sidebar-divider { background: var(--min-border); height: 1px; }
+body.theme-minimal .section-label {
+  color: var(--data-text-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+/* ── Nav buttons: ghost rows with an accent state ── */
+body.theme-minimal .data-btn {
+  background: transparent;
+  border: 1px solid var(--min-border);
+  border-radius: var(--radius-sm);
+  color: #C9D1DA;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+body.theme-minimal .data-btn::after { display: none; }
+body.theme-minimal .data-btn.orange,
+body.theme-minimal .data-btn.yellow,
+body.theme-minimal .data-btn.blue,
+body.theme-minimal .data-btn.purple,
+body.theme-minimal .data-btn.teal { background: transparent; }
+body.theme-minimal .data-btn.orange { border-left: 3px solid var(--data-orange); }
+body.theme-minimal .data-btn.yellow { border-left: 3px solid var(--data-yellow); }
+body.theme-minimal .data-btn.blue   { border-left: 3px solid var(--data-blue);   }
+body.theme-minimal .data-btn.purple { border-left: 3px solid var(--data-purple); }
+body.theme-minimal .data-btn.teal   { border-left: 3px solid var(--data-teal);   }
+body.theme-minimal .data-btn:hover {
+  filter: none;
+  transform: none;
+  background: var(--min-surface2);
+  color: var(--data-text);
+}
+body.theme-minimal .data-btn.active {
+  filter: none;
+  box-shadow: none;
+  background: var(--min-accent-dim);
+  border-color: var(--data-orange);
+  color: var(--data-text);
+}
+
+/* ── Small buttons: quiet chips ── */
+body.theme-minimal .data-btn-sm {
+  background: var(--min-surface2);
+  border: 1px solid var(--min-border);
+  border-radius: var(--radius-sm);
+  color: #C9D1DA;
+  font-weight: 500;
+}
+body.theme-minimal .data-btn-sm.orange { background: var(--min-surface2); color: var(--data-orange);  border-color: rgba(77,159,255,0.4); }
+body.theme-minimal .data-btn-sm.yellow { background: var(--min-surface2); color: var(--data-yellow);  border-color: rgba(227,179,65,0.4); }
+body.theme-minimal .data-btn-sm.blue   { background: var(--min-surface2); color: var(--data-lightblue); border-color: rgba(156,201,255,0.4); }
+body.theme-minimal .data-btn-sm.teal   { background: var(--min-surface2); color: var(--data-teal);    border-color: rgba(69,196,176,0.4); }
+body.theme-minimal .data-btn-sm:hover  { filter: none; background: #222933; }
+
+/* ── Pills: outlined status chips ── */
+body.theme-minimal .pill {
+  background: transparent;
+  border: 1px solid var(--min-border);
+  border-radius: 99px;
+  color: var(--data-text-dim);
+  font-weight: 500;
+}
+body.theme-minimal .pill.orange { background: transparent; color: var(--data-orange);  border-color: rgba(77,159,255,0.45); }
+body.theme-minimal .pill.blue   { background: transparent; color: var(--data-lightblue); border-color: rgba(156,201,255,0.45); }
+body.theme-minimal .pill.yellow { background: transparent; color: var(--data-yellow);  border-color: rgba(227,179,65,0.45); }
+body.theme-minimal .pill.teal   { background: transparent; color: var(--data-teal);    border-color: rgba(69,196,176,0.45); }
+body.theme-minimal .pill.purple { background: transparent; color: var(--data-purple);  border-color: rgba(167,139,250,0.45); }
+body.theme-minimal .pill.green  { background: transparent; color: var(--data-green);   border-color: rgba(70,167,88,0.45); }
+
+/* ── Panels & cards ── */
+body.theme-minimal .panel-header { border-bottom: 1px solid var(--min-border); }
+body.theme-minimal .panel-title {
+  color: var(--data-text);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+/* ── Chat ── */
+body.theme-minimal .chat-message .bubble {
+  background: var(--min-surface);
+  border: 1px solid var(--min-border);
+  border-radius: var(--radius-lg);
+  color: var(--data-text);
+  line-height: 1.55;
+}
+body.theme-minimal .chat-message.user .bubble {
+  background: var(--min-accent-dim);
+  border-color: rgba(77, 159, 255, 0.35);
+}
+body.theme-minimal .chat-message.data .avatar { background: var(--data-orange); color: #07101C; }
+body.theme-minimal .chat-message.user .avatar { background: #2B3440; color: var(--data-text); }
+body.theme-minimal .chat-message.data .sender { color: var(--data-orange); font-weight: 600; }
+body.theme-minimal .chat-message.user .sender { color: var(--data-text-dim); font-weight: 600; }
+
+/* ── Inputs ── */
+body.theme-minimal input[type="text"],
+body.theme-minimal input[type="number"],
+body.theme-minimal input[type="password"],
+body.theme-minimal textarea,
+body.theme-minimal select {
+  background: #0F1318;
+  border: 1px solid var(--min-border);
+  border-radius: var(--radius-sm);
+  color: var(--data-text);
+}
+body.theme-minimal input:focus,
+body.theme-minimal textarea:focus,
+body.theme-minimal select:focus {
+  outline: none;
+  border-color: var(--data-orange);
+  box-shadow: 0 0 0 2px rgba(77, 159, 255, 0.22);
+}
+
+/* ── Footer: flat hairline bar ── */
+body.theme-minimal .data-footer {
+  background: var(--data-bg);
+  border-top: 1px solid var(--min-border);
+}
+body.theme-minimal .data-footer .footer-seg { height: 3px; opacity: 0.45; border-radius: 2px; }
+body.theme-minimal .footer-left-cap,
+body.theme-minimal .footer-right-cap { background: transparent; }
+body.theme-minimal .footer-text { color: var(--data-text-dim); letter-spacing: 0.1em; }
+
+/* ── Status rows / vitals: tabular numerals, quiet glow-free bars ── */
+body.theme-minimal .status-row { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+body.theme-minimal [class*="gauge"],
+body.theme-minimal [class*="meter"] { filter: saturate(0.85); }
+
+/* ── Scrollbars ── */
+body.theme-minimal ::-webkit-scrollbar { width: 10px; height: 10px; }
+body.theme-minimal ::-webkit-scrollbar-track { background: var(--data-bg); }
+body.theme-minimal ::-webkit-scrollbar-thumb {
+  background: #2A323C;
+  border-radius: 6px;
+  border: 2px solid var(--data-bg);
+}
+body.theme-minimal ::-webkit-scrollbar-thumb:hover { background: #39434F; }
+
+/* ── Selection ── */
+body.theme-minimal ::selection { background: rgba(77, 159, 255, 0.35); color: #fff; }
+
+/* ── Minimal: flatten remaining LCARS chrome (right column, header caps) ── */
+body.theme-minimal .right-elbow-top,
+body.theme-minimal .right-elbow-bottom,
+body.theme-minimal .header-left-elbow,
+body.theme-minimal .header-right-cap { background: transparent; }
+body.theme-minimal .right-elbow-top::after,
+body.theme-minimal .right-elbow-bottom::after,
+body.theme-minimal .header-left-elbow::after,
+body.theme-minimal .header-right-cap::after { display: none; }
+body.theme-minimal .right-divider,
+body.theme-minimal [class*="right"] .sidebar-divider { background: var(--min-border); height: 1px; }
+body.theme-minimal .theme-toggle-label { color: var(--data-text-dim); letter-spacing: 0.12em; }

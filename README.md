@@ -3,12 +3,17 @@
 A self-hosted, local-first AI operations dashboard. DATA gives you a mission-control
 interface for working with AI: a main chat channel wired to your AI provider, a crew
 of ten specialist agents, persistent per-user memory, project workspaces, standing
-orders (cron-scheduled AI tasks), a news feed, local weather, and live system vitals —
-all rendered in a dark, minimal **CYBER** theme.
+orders (cron-scheduled AI tasks), a news feed, local weather, and live system vitals.
+
+Two dark themes ship in the box — toggle from the bottom-left of the footer:
+
+- **MINIMAL** (default) — professional, utilitarian, slightly futuristic. Near-black
+  surfaces, hairline borders, one electric-blue accent, built for long sessions.
+- **CYBER** — neon cyan/magenta, chamfered edges, scanlines.
 
 Everything runs on your machine. No accounts, no telemetry, no cloud.
 
-![theme](https://img.shields.io/badge/theme-CYBER-00d4ff) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+![themes](https://img.shields.io/badge/themes-MINIMAL%20%7C%20CYBER-4d9fff) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ---
 

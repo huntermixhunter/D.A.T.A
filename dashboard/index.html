@@ -6,11 +6,11 @@
   <title>DATA Interface</title>
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <link rel="stylesheet" href="theme.css?v=ent26" />
 </head>
-<body class="theme-cyberpunk">
+<body class="theme-minimal">
   <div id="app">
 
     <!-- SCANLINE OVERLAY -->
@@ -512,7 +512,7 @@ https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxx"></textarea>
         <div class="right-divider"></div>
 
         <div class="right-section">
-          <div class="section-label">SUBSPACE SCAN</div>
+          <div class="section-label">SIGNAL SCAN</div>
           <div id="mini-matrix"></div>
         </div>
 
@@ -532,7 +532,11 @@ https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxx"></textarea>
 
     <!-- BOTTOM BAR -->
     <footer class="data-footer">
-      <div class="footer-left-cap theme-toggle-cap"></div>
+      <button class="footer-left-cap theme-toggle-cap" id="theme-toggle-btn"
+              onclick="toggleTheme()"
+              title="Switch dashboard theme">
+        <span class="theme-toggle-label" id="theme-toggle-label">CYBER</span>
+      </button>
       <!-- WAKE button stays hidden; CONVERSATION opens the hands-free voice
            loop (wake word → listen → reply → loop). -->
       <button class="footer-pill convo-mode-btn" id="convo-mode-btn"
@@ -802,7 +806,7 @@ https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxx"></textarea>
           <div class="msd-metric" data-zone="neural">
             <div class="msd-metric-tag"></div>
             <div class="msd-metric-head">
-              <span class="msd-label">SUBSPACE BANDWIDTH</span>
+              <span class="msd-label">SIGNAL BANDWIDTH</span>
               <span class="msd-label-sub">network</span>
             </div>
             <div class="msd-metric-row">
@@ -864,8 +868,34 @@ https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxx"></textarea>
 
   <script>
     // Theme bootstrap — runs before app.js to avoid flash-of-wrong-theme
-    // Single theme: CYBER. The body ships with class="theme-cyberpunk" and
-    // the schematic/brand markup is static — no theme swapping needed.
+    // ── Themes: MINIMAL (default) ↔ CYBER ─────────────────────────
+    // Both themes fly the same DATA-Class Starfighter schematic, so only
+    // the body class swaps. The toggle label always names the OTHER theme.
+    (function () {
+      var saved = localStorage.getItem('data-theme') || 'minimal';
+      document.body.classList.remove('theme-minimal', 'theme-cyberpunk');
+      document.body.classList.add(saved === 'cyber' ? 'theme-cyberpunk' : 'theme-minimal');
+    })();
+
+    function _themeLabel() {
+      var isCyber = document.body.classList.contains('theme-cyberpunk');
+      var lbl = document.getElementById('theme-toggle-label');
+      if (lbl) lbl.textContent = isCyber ? 'MINIMAL' : 'CYBER';
+    }
+
+    function toggleTheme() {
+      var body = document.body;
+      var toCyber = !body.classList.contains('theme-cyberpunk');
+      body.classList.toggle('theme-cyberpunk', toCyber);
+      body.classList.toggle('theme-minimal', !toCyber);
+      localStorage.setItem('data-theme', toCyber ? 'cyber' : 'minimal');
+      _themeLabel();
+      if (typeof addLog === 'function') addLog('Theme → ' + (toCyber ? 'CYBER' : 'MINIMAL'));
+    }
+
+    document.addEventListener('DOMContentLoaded', _themeLabel);
+    _themeLabel();
+
     // MSD metric-card placement (defined in app.js).
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
   </script>
