@@ -6,7 +6,13 @@ param(
     [Parameter(Mandatory = $true)][string]$Version
 )
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
+# Repo root — robust regardless of how the script is invoked
+$root = (git rev-parse --show-toplevel 2>$null)
+if (-not $root) {
+    $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+    $root = Split-Path -Parent $scriptDir
+}
+$root = (Resolve-Path $root).Path
 Set-Location $root
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
