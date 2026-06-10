@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DATA Interface</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <link rel="stylesheet" href="theme.css?v=ent26" />
+</head>
+<body class="theme-cyberpunk">
+  <div id="app">
+
+    <!-- SCANLINE OVERLAY -->
+    <div class="scanlines"></div>
+
+    <!-- TOP BAR -->
+    <header class="data-header">
+      <div class="header-left-elbow"></div>
+      <button class="mobile-nav-toggle" id="mobile-nav-toggle"
+              onclick="toggleMobileNav()"
+              title="Show/hide sidebar">☰</button>
+      <button class="mobile-vitals-toggle" id="mobile-vitals-toggle"
+              onclick="toggleMobileVitals()"
+              title="Show/hide system vitals panel">◑</button>
+      <div class="header-title">
+        <span class="system-name">DATA</span>
+        <span class="separator">◆</span>
+        <span class="ship-name">Dashboard for Analytical Thought and Action</span>
+      </div>
+      <div class="header-stardate">
+        <span class="stardate-label">SYSDATE</span>
+        <span class="stardate-value" id="stardate">2026.130.4</span>
+      </div>
+      <!-- Active Captain switcher — populated by bootCaptains() on load.
+           Hidden until the registry is fetched so the header does not
+           briefly show a placeholder name. -->
+      <div class="header-captain captain-switch-wrap" id="captain-switch-wrap" hidden>
+        <button class="captain-switch" id="captain-switch-btn"
+                onclick="toggleCaptainMenu(event)"
+                title="Switch active Captain">
+          <span class="captain-avatar" id="captain-avatar">H</span>
+          <span class="captain-label">
+            <span class="captain-rank-line">CAPTAIN</span>
+            <span class="captain-name-line" id="captain-name">GYANI</span>
+          </span>
+          <span class="captain-caret"> ▾</span>
+        </button>
+        <div class="captain-menu" id="captain-menu" hidden></div>
+      </div>
+      <div class="header-status">
+        <span class="status-dot blink"></span>
+        <span>ONLINE</span>
+      </div>
+      <div class="header-right-cap"></div>
+    </header>
+
+    <!-- MAIN LAYOUT -->
+    <div class="data-body">
+
+      <!-- LEFT SIDEBAR -->
+      <aside class="data-sidebar">
+        <div class="sidebar-elbow-top"></div>
+
+        <div class="sidebar-section">
+          <div class="section-label">NAVIGATION</div>
+          <button class="data-btn orange active" onclick="showPanel('chat')">
+            THE BRIDGE
+          </button>
+          <button class="data-btn yellow" onclick="showPanel('matrix')">
+            COMPUTER CORES
+          </button>
+          <button class="data-btn blue" onclick="showPanel('orders')">
+            STANDING ORDERS
+          </button>
+          <button class="data-btn teal" onclick="showPanel('news')">
+            NEWS FEED
+          </button>
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="sidebar-section">
+          <div class="section-label">VOICE SYSTEMS</div>
+          <div class="status-row">
+            <span class="status-label">TTS</span>
+            <span class="status-indicator active" id="tts-indicator">F5-TTS</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">STT</span>
+            <span class="status-indicator active" id="stt-indicator">WHISPER</span>
+          </div>
+
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="sidebar-section">
+          <div class="section-label ships-health-header">
+            <span>SHIP'S VITALS</span>
+            <span class="alert-dot green" id="alert-dot" title="Alert status — click ship to expand"></span>
+          </div>
+          <div class="ships-health" id="ships-health-widget" onclick="openShipModal()" title="Click for full Master Systems Display">
+            <div class="ship-silhouette" id="ship-silhouette" aria-label="DATA-Class Starfighter · Lateral View">
+              <!-- Holographic side-view: image base + animated shield / engine-pulse / scan overlay -->
+              <div class="ship-holo-frame ship-holo-frame-side">
+                <img src="assets/schematics/starfighter-side.png"
+                     alt="DATA-Class Starfighter — lateral schematic"
+                     draggable="false"/>
+                <svg class="ship-holo-overlay" viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true">
+                  <defs>
+                    <radialGradient id="shipEngineGradSm" cx="50%" cy="50%" r="50%">
+                      <stop offset="0%"   stop-color="#ff88ff" stop-opacity="1"/>
+                      <stop offset="55%"  stop-color="#aa22cc" stop-opacity="0.7"/>
+                      <stop offset="100%" stop-color="#220033" stop-opacity="0"/>
+                    </radialGradient>
+                  </defs>
+                  <!-- Scan beam sweeps top-to-bottom -->
+                  <rect class="ship-scan-line" x="0" y="0" width="100" height="0.7"
+                        fill="#00ffff" opacity="0"/>
+                  <!-- Engine glow over the three magenta exhaust ports on the left -->
+                  <circle class="ship-engine-pulse"            cx="6.5" cy="17.5" r="2.4" fill="url(#shipEngineGradSm)"/>
+                  <circle class="ship-engine-pulse engine-mid" cx="4.5" cy="21.0" r="2.9" fill="url(#shipEngineGradSm)"/>
+                  <circle class="ship-engine-pulse engine-low" cx="6.5" cy="24.5" r="2.2" fill="url(#shipEngineGradSm)"/>
+                </svg>
+              </div>
+            </div>
+            <div class="engine-readout">
+              <div class="speed-row">
+                <span class="engine-label">IMP</span>
+                <span class="engine-value" id="impulse-value">0.0</span>
+              </div>
+              <div class="speed-row">
+                <span class="engine-label">ENGINE</span>
+                <span class="engine-value" id="engine-value">0.0</span>
+              </div>
+            </div>
+          </div>
+          <div class="neural-bars ships-bars">
+            <div class="neural-bar-row"><span>HULL</span>
+              <div class="bar-track"><div class="bar-fill green" id="hull-bar" style="width:100%"></div></div>
+            </div>
+            <div class="neural-bar-row"><span>SHIELDS</span>
+              <div class="bar-track"><div class="bar-fill blue" id="shield-bar" style="width:100%"></div></div>
+            </div>
+            <div class="neural-bar-row"><span>SIF</span>
+              <div class="bar-track"><div class="bar-fill yellow" id="sif-bar" style="width:100%"></div></div>
+            </div>
+            <div class="neural-bar-row"><span>DAMP</span>
+              <div class="bar-track"><div class="bar-fill orange" id="damp-bar" style="width:100%"></div></div>
+            </div>
+          </div>
+          <button id="red-alert-btn" class="data-btn-sm" onclick="toggleRedAlert()"
+                  title="Manual Red Alert — flash the bridge and sound the klaxon."
+                  style="width:100%;margin-top:6px;background:#5a0d0d;color:#ffb0b0;">
+            RED ALERT
+          </button>
+          <button id="compact-memory-btn" class="data-btn-sm" onclick="triggerMemoryCompact()"
+                  title="Rewrite DATA_MEMORY.md to a tighter version via Claude CLI. Backs up the original first."
+                  style="width:100%;margin-top:4px;background:#2a3a5a;color:#aaccff;">
+            COMPACT MEMORY
+          </button>
+          <div class="status-row" style="margin-top:6px;">
+            <span class="status-label">UPTIME</span>
+            <span class="status-indicator" id="vitals-uptime">—</span>
+          </div>
+          <div class="status-row" id="tunnel-row" style="display:none;flex-direction:column;align-items:stretch;gap:4px;margin-top:6px;">
+            <span class="status-label">REMOTE ACCESS</span>
+            <div style="display:flex;gap:4px;">
+              <button id="tunnel-copy"   class="data-btn-sm orange" style="flex:1;" onclick="copyPhoneLink()" title="Copy a one-tap link (token included) to share with your phone">COPY LINK</button>
+              <button id="tunnel-open"   class="data-btn-sm blue"   style="flex:1;" onclick="openTunnel()"   title="Open the public URL in this browser">OPEN</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <!-- CONTEXT BUDGET — token usage vs the active model's context window -->
+        <div class="sidebar-section" id="ctx-budget-section"
+             title="How much of the active model's context window is being used this turn">
+          <div class="section-label">CONTEXT BUDGET</div>
+          <div class="ctx-budget-bar-wrap">
+            <div class="ctx-budget-track">
+              <div class="ctx-budget-fill" id="ctx-budget-fill" style="width:0%"></div>
+            </div>
+            <div class="ctx-budget-pct" id="ctx-budget-pct">—</div>
+          </div>
+          <div class="ctx-budget-rows">
+            <div class="ctx-budget-row"><span>SYSTEM</span><span id="ctx-system">—</span></div>
+            <div class="ctx-budget-row"><span>MEMORY</span><span id="ctx-memory">—</span></div>
+            <div class="ctx-budget-row"><span>HISTORY</span><span id="ctx-history">—</span></div>
+            <div class="ctx-budget-row total"><span>USED</span><span id="ctx-used">—</span></div>
+            <div class="ctx-budget-row"><span>HEADROOM</span><span id="ctx-headroom">—</span></div>
+            <div class="ctx-budget-row ceiling"><span>CEILING</span><span id="ctx-ceiling">—</span></div>
+          </div>
+          <button id="memory-compact-btn" class="data-btn-sm yellow"
+                  style="width:100%;margin-top:6px;"
+                  onclick="compactMemory()"
+                  title="Ask Data to rewrite DATA_MEMORY.md — merge duplicates, drop stale notes, preserve every fact. Auto-fires above 8k tokens; this button is the manual trigger.">
+            COMPACT MEMORY
+          </button>
+        </div>
+
+        <div class="sidebar-elbow-bottom"></div>
+      </aside>
+
+      <!-- MAIN CONTENT -->
+      <main class="data-main">
+
+        <!-- PANEL: CHAT -->
+        <div class="panel active" id="panel-chat">
+          <div class="panel-header">
+            <div class="panel-title-bar">
+              <span class="panel-title">COMMUNICATIONS</span>
+              <div class="panel-pills">
+                <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="chats-wrapper" id="chats-wrapper">
+            <!-- MAIN PANE -->
+            <div class="chat-pane" id="pane-main">
+              <div class="chat-pane-header" id="pane-main-header">
+                <span class="pane-name">MAIN CHANNEL</span>
+                <span class="pane-path"></span>
+                <select class="pane-crew-select" id="pane-crew-main"
+                        title="Agent for this chat window"
+                        onchange="setPaneCrew('main', this.value)"></select>
+                <select class="pane-provider-select" id="main-provider-select"
+                        title="Model for the main chat"
+                        onchange="setMainProvider(this.value)"></select>
+                <button class="chat-pane-close" id="main-close-empty"
+                        style="display:none" title="Close — promote the next window"
+                        onclick="closeMainPane()">✕ CLOSE</button>
+              </div>
+
+              <div class="chat-window" id="chat-window">
+                <div class="chat-message data">
+                  <div class="avatar">◉</div>
+                  <div class="bubble">
+                    <div class="sender">COMPUTER</div>
+                    <div class="text">DATA main computer online, Captain. All systems nominal. How may I assist you?</div>
+                    <div class="timestamp" id="init-timestamp"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="chat-input-area">
+                <!-- Attachment tray — populated by app.js as files are added. -->
+                <div class="attachment-tray" id="attachment-tray" hidden></div>
+                <div class="input-row">
+                  <div class="input-prefix">CAPTAIN ›</div>
+                  <div class="input-wrapper has-attach">
+                    <textarea
+                      id="chat-input"
+                      class="data-input"
+                      placeholder="Type or use voice..."
+                      rows="2"
+                      onkeydown="handleInputKey(event)"
+                      onfocus="setActiveInput(this.id)"
+                    ></textarea>
+                    <div class="input-right-btns">
+                      <button class="dictate-btn" id="dictate-btn" data-target-input="chat-input" onclick="toggleDictation(this)" title="Dictate to text box">🎙</button>
+                      <button class="attach-btn" id="attach-btn" type="button"
+                              onclick="document.getElementById('attach-file-input').click()"
+                              title="Attach files (images, PDFs, text, audio)">+</button>
+                      <input type="file" id="attach-file-input" multiple hidden
+                             accept="image/*,application/pdf,audio/*,text/*,.md,.markdown,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.toml,.html,.css,.sh,.bat,.ps1,.csv,.log,.mp3,.m4a,.m4r,.wav,.ogg,.webm,.aac,.flac,.opus"
+                             onchange="handleAttachmentFiles(this.files); this.value=''"/>
+                    </div>
+                  </div>
+                  <button class="send-btn" id="send-btn" onclick="sendMessage()">TRANSMIT</button>
+                  <button class="stop-btn" id="stop-btn" onclick="stopData()" style="display:none">ABORT</button>
+                </div>
+              </div>
+            </div>
+            <!-- project panes added dynamically -->
+          </div>
+        </div>
+
+        <!-- PANEL: NEURAL MATRIX -->
+        <div class="panel" id="panel-matrix">
+          <div class="panel-header">
+            <div class="panel-title-bar">
+              <span class="panel-title" id="matrix-panel-title">COMPUTER CORES — DOCUMENTS · PROJECT LAUNCHER</span>
+              <div class="panel-pills">
+                <span class="pill orange" id="node-count">-- NODES</span>
+                <span class="pill blue" id="edge-count">-- CONNECTIONS</span>
+                <button class="data-btn-sm yellow" onclick="refreshCurrentMatrix()" title="Re-scan the active graph">↻ REFRESH</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB-TABS -->
+          <div class="matrix-tabs">
+            <button class="matrix-tab active" id="mtab-docs" onclick="switchMatrixTab('docs')">DOCUMENTS</button>
+            <button class="matrix-tab" id="mtab-graph" onclick="switchMatrixTab('graph')">NEURAL MATRIX</button>
+            <button class="matrix-tab" id="mtab-computer" onclick="switchMatrixTab('computer')">SHIP'S COMPUTER</button>
+            <button class="matrix-tab-add" id="mtab-add" onclick="addProjectTab()" title="Browse to any folder">+</button>
+          </div>
+
+          <!-- SUB-PANEL: DOCUMENTS — project launcher (default tab) -->
+          <div class="matrix-subpanel active" id="msub-docs">
+            <div class="matrix-controls" style="justify-content:flex-start;gap:8px;">
+              <span class="docs-path-label" id="docs-path-label">DATA folder</span>
+              <button class="data-btn-sm orange" onclick="loadDocsProjects(true)">↻ REFRESH</button>
+              <button class="data-btn-sm yellow" onclick="addProjectTab()" title="Browse to any folder">BROWSE…</button>
+              <button class="data-btn-sm blue" id="docs-view-toggle" onclick="toggleDocsView()" title="Switch between card grid and node graph">VIEW: GRID</button>
+            </div>
+            <div class="docs-hint">Select a project — opens a new workspace tab rooted in that folder and a new com window.</div>
+            <div class="docs-project-grid" id="docs-project-grid">
+              <div class="docs-empty">Loading projects…</div>
+            </div>
+            <div id="docs-graph" style="display:none;"></div>
+          </div>
+
+          <!-- SUB-PANEL: NEURAL GRAPH -->
+          <div class="matrix-subpanel" id="msub-graph">
+            <div class="matrix-controls">
+              <button class="data-btn-sm orange" onclick="fitMatrix()">FIT VIEW</button>
+              <button class="data-btn-sm orange" onclick="zoomMatrix(1.4)">ZOOM +</button>
+              <button class="data-btn-sm orange" onclick="zoomMatrix(0.7)">ZOOM −</button>
+              <button class="data-btn-sm yellow" onclick="initMatrix()">RESCAN</button>
+              <button class="data-btn-sm yellow" onclick="scanDir()">SCAN DIR</button>
+              <button class="data-btn-sm blue" onclick="resetMatrix()">RESET</button>
+              <button class="data-btn-sm blue" onclick="toggleForce()">FREEZE</button>
+            </div>
+            <div id="matrix-graph"></div>
+          </div>
+
+          <!-- SUB-PANEL: SHIP'S COMPUTER -->
+          <div class="matrix-subpanel" id="msub-computer">
+            <div class="matrix-controls">
+              <div class="computer-breadcrumb" id="computer-breadcrumb"></div>
+              <button class="data-btn-sm orange" onclick="computerUp()">◀ UP</button>
+              <button class="data-btn-sm yellow" onclick="fitMatrix()">FIT VIEW</button>
+              <button class="data-btn-sm blue" onclick="toggleForce()">FREEZE</button>
+            </div>
+            <div id="computer-graph"></div>
+          </div>
+
+        </div>
+
+        <!-- PANEL: STANDING ORDERS -->
+        <div class="panel" id="panel-orders">
+          <div class="panel-header">
+            <div class="panel-title-bar">
+              <span class="panel-title">STANDING ORDERS — RECURRING DUTIES</span>
+              <div class="panel-pills">
+                <span class="pill orange" id="orders-count">-- ORDERS</span>
+                <button class="data-btn-sm yellow" onclick="refreshStandingOrders()">REFRESH</button>
+                <button class="data-btn-sm orange" onclick="openNewStandingOrderDialog()">+ NEW ORDER</button>
+              </div>
+            </div>
+          </div>
+          <div id="orders-list" class="orders-list"></div>
+
+          <!-- New / edit order dialog -->
+          <div id="orders-dialog" class="orders-dialog hidden">
+            <div class="orders-dialog-card">
+              <div class="orders-dialog-title" id="orders-dialog-title">NEW STANDING ORDER</div>
+              <label class="orders-field">
+                <span>NAME</span>
+                <input type="text" id="orders-field-name" placeholder="Morning briefing" maxlength="80"/>
+              </label>
+              <label class="orders-field">
+                <span>SCHEDULE — cron syntax (min hr dom mon dow)</span>
+                <input type="text" id="orders-field-cron" placeholder="0 8 * * *  (daily at 08:00)"/>
+              </label>
+              <label class="orders-field">
+                <span>PROMPT — what Data should do when this fires</span>
+                <textarea id="orders-field-prompt" rows="4" placeholder="Pull the latest AI tool news, summarize the top 3 items..."></textarea>
+              </label>
+              <label class="orders-field">
+                <span>PROVIDER</span>
+                <select id="orders-field-provider"></select>
+              </label>
+              <label class="orders-field-row">
+                <input type="checkbox" id="orders-field-enabled" checked/>
+                <span>ENABLED</span>
+              </label>
+              <label class="orders-field-row">
+                <input type="checkbox" id="orders-field-notify"/>
+                <span>NOTIFY VIA TELEGRAM WHEN FIRED</span>
+              </label>
+              <div class="orders-dialog-actions">
+                <button class="data-btn-sm blue" onclick="closeStandingOrderDialog()">CANCEL</button>
+                <button class="data-btn-sm orange" onclick="saveStandingOrderDialog()">SAVE</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL: NEWS FEED (news + YouTube aggregator) -->
+        <div class="panel" id="panel-news">
+          <div class="panel-header">
+            <div class="panel-title-bar">
+              <span class="panel-title">NEWS FEED — INCOMING TRANSMISSIONS</span>
+              <div class="panel-pills">
+                <span class="pill teal" id="news-timestamp">NEVER</span>
+                <button class="data-btn-sm green" onclick="showPanel('weather')">LOCAL WEATHER</button>
+                <button class="data-btn-sm yellow" onclick="openNewsSources()">SOURCES</button>
+                <button class="data-btn-sm orange" onclick="refreshNews()" id="news-refresh-btn">REFRESH</button>
+              </div>
+            </div>
+          </div>
+          <div class="news-filter-row" id="news-filter-row"></div>
+          <div id="news-mix" class="news-mix">
+            <div class="news-empty">Loading…</div>
+          </div>
+
+          <!-- Sources management dialog -->
+          <div id="news-sources-dialog" class="orders-dialog hidden">
+            <div class="orders-dialog-card" style="width:560px;">
+              <div class="orders-dialog-title">NEWS SOURCES</div>
+              <p style="color:#aaa;font-size:11px;font-family:var(--font-mono);line-height:1.5;">
+                One URL per line. RSS feeds from any site. YouTube channels:
+                paste a channel URL like <code>https://www.youtube.com/@channelname</code> —
+                the bridge resolves it to the RSS feed automatically.
+              </p>
+              <label class="orders-field">
+                <span>$ MARKETS</span>
+                <textarea id="news-src-markets" rows="3"
+                  placeholder="Stocks, commodities, gold/silver, energy, macro — anything that informs trading & investing"></textarea>
+              </label>
+              <label class="orders-field">
+                <span>₿ CRYPTO</span>
+                <textarea id="news-src-crypto" rows="3"></textarea>
+              </label>
+              <label class="orders-field">
+                <span>🕉 SPIRITUAL</span>
+                <textarea id="news-src-spiritual" rows="3"></textarea>
+              </label>
+              <label class="orders-field">
+                <span>▶ YOUTUBE</span>
+                <textarea id="news-src-youtube" rows="4"
+                  placeholder="https://www.youtube.com/@channelhandle
+or
+https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxx"></textarea>
+              </label>
+              <div class="orders-dialog-actions">
+                <button class="data-btn-sm blue" onclick="closeNewsSources()">CANCEL</button>
+                <button class="data-btn-sm orange" onclick="saveNewsSources()">SAVE & REFRESH</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL: LOCAL WEATHER (NWS / api.weather.gov, Sandpoint ID) -->
+        <div class="panel" id="panel-weather">
+          <div class="panel-header">
+            <div class="panel-title-bar">
+              <span class="panel-title">LOCAL WEATHER — <span id="weather-loc">—</span></span>
+              <div class="panel-pills">
+                <button class="data-btn-sm teal" onclick="showPanel('news')">‹ NEWS</button>
+                <span class="pill teal" id="weather-timestamp">NEVER</span>
+                <a class="data-btn-sm yellow" id="weather-source" href="https://forecast.weather.gov" target="_blank" rel="noopener" style="text-decoration:none;">NWS</a>
+                <button class="data-btn-sm orange" onclick="refreshWeather()" id="weather-refresh-btn">REFRESH</button>
+              </div>
+            </div>
+          </div>
+          <div id="weather-current" class="weather-current"></div>
+          <div id="weather-forecast" class="weather-forecast">
+            <div class="weather-empty">Loading forecast…</div>
+          </div>
+        </div>
+
+      </main>
+
+      <!-- RIGHT PANEL -->
+      <aside class="data-right">
+        <div class="right-elbow-top"></div>
+
+        <div class="right-section">
+          <div class="section-label">SYSTEM VITALS</div>
+          <div class="vital-grid">
+            <div class="vital-cell">
+              <div class="vital-value orange" id="vitals-turns">—</div>
+              <div class="vital-label">TURNS</div>
+            </div>
+            <div class="vital-cell">
+              <div class="vital-value yellow" id="vitals-memory">—</div>
+              <div class="vital-label">MEM KB</div>
+            </div>
+            <div class="vital-cell">
+              <div class="vital-value blue" id="skill-pct">—</div>
+              <div class="vital-label">SKILLS</div>
+            </div>
+            <div class="vital-cell">
+              <div class="vital-value green" id="vitals-status">—</div>
+              <div class="vital-label">STATUS</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="right-divider"></div>
+
+        <div class="right-section">
+          <div class="section-label">ACTIVITY LOG</div>
+          <div class="activity-log" id="activity-log">
+            <div class="log-entry">System initialized</div>
+            <div class="log-entry">SOUL.md loaded</div>
+            <div class="log-entry">F5-TTS online (CUDA)</div>
+            <div class="log-entry">faster-whisper online (CUDA)</div>
+            <div class="log-entry">Awaiting Captain</div>
+          </div>
+        </div>
+
+        <div class="right-divider"></div>
+
+        <div class="right-section">
+          <div class="section-label">SUBSPACE SCAN</div>
+          <div id="mini-matrix"></div>
+        </div>
+
+        <div class="right-divider"></div>
+
+        <div class="right-section">
+          <button class="data-btn" id="shutdown-btn" onclick="systemShutdown()"
+            style="background:#1a0505;border-color:#660000;color:#ff4444;width:100%;font-size:11px;letter-spacing:0.15em;">
+            ◼ SYSTEM OFFLINE
+          </button>
+        </div>
+
+        <div class="right-elbow-bottom"></div>
+      </aside>
+
+    </div><!-- end data-body -->
+
+    <!-- BOTTOM BAR -->
+    <footer class="data-footer">
+      <div class="footer-left-cap theme-toggle-cap"></div>
+      <!-- WAKE button stays hidden; CONVERSATION opens the hands-free voice
+           loop (wake word → listen → reply → loop). -->
+      <button class="footer-pill convo-mode-btn" id="convo-mode-btn"
+              onclick="enterConvoMode()"
+              title="Open Conversation Mode — hands-free voice loop">
+        ◉ CONVERSATION
+      </button>
+      <button class="footer-pill wake-toggle-btn" id="wake-toggle-btn"
+              onclick="toggleWakeListener()" hidden
+              title='Listen for bare "computer", or "hey/hi/hello/ok/okay/yo" + "data"/"computer", or "data start listening" / "wake up".'>
+        ◌ WAKE: OFF
+      </button>
+      <div class="footer-segments">
+        <div class="footer-seg orange"></div>
+        <div class="footer-seg yellow"></div>
+        <div class="footer-seg blue"></div>
+        <div class="footer-seg orange short"></div>
+        <div class="footer-seg purple short"></div>
+      </div>
+      <div class="footer-text">
+        DATA COMPUTER INTERFACE v1.0 · NEURAL SYSTEMS NOMINAL · ALL CHANNELS OPEN
+      </div>
+      <div class="footer-right-cap"></div>
+    </footer>
+
+    <!-- CONVERSATION MODE OVERLAY — Jarvis-style brain visualization -->
+    <div class="convo-overlay hidden" id="convo-overlay" onclick="_convoOverlayClick(event)">
+      <canvas class="convo-canvas" id="convo-canvas"></canvas>
+      <div class="convo-status-band">
+        <span class="convo-status-label" id="convo-status-label">INITIALIZING</span>
+      </div>
+      <!-- Voice model selector hidden — conversation mode is locked to the
+           Haiku CLI provider. Element kept so syncVoiceProviderToggle() is a no-op. -->
+      <div class="convo-provider-toggle" id="convo-provider-toggle" role="group" aria-label="Voice model" style="display:none">
+        <!-- Populated dynamically by syncVoiceProviderToggle() from /voice/provider -->
+      </div>
+      <!-- TTS engine selector hidden — conversation mode is locked to F5 (quality). -->
+      <div class="convo-tts-toggle" id="convo-tts-toggle" role="group" aria-label="TTS engine" style="display:none">
+        <button type="button" class="convo-tts-opt active"
+                data-engine="f5"
+                onclick="setTtsEngine('f5')"
+                title="F5-TTS — quality-first voice clone (dashboard default)">F5 · QUALITY</button>
+        <button type="button" class="convo-tts-opt"
+                data-engine="xtts"
+                onclick="setTtsEngine('xtts')"
+                title="XTTS-v2 — faster but lower-quality clone (Coqui)">XTTS · FAST</button>
+      </div>
+      <div class="convo-crew-toggle" id="convo-crew-toggle" role="group" aria-label="Crew voice">
+        <!-- Populated dynamically by syncCrewVoiceToggle() from /voice/voices -->
+      </div>
+      <div class="convo-transcript" id="convo-transcript"></div>
+      <button class="convo-exit-btn" id="convo-exit-btn" onclick="exitConvoMode()" title="Exit Conversation Mode (Esc)">EXIT · ESC</button>
+    </div>
+
+  </div><!-- end app -->
+
+  <!-- ── MSD — Master Systems Display modal (radial call-out layout) ─────
+       Ship image at the center. Eight metric clusters arranged around the
+       perimeter via CSS grid. Thin orange leader lines (drawn in the
+       overlay SVG) link each cluster to a ship anatomy zone. Live numbers
+       come from /vitals_fast SSE; heavier metadata is polled from /msd
+       every 2s while the modal is open. -->
+  <div class="msd" id="ship-modal" onclick="closeShipModal(event)" aria-hidden="true">
+    <div class="msd-frame" onclick="event.stopPropagation()">
+
+      <!-- Top status ribbon -->
+      <div class="msd-topbar">
+        <div class="msd-topbar-left">
+          <span class="msd-brand">DATA-CLASS STARFIGHTER</span>
+          <span class="msd-brand-sep">▸</span>
+          <span class="msd-brand-sub">MASTER SYSTEMS DISPLAY</span>
+        </div>
+        <div class="msd-topbar-center">
+          <span class="msd-stat"><span class="msd-stat-k">SYSDATE</span><span id="msd-stardate">—</span></span>
+          <span class="msd-stat"><span class="msd-stat-k">UPTIME</span><span id="msd-uptime">—</span></span>
+          <span class="msd-stat"><span class="msd-stat-k">LAST CMD</span><span id="msd-last-cmd">—</span></span>
+          <span class="msd-stat"><span class="msd-stat-k">LLM</span><span id="msd-llm-summary">—</span></span>
+        </div>
+        <div class="msd-topbar-right">
+          <span class="msd-alert green" id="msd-alert-pill">CONDITION GREEN</span>
+          <button class="msd-close" onclick="closeShipModal()" title="Close (Esc)">×</button>
+        </div>
+      </div>
+
+      <!-- Main grid: 8 clusters around a centered ship -->
+      <div class="msd-grid">
+
+        <!-- ── Top-left ── -->
+        <div class="msd-cluster cluster-tl">
+          <div class="msd-metric" data-zone="engine-core">
+            <div class="msd-metric-tag"></div>
+            <div class="msd-metric-head">
+              <span class="msd-label">POWER CORE</span>
+              <span class="msd-label-sub">uncached prompt</span>
+            </div>
+            <div class="msd-metric-row">
+              <span class="msd-value" id="msd-ctx">100%</span>
+            </div>
+            <div class="msd-metric-foot"><span id="msd-ctx-detail">— / — tok</span></div>
+          </div>
+          <div class="msd-metric" data-zone="starboard-nacelle">
+            <div class="msd-metric-tag"></div>
+            <div class="msd-metric-head">
+              <span class="msd-label">ENGINE NACELLE</span>
+              <span class="msd-label-sub">engine load</span>
+            </div>
+            <div class="msd-metric-row">
+              <span class="msd-value" id="msd-gpu">0%</span>
+              <svg class="msd-spark" data-spark="gpu" viewBox="0 0 120 24" preserveAspectRatio="none">
+                <polyline points="" fill="none" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+            </div>
+            <div class="msd-metric-foot"><span id="msd-vram">VRAM —</span> · <span id="msd-gpu-temp">TEMP —</span></div>
+          </div>
+        </div>
+
+        <!-- ── Top-right ── -->
+        <div class="msd-cluster cluster-tr">
+          <div class="msd-metric" data-zone="engineering">
+            <div class="msd-metric-tag"></div>
+            <div class="msd-metric-head">
+              <span class="msd-label">MAIN DEFLECTOR</span>
+              <span class="msd-label-sub">ram</span>
+            </div>
+            <div class="msd-metric-row">
+              <span class="msd-value" id="msd-ram">0 / 0 GB</span>
+              <svg class="msd-spark" data-spark="ram" viewBox="0 0 120 24" preserveAspectRatio="none">
+                <polyline points="" fill="none" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+            </div>
+            <div class="msd-metric-foot"><span id="msd-ram-pct">0%</span> used</div>
+          </div>
+          <div class="msd-metric" data-zone="saucer">
+            <div class="msd-metric-tag"></div>
+            <div class="msd-metric-head">
+              <span class="msd-label">IMPULSE ENGINES</span>
+              <span class="msd-label-sub">cpu load</span>
+            </div>
+            <div class="msd-metric-row">
+              <span class="msd-value" id="msd-cpu">0%</span>
+              <svg class="msd-spark" data-spark="cpu" viewBox="0 0 120 24" preserveAspectRatio="none">
+                <polyline points="" fill="none" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+            </div>
+            <div class="msd-metric-foot"><span id="msd-cpu-temp">TEMP —</span></div>
+          </div>
+        </div>
+
+        <!-- ── Center: ship ── -->
+        <div class="msd-stage">
+          <div class="msd-stage-inner">
+            <img id="ship-schematic-img"
+                 src="assets/schematics/starfighter-topdown.png"
+                 onerror="this.style.display='none';document.getElementById('ship-schematic-placeholder').style.display='flex';"
+                 alt="DATA-Class Starfighter — Master Systems Display"
+                 draggable="false"/>
+            <svg class="msd-overlay" viewBox="0 0 100 48" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <radialGradient id="msdEngineGrad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%"   stop-color="#ff88ff" stop-opacity="1"/>
+                  <stop offset="55%"  stop-color="#aa22cc" stop-opacity="0.7"/>
+                  <stop offset="100%" stop-color="#220033" stop-opacity="0"/>
+                </radialGradient>
+                <radialGradient id="msdCoreGrad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%"   stop-color="#ff66ff" stop-opacity="0.95"/>
+                  <stop offset="60%"  stop-color="#9933cc" stop-opacity="0.55"/>
+                  <stop offset="100%" stop-color="#220033" stop-opacity="0"/>
+                </radialGradient>
+                <filter id="msdShieldGlow" x="-25%" y="-25%" width="150%" height="150%">
+                  <feGaussianBlur stdDeviation="0.5" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+                <linearGradient id="msdRadarFade" gradientUnits="userSpaceOnUse"
+                                x1="110" y1="24" x2="74" y2="-28">
+                  <stop offset="0"   stop-color="#00ffff" stop-opacity="0.55"/>
+                  <stop offset="0.6" stop-color="#00ffff" stop-opacity="0.15"/>
+                  <stop offset="1"   stop-color="#00ffff" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <!-- Shield bubble — pronounced horizontal oval (rx/ry ≈ 4) so it
+                   reads as an oval regardless of how the .msd-stage container
+                   stretches the preserveAspectRatio="none" viewBox. -->
+              <ellipse cx="50" cy="24" rx="60" ry="24"
+                       fill="none" stroke="#4466ff" stroke-width="0.22"
+                       stroke-dasharray="1.8 0.9" opacity="0.40"
+                       class="ship-shield-dash"/>
+              <ellipse cx="50" cy="24" rx="58" ry="23"
+                       fill="none" stroke="#6688ff" stroke-width="0.42"
+                       filter="url(#msdShieldGlow)"
+                       class="ship-shield-main"/>
+              <ellipse cx="50" cy="24" rx="55" ry="22"
+                       fill="none" stroke="#88aaff" stroke-width="0.22"
+                       class="ship-shield-ring2"/>
+              <ellipse cx="50" cy="24" rx="50" ry="20"
+                       fill="none" stroke="#aabbff" stroke-width="0.16"
+                       class="ship-shield-ring3"/>
+              <!-- Radial radar sweep -->
+              <g class="ship-radar-sweep">
+                <path d="M 50 24 L 110 24 A 60 60 0 0 0 102.42 -5.42 Z"
+                      fill="url(#msdRadarFade)"/>
+                <line x1="50" y1="24" x2="110" y2="24"
+                      stroke="#00ffff" stroke-width="0.32" opacity="0.85"/>
+                <animateTransform attributeName="transform" type="rotate"
+                                  from="0 50 24" to="360 50 24"
+                                  dur="4.5s" repeatCount="indefinite"/>
+              </g>
+              <!-- Engine glows: wide ovals to match the actual horizontal
+                   exhaust-port slits in the schematic image (rx > ry).
+                   Animation still scales uniformly so the aspect is preserved. -->
+              <ellipse class="ship-engine-pulse" cx="78" cy="22" rx="5.5" ry="2.0" fill="url(#msdEngineGrad)"/>
+              <ellipse class="ship-engine-pulse" cx="78" cy="26" rx="5.5" ry="2.0" fill="url(#msdEngineGrad)"/>
+              <ellipse class="ship-engine-pulse core-flux" cx="35" cy="24" rx="6.5" ry="2.6" fill="url(#msdCoreGrad)"/>
+              <!-- (Leader lines have moved to .msd-leaders-global, a full-frame
+                   SVG layer drawn by JS so each line connects a real metric
+                   card to the actual on-ship anatomy point.) -->
+            </svg>
+            <div class="ship-schematic-placeholder" id="ship-schematic-placeholder" style="display:none;">
+              <span>NO SCHEMATIC LOADED</span>
+              <span class="ship-schematic-placeholder-hint">drop image at dashboard/assets/schematics/</span>
+            </div>
+          </div>
+
+          <!-- Speed indicators — bottom-center of the stage.
+               Impulse on the left (CPU-driven), Engine on the right (GPU + token velocity). -->
+          <div class="msd-engine">
+            <div class="msd-speed-block">
+              <span class="msd-engine-label">IMPULSE</span>
+              <span class="msd-engine-value" id="msd-impulse">0.0</span>
+            </div>
+            <div class="msd-speed-block">
+              <span class="msd-engine-label">ENGINE</span>
+              <span class="msd-engine-value" id="msd-engine">0.0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Bottom-left ── -->
+        <div class="msd-cluster cluster-bl">
+          <div class="msd-metric" data-zone="aft">
+            <div class="msd-metric-tag"></div>
+            <div class="msd-metric-head">
+              <span class="msd-label">CARGO HOLD</span>
+              <span class="msd-label-sub">disk</span>
+            </div>
+            <div class="msd-metric-row">
+              <span class="msd-value" id="msd-disk">0 GB free</span>
+            </div>
+            <div class="msd-metric-foot"><span id="msd-disk-pct">0% used</span></div>
+          </div>
+          <div class="msd-metric" data-zone="comms">
+            <div class="msd-metric-tag"></div>
+            <div class="msd-metric-head">
+              <span class="msd-label">AUX SYSTEMS</span>
+              <span class="msd-label-sub">subsystems</span>
+            </div>
+            <div class="msd-metric-foot subsystems-list">
+              <span class="sub-pill" id="msd-sub-tunnel">TUNNEL ✗</span>
+              <span class="sub-pill" id="msd-sub-voice">VOICE —</span>
+              <span class="sub-pill" id="msd-sub-orders">ORDERS 0</span>
+              <span class="sub-pill" id="msd-sub-tools">TOOLS 0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Bottom-right ── -->
+        <div class="msd-cluster cluster-br">
+          <div class="msd-metric" data-zone="neural">
+            <div class="msd-metric-tag"></div>
+            <div class="msd-metric-head">
+              <span class="msd-label">SUBSPACE BANDWIDTH</span>
+              <span class="msd-label-sub">network</span>
+            </div>
+            <div class="msd-metric-row">
+              <span class="msd-value" id="msd-net">↓ 0 ↑ 0</span>
+              <svg class="msd-spark" data-spark="net" viewBox="0 0 120 24" preserveAspectRatio="none">
+                <polyline points="" fill="none" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+            </div>
+          </div>
+          <div class="msd-metric" data-zone="bridge">
+            <div class="msd-metric-tag"></div>
+            <div class="msd-metric-head">
+              <span class="msd-label">SHIELD STRENGTH</span>
+              <span class="msd-label-sub">main battery</span>
+            </div>
+            <div class="msd-metric-row">
+              <span class="msd-value" id="msd-shield-batt">—</span>
+              <svg class="msd-spark" data-spark="battery" viewBox="0 0 120 24" preserveAspectRatio="none">
+                <polyline points="" fill="none" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+            </div>
+            <div class="msd-metric-foot"><span id="msd-batt-state">—</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Full-frame leader-line layer — populated by JS so each line
+           connects a real metric card to the actual on-ship anatomy point. -->
+      <svg class="msd-leaders-global" aria-hidden="true"></svg>
+    </div>
+  </div>
+
+  <!-- ── Daily Briefing inline reader (YouTube player + article preview) ── -->
+  <div id="news-reader-modal" class="news-reader-modal" role="dialog" aria-modal="true" hidden onclick="closeNewsReader(event)">
+    <div class="news-reader-card" onclick="event.stopPropagation()">
+      <button class="news-reader-close" type="button" onclick="closeNewsReader()" aria-label="Close">✕</button>
+      <div class="news-reader-body" id="news-reader-body"></div>
+    </div>
+  </div>
+
+  <!-- ── Power Core breach modal — fires once per breach episode ── -->
+  <div id="engine-core-breach-modal" class="engine-core-breach-modal" role="alertdialog" aria-live="assertive" aria-modal="true" hidden>
+    <div class="engine-core-breach-card">
+      <button class="engine-core-breach-close" type="button" onclick="closeEngineCoreBreach()" aria-label="Dismiss">✕</button>
+      <div class="engine-core-breach-eyebrow">⚠ SHIPWIDE ALERT ⚠</div>
+      <div class="engine-core-breach-title">ENGINE&nbsp;CORE&nbsp;BREACH&nbsp;IMMINENT</div>
+      <div class="engine-core-breach-body">
+        Uncached prompt has crossed <span id="engine-core-breach-tokens">—</span> tokens
+        (<span id="engine-core-breach-pct">—</span>% core health).<br/>
+        Compact memory or trim conversation history to restore integrity.<br/>
+        <em>Red alert engaged. Dismissing this notice will not stand down the alert.</em>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Red Alert klaxon (graceful no-op if file missing) ────── -->
+  <audio id="red-alert-audio" src="sounds/red_alert.mp3" preload="auto"></audio>
+
+  <script>
+    // Theme bootstrap — runs before app.js to avoid flash-of-wrong-theme
+    // Single theme: CYBER. The body ships with class="theme-cyberpunk" and
+    // the schematic/brand markup is static — no theme swapping needed.
+    // MSD metric-card placement (defined in app.js).
+    if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
+  </script>
+  <script src="app.js?v=retail1"></script>
+</body>
+</html>

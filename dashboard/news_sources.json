@@ -1,0 +1,18 @@
+{
+  "tech": [
+    "https://hnrss.org/frontpage",
+    "https://feeds.arstechnica.com/arstechnica/index",
+    "https://www.theverge.com/rss/index.xml"
+  ],
+  "world": [
+    "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "https://www.reutersagency.com/feed/?best-topics=top-news"
+  ],
+  "science": [
+    "https://www.sciencedaily.com/rss/top/science.xml",
+    "https://phys.org/rss-feed/"
+  ],
+  "youtube": [],
+  "instagram": [],
+  "pinterest": []
+}

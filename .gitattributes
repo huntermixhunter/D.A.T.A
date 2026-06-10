@@ -1,0 +1,15 @@
+# Normalize line endings
+* text=auto
+
+# Shell scripts must stay LF or they break on Linux/macOS
+*.sh text eol=lf
+
+# Windows scripts stay CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.jpg binary
+*.webp binary

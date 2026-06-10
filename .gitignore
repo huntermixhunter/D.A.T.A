@@ -1,0 +1,23 @@
+# Runtime state — created by the bridge, stays local
+users/
+screenshots/
+bridge.log
+standing_orders.json
+power_core_baseline.json
+daily_briefing.json
+dashboard/news_cache.json
+dashboard/og_image_cache.json
+dashboard/cloudflared.log
+dashboard/tunnel_url.txt
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS junk
+.DS_Store
+Thumbs.db
