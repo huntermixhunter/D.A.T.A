@@ -75,7 +75,10 @@
           <button class="data-btn blue" onclick="showPanel('orders')">
             STANDING ORDERS
           </button>
-</div>
+          <button class="data-btn purple" id="nav-briefing-btn" onclick="showPanel('briefing')">
+            POTENTIAL UPGRADES <span class="briefing-badge" id="briefing-badge" style="display:none">0</span>
+          </button>
+        </div>
 
         <div class="sidebar-divider"></div>
 
@@ -138,11 +141,6 @@
                   title="Manual Red Alert — flash the bridge and sound the klaxon."
                   style="width:100%;margin-top:6px;background:#5a0d0d;color:#ffb0b0;">
             RED ALERT
-          </button>
-          <button id="compact-memory-btn" class="data-btn-sm" onclick="triggerMemoryCompact()"
-                  title="Rewrite DATA_MEMORY.md to a tighter version via Claude CLI. Backs up the original first."
-                  style="width:100%;margin-top:4px;background:#2a3a5a;color:#aaccff;">
-            COMPACT MEMORY
           </button>
           <div class="status-row" style="margin-top:6px;">
             <span class="status-label">UPTIME</span>
@@ -373,6 +371,22 @@
                 <button class="data-btn-sm orange" onclick="saveStandingOrderDialog()">SAVE</button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- PANEL: POTENTIAL UPGRADES (AI tool discovery) -->
+        <div class="panel" id="panel-briefing">
+          <div class="panel-header">
+            <div class="panel-title-bar">
+              <span class="panel-title">POTENTIAL UPGRADES — AI TOOL DISCOVERY</span>
+              <div class="panel-pills">
+                <span class="pill teal" id="briefing-timestamp">NEVER</span>
+                <button class="data-btn-sm orange" onclick="refreshBriefing()" id="briefing-refresh-btn">REFRESH</button>
+              </div>
+            </div>
+          </div>
+          <div id="briefing-list" class="briefing-list">
+            <div class="briefing-empty">No scan yet. Click REFRESH to discover new AI tools, MCP servers, and skills.</div>
           </div>
         </div>
 

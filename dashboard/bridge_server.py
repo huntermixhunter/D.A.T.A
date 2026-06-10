@@ -2947,19 +2947,37 @@ def _recompute_next_run(order: dict) -> None:
 
 def _fire_standing_order(order: dict) -> None:
     """Execute one standing order: dispatch its prompt to its provider and
-    push the response to the dashboard as a UI event."""
+    push the response to the dashboard as a UI event.
+
+    Special actions bypass the LLM and call a hard-coded handler instead
+    (e.g. action='refresh_upgrades' reruns the Potential Upgrades scan)."""
     action = (order.get("action") or "").strip()
     log.info(f"[orders] firing {order['id']} ({order['name']!r}) → "
              f"{'action=' + action if action else order['provider']}")
-    try:
-        response = _dispatch_with_provider(
-            order["provider"],
-            order["prompt"],
-            project_path="",
-        )
-    except Exception as e:
-        log.exception(f"[orders] dispatch failed: {e}")
-        response = f"(Standing order failed: {e})"
+    if action == "refresh_upgrades":
+        # Rerun the Potential Upgrades (AI tool discovery) scanner.
+        try:
+            import importlib
+            import daily_briefing as _db
+            importlib.reload(_db)
+            bp = _db.generate_briefing()
+            if "error" in bp:
+                response = f"(Potential Upgrades refresh failed: {bp['error']})"
+            else:
+                response = f"Refreshed Potential Upgrades — {len(bp.get('items', []))} item(s) found."
+        except Exception as e:
+            log.exception(f"[orders] upgrades refresh failed: {e}")
+            response = f"(Potential Upgrades refresh failed: {e})"
+    else:
+        try:
+            response = _dispatch_with_provider(
+                order["provider"],
+                order["prompt"],
+                project_path="",
+            )
+        except Exception as e:
+            log.exception(f"[orders] dispatch failed: {e}")
+            response = f"(Standing order failed: {e})"
     order["last_run"]    = time.time()
     order["last_result"] = response[:2000]
     _push_ui_event("standing_order_fired", {
@@ -7476,6 +7494,16 @@ class Handler(BaseHTTPRequestHandler):
             with _orders_lock:
                 self._json({"orders": list(_standing_orders)})
 
+        elif path == "/briefing":
+            briefing_file = PROJECT_DIR / "daily_briefing.json"
+            if briefing_file.exists():
+                try:
+                    self._json(json.loads(briefing_file.read_text(encoding="utf-8")))
+                except Exception as e:
+                    self._json({"error": f"could not parse briefing: {e}", "items": []}, 500)
+            else:
+                self._json({"generated_at": None, "items": []})
+
         elif path == "/tunnel_url":
             # Read the URL that launcher.py writes after cloudflared comes up.
             # Empty string if the tunnel isn't running yet (or cloudflared not installed).
@@ -7965,6 +7993,45 @@ class Handler(BaseHTTPRequestHandler):
                     _save_standing_orders()
                 log.info(f"[orders] updated {oid}: {order['name']!r}")
                 self._json({"order": order}); return
+
+        # ── /briefing/refresh — rescan sources in the background ─
+        if path == "/briefing/refresh":
+            def _gen():
+                try:
+                    import importlib
+                    import daily_briefing as _db
+                    importlib.reload(_db)   # pick up source-list edits without restart
+                    _db.generate_briefing()
+                except Exception as ex:
+                    log.exception(f"[BRIEFING] refresh failed: {ex}")
+            threading.Thread(target=_gen, daemon=True).start()
+            self._json({"refreshing": True})
+            return
+
+        # ── /briefing/dismiss | /briefing/install — flip item status ─
+        if path == "/briefing/dismiss" or path == "/briefing/install":
+            item_id = data.get("id", "")
+            new_status = "dismissed" if path.endswith("dismiss") else "installed"
+            briefing_file = PROJECT_DIR / "daily_briefing.json"
+            if not briefing_file.exists():
+                self._json({"error": "no briefing"}, 404)
+                return
+            try:
+                briefing = json.loads(briefing_file.read_text(encoding="utf-8"))
+                found = False
+                for it in briefing.get("items", []):
+                    if it.get("id") == item_id:
+                        it["status"] = new_status
+                        found = True
+                        break
+                if not found:
+                    self._json({"error": "item not found"}, 404)
+                    return
+                briefing_file.write_text(json.dumps(briefing, indent=2, ensure_ascii=False), encoding="utf-8")
+                self._json({"updated": item_id, "status": new_status})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
 
         # ── /speak — raw binary audio, DO NOT JSON-parse ──────
         if path == "/speak":
@@ -8860,7 +8927,23 @@ if __name__ == "__main__":
     _start_cloudflared_if_configured()
     # Standing orders: load from disk, recompute next_run for each, start scheduler
     _load_standing_orders()
+    # Auto-seed the daily Potential Upgrades scan if it doesn't exist yet.
     with _orders_lock:
+        if not any(o.get("id") == "so-upgrades-refresh" for o in _standing_orders):
+            _standing_orders.append({
+                "id":       "so-upgrades-refresh",
+                "name":     "Potential Upgrades scan",
+                "cron":     "0 8 * * *",                 # daily 08:00
+                "prompt":   "(internal — scans the web for new AI tools, MCP servers, Claude skills)",
+                "provider": "claude-cli",                # placeholder, unused with action
+                "enabled":  True,
+                "action":   "refresh_upgrades",
+                "next_run": 0,
+                "last_run": 0,
+                "last_result": "",
+                "notify_telegram": False,
+            })
+            log.info("[orders] auto-seeded so-upgrades-refresh (daily 08:00)")
         for _o in _standing_orders:
             _recompute_next_run(_o)
         _save_standing_orders()

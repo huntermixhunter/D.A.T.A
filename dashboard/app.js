@@ -293,13 +293,14 @@ function showPanel(name) {
 
   document.getElementById(`panel-${name}`).classList.add('active');
 
-  const btnMap = { chat: 0, matrix: 1, orders: 2 };
+  const btnMap = { chat: 0, matrix: 1, orders: 2, briefing: 3 };
   const idx = btnMap[name];
   if (idx !== undefined) document.querySelectorAll('.data-btn')[idx].classList.add('active');
 
   // Lazy-init panels
   if (name === 'matrix' && !matrixInitialized) initMatrix();
   if (name === 'orders') refreshStandingOrders();
+  if (name === 'briefing') loadBriefing();
 }
 
 // ── Open a path in Windows Explorer ──────────────────────
@@ -6104,34 +6105,6 @@ function _startSynthKlaxon() {
 }
 function _stopSynthKlaxon() { if (_klaxonStop) _klaxonStop(); }
 
-async function triggerMemoryCompact() {
-  const btn = document.getElementById('compact-memory-btn');
-  if (!btn) return;
-  if (!confirm('Compact DATA_MEMORY.md now? A backup is saved before the rewrite. Takes ~30-60s.')) return;
-  const original = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'COMPACTING…';
-  try {
-    const res = await fetch(`${API_BASE}/memory-compact`, { method: 'POST' });
-    const data = await res.json();
-    if (data.ok) {
-      const saved = data.saved_tokens || 0;
-      const pct = data.before_tokens ? Math.round(saved * 100 / data.before_tokens) : 0;
-      addLog(`✓ Memory compacted: ${data.before_tokens} → ${data.after_tokens} tok (saved ${saved}, ${pct}% smaller)`);
-      btn.textContent = `✓ -${saved} TOK`;
-      setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
-    } else {
-      addLog(`Compact failed: ${data.error || 'unknown'}`);
-      btn.textContent = '✗ FAILED';
-      setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
-    }
-  } catch (e) {
-    addLog(`Compact request failed: ${e.message || e}`);
-    btn.textContent = '✗ FAILED';
-    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
-  }
-}
-
 async function toggleRedAlert() {
   // Optimistic UI flip — backend SSE will overwrite with truth on next tick.
   // Read state from BOTH the body class and the manual flag so the toggle
@@ -7324,6 +7297,169 @@ function toggleChatFullscreen() {
   btn.textContent = panel.classList.contains('fullscreen') ? '⊡' : '⛶';
 }
 
+// ── Potential Upgrades (AI tool discovery) ───────────────
+let _briefingRefreshing = false;
+let _lastBriefingBadge = 0;
+
+function _briefingTypeLabel(t) {
+  return {
+    'mcp-server':   'MCP SERVER',
+    'claude-skill': 'CLAUDE SKILL',
+    'hermes-skill': 'HERMES SKILL',
+    'pip-package':  'PYTHON PKG',
+    'link':         'LINK',
+  }[t] || (t || 'ITEM').toUpperCase();
+}
+
+function _briefingTypeColor(t) {
+  return {
+    'mcp-server':   'teal',
+    'claude-skill': 'purple',
+    'hermes-skill': 'blue',
+    'pip-package':  'yellow',
+    'link':         'orange',
+  }[t] || 'orange';
+}
+
+async function loadBriefing() {
+  const listEl = document.getElementById('briefing-list');
+  const tsEl   = document.getElementById('briefing-timestamp');
+  try {
+    const res = await fetch(`${API_BASE}/briefing`);
+    const data = await res.json();
+    _renderBriefing(data);
+    if (data.generated_at) {
+      const d = new Date(data.generated_at);
+      tsEl.textContent = d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } else {
+      tsEl.textContent = 'NEVER';
+    }
+  } catch (e) {
+    listEl.innerHTML = '<div class="briefing-empty">Bridge offline — cannot load briefing.</div>';
+  }
+}
+
+function _renderBriefing(data) {
+  const listEl = document.getElementById('briefing-list');
+  const items = (data.items || []).filter(it => it.status !== 'dismissed');
+  if (!items.length) {
+    listEl.innerHTML = data.generated_at
+      ? '<div class="briefing-empty">All caught up — no new items. Click REFRESH to scan again.</div>'
+      : '<div class="briefing-empty">No briefing yet. Click REFRESH to generate one.</div>';
+    _updateBriefingBadge(0);
+    return;
+  }
+  const newCount = items.filter(it => it.status === 'new').length;
+  _updateBriefingBadge(newCount);
+
+  listEl.innerHTML = items.map(it => {
+    const typeColor = _briefingTypeColor(it.install_type);
+    const statusBadge = it.status === 'installed' ? '<span class="briefing-status installed">✓ INSTALLED</span>' : '';
+    const safeTitle   = (it.title || 'Untitled').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'})[c]);
+    const safeSummary = (it.summary || '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'})[c]);
+    const safeWhy     = (it.why_relevant || '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'})[c]);
+    const safeSource  = (it.source || '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'})[c]);
+    const url         = it.url || '#';
+    return `
+      <div class="briefing-card ${it.status}" data-id="${it.id}">
+        <div class="briefing-card-header">
+          <span class="pill ${typeColor}">${_briefingTypeLabel(it.install_type)}</span>
+          <span class="briefing-source">${safeSource}</span>
+          ${statusBadge}
+        </div>
+        <div class="briefing-card-title">${safeTitle}</div>
+        <div class="briefing-card-summary">${safeSummary}</div>
+        <div class="briefing-card-why"><span class="briefing-why-label">RELEVANCE:</span> ${safeWhy}</div>
+        <div class="briefing-card-actions">
+          <a href="${url}" target="_blank" rel="noopener" class="lcars-btn-sm teal">↗ OPEN</a>
+          <button class="lcars-btn-sm orange" onclick="installBriefingItem('${it.id}')">INSTALL</button>
+          <button class="lcars-btn-sm" onclick="dismissBriefingItem('${it.id}')">DISMISS</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function _updateBriefingBadge(n) {
+  const badge = document.getElementById('briefing-badge');
+  if (!badge) return;
+  if (n > _lastBriefingBadge) playDataSound('doorbell');
+  _lastBriefingBadge = n;
+  if (n > 0) {
+    badge.textContent = n;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+async function refreshBriefing() {
+  if (_briefingRefreshing) return;
+  _briefingRefreshing = true;
+  const btn = document.getElementById('briefing-refresh-btn');
+  if (btn) { btn.textContent = 'SCANNING…'; btn.disabled = true; }
+  try {
+    await fetch(`${API_BASE}/briefing/refresh`, { method: 'POST' });
+    addLog('Daily briefing refresh triggered');
+    // Poll the file for ~60s
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const res = await fetch(`${API_BASE}/briefing`);
+      const data = await res.json();
+      const ts = data.generated_at ? new Date(data.generated_at).getTime() : 0;
+      if (ts > Date.now() - 90 * 1000) {
+        _renderBriefing(data);
+        const d = new Date(data.generated_at);
+        document.getElementById('briefing-timestamp').textContent =
+          d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        addLog(`Briefing updated — ${(data.items || []).length} items`);
+        break;
+      }
+    }
+  } catch (e) {
+    addLog(`Briefing refresh failed: ${e.message || e}`);
+  } finally {
+    _briefingRefreshing = false;
+    if (btn) { btn.textContent = 'REFRESH'; btn.disabled = false; }
+  }
+}
+
+async function dismissBriefingItem(id) {
+  try {
+    await fetch(`${API_BASE}/briefing/dismiss`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    loadBriefing();
+  } catch (e) {
+    addLog(`Dismiss failed: ${e.message || e}`);
+  }
+}
+
+async function installBriefingItem(id) {
+  const card = document.querySelector(`.briefing-card[data-id="${id}"]`);
+  if (!card) return;
+  const title   = card.querySelector('.briefing-card-title')?.textContent || '';
+  const summary = card.querySelector('.briefing-card-summary')?.textContent || '';
+  const url     = card.querySelector('a')?.href || '';
+  const type    = card.querySelector('.pill')?.textContent || '';
+
+  // Mark installed in storage
+  await fetch(`${API_BASE}/briefing/install`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+
+  // Hand the actual install work to Data — he uses his tools to set it up
+  showPanel('chat');
+  const inputEl = document.getElementById('chat-input');
+  inputEl.value = `Install "${title}" for me. Type: ${type}. URL: ${url}. ${summary}\n\nFigure out the right way to add it to my system (MCP server config, Hermes skill folder, pip install, etc.) and confirm when it is operational.`;
+  setTimeout(sendMessage, 100);
+  loadBriefing();
+}
+
 // ── Init ──────────────────────────────────────────────────
 addLog('Dashboard initialized');
 addLog('DATA interface online');
@@ -7331,5 +7467,7 @@ fetchMode();
 fetchVitals();
 setInterval(fetchVitals, 30000);
 subscribeShipsHealth();   // /vitals_fast SSE → engine gauge + Hull/Shield/SIF/Damp bars + alert dot
+// Quietly load the upgrades briefing on startup so the badge is correct
+loadBriefing();
 // Populate provider dropdown
 loadProviders();

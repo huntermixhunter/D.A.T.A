@@ -4732,3 +4732,101 @@ body.theme-minimal .msd-value {
 body.theme-minimal .msd-leaders-global line { stroke: rgba(77, 159, 255, 0.35); }
 body.theme-minimal .msd-close { border-radius: 6px; }
 body.theme-minimal .msd-alert { border-radius: 6px; }
+
+/* == Minimal v2: cockpit control-center pass ==================
+   Blueprint grid backdrop, HUD corner brackets, accent rails,
+   soft instrument glow. Elegance without sacrificing legibility. */
+
+/* Blueprint grid + overhead glow, behind everything */
+body.theme-minimal::before {
+  content: ""; position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(rgba(77, 159, 255, 0.032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(77, 159, 255, 0.032) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+body.theme-minimal::after {
+  content: ""; position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgba(77, 159, 255, 0.055), transparent 60%),
+    radial-gradient(ellipse 90% 55% at 50% 110%, rgba(0, 0, 0, 0.5), transparent 70%);
+}
+body.theme-minimal #app { position: relative; z-index: 1; }
+
+/* Header: instrument-bar glow line */
+body.theme-minimal .data-header {
+  box-shadow: 0 1px 0 rgba(77, 159, 255, 0.12), 0 8px 28px rgba(77, 159, 255, 0.045);
+}
+body.theme-minimal .system-name {
+  text-shadow: 0 0 18px rgba(77, 159, 255, 0.45);
+}
+
+/* Section labels: cockpit accent rail */
+body.theme-minimal .section-label {
+  border-left: 2px solid rgba(77, 159, 255, 0.55);
+  padding-left: 8px;
+}
+
+/* Panels: HUD corner brackets */
+body.theme-minimal .panel { position: relative; }
+body.theme-minimal .panel::before,
+body.theme-minimal .panel::after {
+  content: ""; position: absolute;
+  width: 16px; height: 16px;
+  border: 1px solid rgba(77, 159, 255, 0.4);
+  pointer-events: none; z-index: 2;
+}
+body.theme-minimal .panel::before { top: 2px; left: 2px; border-right: none; border-bottom: none; }
+body.theme-minimal .panel::after  { bottom: 2px; right: 2px; border-left: none; border-top: none; }
+
+/* Panel title: glowing accent underline */
+body.theme-minimal .panel-header { position: relative; }
+body.theme-minimal .panel-header::after {
+  content: ""; position: absolute; left: 0; bottom: -1px;
+  width: 140px; height: 1px;
+  background: linear-gradient(90deg, rgba(77, 159, 255, 0.9), transparent);
+  box-shadow: 0 0 10px rgba(77, 159, 255, 0.5);
+}
+
+/* Nav buttons: instrument feel — hover lift, active glow */
+body.theme-minimal .data-btn {
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.2s, color 0.15s;
+}
+body.theme-minimal .data-btn:hover {
+  border-color: rgba(77, 159, 255, 0.45);
+  box-shadow: inset 0 0 16px rgba(77, 159, 255, 0.06);
+}
+body.theme-minimal .data-btn.active {
+  box-shadow: 0 0 16px rgba(77, 159, 255, 0.18), inset 0 0 20px rgba(77, 159, 255, 0.07);
+}
+
+/* Status dots breathe like an idle instrument */
+body.theme-minimal .alert-dot.green {
+  box-shadow: 0 0 9px rgba(80, 210, 130, 0.8);
+  animation: min-breathe 2.6s ease-in-out infinite;
+}
+@keyframes min-breathe { 50% { opacity: 0.55; } }
+
+/* Vital readouts: faint phosphor glow */
+body.theme-minimal .vital-value {
+  text-shadow: 0 0 12px rgba(140, 190, 255, 0.28);
+}
+
+/* Chat bubbles: hairline top highlight, like backlit glass */
+body.theme-minimal .chat-message .bubble {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+/* Ship schematics: screen-blend so the art's black background
+   disappears into the dashboard instead of sitting in a box */
+body.theme-minimal #ship-schematic-img,
+body.theme-minimal .ship-silhouette .ship-holo-frame img {
+  mix-blend-mode: screen;
+}
+
+/* MSD: give the stage the same treatment + a faint radial pad glow */
+body.theme-minimal .msd-stage {
+  background: radial-gradient(ellipse 60% 55% at 50% 50%, rgba(77, 159, 255, 0.05), transparent 70%);
+}
