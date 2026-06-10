@@ -13,7 +13,7 @@ Two dark themes ship in the box — toggle from the bottom-left of the footer:
 
 Everything runs on your machine. No accounts, no telemetry, no cloud.
 
-![themes](https://img.shields.io/badge/themes-MINIMAL%20%7C%20CYBER-4d9fff) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+![themes](https://img.shields.io/badge/themes-MINIMAL%20%7C%20CYBER-4d9fff) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-proprietary-orange)
 
 ---
 
@@ -144,4 +144,5 @@ completely blank memory.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Proprietary — all rights reserved. Use requires purchase or written
+authorization. See [LICENSE](LICENSE).
