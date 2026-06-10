@@ -1,4 +1,4 @@
-# DATA — buyer-zip release builder
+# DATA - buyer-zip release builder
 # Usage:  .\tools\release.ps1 1.0.0
 # Produces dist\DATA-v<version>.zip from tracked files only (git archive),
 # tags the release, and prints a SHA256 the buyer can verify.
@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Version
 )
 $ErrorActionPreference = "Stop"
-# Repo root — robust regardless of how the script is invoked
+# Repo root - robust regardless of how the script is invoked
 $root = (git rev-parse --show-toplevel 2>$null)
 if (-not $root) {
     $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -19,9 +19,9 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     Write-Host "Version must look like 1.0.0" -ForegroundColor Red; exit 1
 }
 
-# Refuse to package uncommitted work — the zip must match a commit exactly.
+# Refuse to package uncommitted work - the zip must match a commit exactly.
 if (git status --porcelain) {
-    Write-Host "Working tree is dirty — commit or stash first." -ForegroundColor Red
+    Write-Host "Working tree is dirty - commit or stash first." -ForegroundColor Red
     git status --short
     exit 1
 }
@@ -40,7 +40,7 @@ if (-not (git tag -l "v$Version")) {
     git tag -a "v$Version" -m "DATA v$Version"
     Write-Host "  [OK] Tagged v$Version  (push with: git push origin v$Version)"
 } else {
-    Write-Host "  [..] Tag v$Version already exists — zip rebuilt from HEAD"
+    Write-Host "  [..] Tag v$Version already exists - zip rebuilt from HEAD"
 }
 
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()

@@ -1,10 +1,10 @@
-# DATA — Windows installer
+# DATA - Windows installer
 # Checks Python, installs optional deps, creates the start_data.bat launcher.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 Write-Host ""
-Write-Host "  DATA — Dashboard for Analytical Thought and Action" -ForegroundColor Cyan
+Write-Host "  DATA - Dashboard for Analytical Thought and Action" -ForegroundColor Cyan
 Write-Host "  Windows installer" -ForegroundColor Cyan
 Write-Host ""
 
@@ -29,10 +29,10 @@ try {
     if ($LASTEXITCODE -eq 0) { Write-Host "  [OK] psutil already installed" }
     else { throw "missing" }
 } catch {
-    Write-Host "  [..] Installing psutil (system vitals — optional but recommended)..."
+    Write-Host "  [..] Installing psutil (system vitals - optional but recommended)..."
     & $python -m pip install --quiet psutil
     if ($LASTEXITCODE -eq 0) { Write-Host "  [OK] psutil installed" }
-    else { Write-Host "  [!!] psutil install failed — vitals will read zero. Continuing." -ForegroundColor Yellow }
+    else { Write-Host "  [!!] psutil install failed - vitals will read zero. Continuing." -ForegroundColor Yellow }
 }
 
 # 3. Check for an AI provider CLI
