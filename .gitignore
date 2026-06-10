@@ -13,6 +13,9 @@ dashboard/tunnel_url.txt
 # Secrets
 .env
 
+# Release artifacts
+dist/
+
 # Python
 __pycache__/
 *.pyc
