@@ -75,6 +75,25 @@ bash install/install.sh
 
 The dashboard opens at **http://localhost:7777**.
 
+## Connect your AI
+
+DATA doesn't need API keys. The bridge drives whichever AI CLIs are installed on
+your machine and **detects them automatically at startup** — you pick the active
+one from the provider dropdown in the dashboard's panel header.
+
+| Provider | One-time setup | Billing |
+|----------|---------------|---------|
+| **Claude** (Opus / Sonnet / Haiku) | Install [Claude Code](https://docs.claude.com/en/docs/claude-code), run `claude` once and log in | Your Claude subscription (Pro/Max) |
+| **GPT-5 Codex** | `npm i -g @openai/codex`, then `codex login` | Your ChatGPT subscription |
+| **Gemini 2.5** | `npm i -g @google/gemini-cli`, then log in on first run | Google free tier / account |
+| **Ollama** (local models) | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5-coder:7b` | Free — runs on your hardware |
+
+Each person who installs DATA logs in with **their own** accounts on **their own
+machine** — nothing is shared through the repo, and no keys ever live in the
+project folder. Install any one of the four and chat works; install several and
+you can switch per-conversation (project workspaces can even run different
+providers side-by-side).
+
 ## Configuration
 
 Copy `.env.example` to `.env` and edit as needed:
