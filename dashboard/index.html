@@ -457,13 +457,6 @@
               title="Switch dashboard theme">
         <span class="theme-toggle-label" id="theme-toggle-label">CYBER</span>
       </button>
-      <!-- WAKE button stays hidden; CONVERSATION opens the hands-free voice
-           loop (wake word → listen → reply → loop). -->
-      <button class="footer-pill convo-mode-btn" id="convo-mode-btn"
-              onclick="enterConvoMode()"
-              title="Open Conversation Mode — hands-free voice loop">
-        ◉ CONVERSATION
-      </button>
       <button class="footer-pill wake-toggle-btn" id="wake-toggle-btn"
               onclick="toggleWakeListener()" hidden
               title='Listen for bare "computer", or "hey/hi/hello/ok/okay/yo" + "data"/"computer", or "data start listening" / "wake up".'>
@@ -481,35 +474,6 @@
       </div>
       <div class="footer-right-cap"></div>
     </footer>
-
-    <!-- CONVERSATION MODE OVERLAY — Jarvis-style brain visualization -->
-    <div class="convo-overlay hidden" id="convo-overlay" onclick="_convoOverlayClick(event)">
-      <canvas class="convo-canvas" id="convo-canvas"></canvas>
-      <div class="convo-status-band">
-        <span class="convo-status-label" id="convo-status-label">INITIALIZING</span>
-      </div>
-      <!-- Voice model selector hidden — conversation mode is locked to the
-           Haiku CLI provider. Element kept so syncVoiceProviderToggle() is a no-op. -->
-      <div class="convo-provider-toggle" id="convo-provider-toggle" role="group" aria-label="Voice model" style="display:none">
-        <!-- Populated dynamically by syncVoiceProviderToggle() from /voice/provider -->
-      </div>
-      <!-- TTS engine selector hidden — conversation mode is locked to F5 (quality). -->
-      <div class="convo-tts-toggle" id="convo-tts-toggle" role="group" aria-label="TTS engine" style="display:none">
-        <button type="button" class="convo-tts-opt active"
-                data-engine="f5"
-                onclick="setTtsEngine('f5')"
-                title="F5-TTS — quality-first voice clone (dashboard default)">F5 · QUALITY</button>
-        <button type="button" class="convo-tts-opt"
-                data-engine="xtts"
-                onclick="setTtsEngine('xtts')"
-                title="XTTS-v2 — faster but lower-quality clone (Coqui)">XTTS · FAST</button>
-      </div>
-      <div class="convo-crew-toggle" id="convo-crew-toggle" role="group" aria-label="Crew voice">
-        <!-- Populated dynamically by syncCrewVoiceToggle() from /voice/voices -->
-      </div>
-      <div class="convo-transcript" id="convo-transcript"></div>
-      <button class="convo-exit-btn" id="convo-exit-btn" onclick="exitConvoMode()" title="Exit Conversation Mode (Esc)">EXIT · ESC</button>
-    </div>
 
   </div><!-- end app -->
 

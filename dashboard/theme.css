@@ -4822,3 +4822,10 @@ body.theme-minimal .ship-silhouette .ship-holo-frame img {
 body.theme-minimal .msd-stage {
   background: radial-gradient(ellipse 60% 55% at 50% 50%, rgba(77, 159, 255, 0.05), transparent 70%);
 }
+
+/* == Cyber: keep the header subtitle on one line ============== */
+body.theme-cyberpunk .header-title .ship-name {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}

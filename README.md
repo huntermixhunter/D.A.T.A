@@ -33,8 +33,7 @@ Everything runs on your machine. No accounts, no telemetry, no cloud.
 | **Pulse** | Health coach — body, energy, rest, recovery |
 | **Scout** | Drafter — quick drafts, copy, prototypes |
 
-Pick the agent for the main channel from the panel-header dropdown, or talk to them
-in Conversation Mode (voice, where supported).
+Pick the agent for the main channel from the panel-header dropdown.
 
 ## Requirements
 

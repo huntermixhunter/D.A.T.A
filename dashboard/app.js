@@ -3449,6 +3449,12 @@ const BRAIN = {
 };
 
 async function enterConvoMode() {
+  // Conversation Mode is not part of the retail build — it depends on the
+  // local TTS/STT voice stack, which does not ship. The engine below is
+  // dormant: no UI entry point reaches it.
+  addLog('Conversation Mode is not available in this build.');
+  return;
+  /* eslint-disable no-unreachable */
   const overlay = document.getElementById('convo-overlay');
   if (!overlay) return;
   if (BRAIN.active) return; // already in convo mode
@@ -3528,10 +3534,9 @@ function exitConvoMode() {
 
 // ═══════════════════════════════════════════════════════════
 // WAKE WORD — passive listener on browser-side SpeechRecognition.
-// "Computer" / "Wake up" → auto-open conversation mode.
+// "Computer" / "Wake up" → arms wake dictation into the active input.
 // Uses Chrome's built-in Web Speech API (sends audio to Google for
-// recognition), so it costs nothing and runs all the time without
-// touching our local Whisper/GPU stack.
+// recognition), so it costs nothing and runs all the time.
 // ═══════════════════════════════════════════════════════════
 const WAKE = {
   enabled:    false,           // user-facing on/off
