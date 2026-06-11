@@ -133,16 +133,16 @@ window.fetch = async function(input, init) {
 const _SESSION_TAG = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 function _paneId(base) { return `${_SESSION_TAG}-${base}`; }
 
-// DATA sound palette. The files live under dashboard/sounds so the
-// dashboard server can serve them from http://localhost:8888.
+// DATA sound palette — original synthesized UI tones, generated from pure
+// math by tools/make_sounds.py (no sampled or licensed audio anywhere).
 const DATA_SOUNDS = {
-  transmit:   { src: 'sounds/datasound1.mp3', volume: 0.44, cooldown: 120 },
-  confirm:    { src: 'sounds/datasound2.mp3', volume: 0.24, cooldown: 80 },
-  receive:    { src: 'sounds/datasound3.mp3', volume: 0.34, cooldown: 220 },
-  engage:     { src: 'sounds/datasound4.mp3', volume: 0.30, cooldown: 180 },
-  error:      { src: 'sounds/datasound5.mp3', volume: 0.44, cooldown: 1000 },
-  processing: { src: 'sounds/datasound6.mp3', volume: 0.26, cooldown: 280 },
-  doorbell:   { src: 'sounds/datasound7.mp3', volume: 0.40, cooldown: 1200 },
+  transmit:   { src: 'sounds/transmit.wav',   volume: 0.44, cooldown: 120 },
+  confirm:    { src: 'sounds/confirm.wav',    volume: 0.24, cooldown: 80 },
+  receive:    { src: 'sounds/receive.wav',    volume: 0.34, cooldown: 220 },
+  engage:     { src: 'sounds/engage.wav',     volume: 0.30, cooldown: 180 },
+  error:      { src: 'sounds/error.wav',      volume: 0.44, cooldown: 1000 },
+  processing: { src: 'sounds/processing.wav', volume: 0.26, cooldown: 280 },
+  doorbell:   { src: 'sounds/doorbell.wav',   volume: 0.40, cooldown: 1200 },
 };
 
 const _dataSoundCache = new Map();
