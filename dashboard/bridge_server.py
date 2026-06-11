@@ -7148,11 +7148,19 @@ def build_neural_graph() -> dict:
             link("hub-crew", nid, 1.6)
 
     # ── Cross-links for visual richness ──────────────────
-    links.append({"source": "soul-md",    "target": "hub-ops",    "w": 0.4})
-    links.append({"source": "data-memory","target": "hub-identity","w": 0.4})
-    if any(n["id"] == "hub-crew" for n in nodes):
+    # Only link nodes that actually exist — on a fresh install SOUL.md /
+    # COMPUTER_MEMORY.md may be absent, and a dangling link id crashes the
+    # frontend's d3.forceLink (everything then piles up in the center).
+    _ids = {n["id"] for n in nodes}
+    if "soul-md" in _ids and "hub-ops" in _ids:
+        links.append({"source": "soul-md",    "target": "hub-ops",    "w": 0.4})
+    if "data-memory" in _ids and "hub-identity" in _ids:
+        links.append({"source": "data-memory", "target": "hub-identity", "w": 0.4})
+    if "hub-crew" in _ids and "hub-skills" in _ids:
         # The crew are dispatched as skills/slash-commands.
         links.append({"source": "hub-crew", "target": "hub-skills", "w": 0.4})
+    # Belt-and-suspenders: drop any other dangling link
+    links = [l for l in links if l["source"] in _ids and l["target"] in _ids]
 
     return {"nodes": nodes, "links": links}
 
@@ -7624,8 +7632,16 @@ class Handler(BaseHTTPRequestHandler):
                 max_depth = int(depth_str)
             except ValueError:
                 max_depth = 999
-            scan_dir = Path(target) if target and Path(target).is_dir() else PROJECT_DIR
+            # Default scan root: the user's Documents folder (falls back to
+            # home, then the install dir) — the project launcher browses from
+            # here unless an explicit dir is passed.
+            if target and Path(target).is_dir():
+                scan_dir = Path(target)
+            else:
+                _docs = Path.home() / "Documents"
+                scan_dir = _docs if _docs.is_dir() else (Path.home() if Path.home().is_dir() else PROJECT_DIR)
             graph = build_file_graph(scan_dir, max_depth=max_depth, max_nodes=300)
+            graph["root"] = str(scan_dir)
             self._json(graph)
 
         elif path == "/memory-files":

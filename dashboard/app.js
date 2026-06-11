@@ -1665,7 +1665,10 @@ async function initMatrix() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     matrixNodes = data.nodes;
-    matrixLinks = data.links;
+    // Drop links whose endpoints don't exist — a single dangling id makes
+    // d3.forceLink throw and the whole graph collapses into the center.
+    const _nodeIds = new Set(matrixNodes.map(n => n.id));
+    matrixLinks = (data.links || []).filter(l => _nodeIds.has(l.source) && _nodeIds.has(l.target));
     addLog('Neural matrix mapped');
   } catch (e) {
     // Bridge offline — fall back to neural map
@@ -2736,6 +2739,9 @@ async function loadDocsProjects(force = false) {
     const res = await fetch(`${API_BASE}/files?dir=${encodeURIComponent(DOCS_ROOT)}&depth=1`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    // Show the actual scan root the bridge resolved (defaults to ~/Documents)
+    const pathLbl = document.getElementById('docs-path-label');
+    if (pathLbl && data.root) pathLbl.textContent = data.root;
     const folders = (data.nodes || [])
       .filter(n => n.type === 'folder' && n.depth === 1)
       .sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));

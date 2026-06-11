@@ -4734,18 +4734,10 @@ body.theme-minimal .msd-close { border-radius: 6px; }
 body.theme-minimal .msd-alert { border-radius: 6px; }
 
 /* == Minimal v2: cockpit control-center pass ==================
-   Blueprint grid backdrop, HUD corner brackets, accent rails,
-   soft instrument glow. Elegance without sacrificing legibility. */
+   HUD corner brackets, accent rails, soft instrument glow.
+   Elegance without sacrificing legibility. */
 
-/* Blueprint grid + overhead glow, behind everything */
-body.theme-minimal::before {
-  content: ""; position: fixed; inset: 0;
-  pointer-events: none; z-index: 0;
-  background-image:
-    linear-gradient(rgba(77, 159, 255, 0.032) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(77, 159, 255, 0.032) 1px, transparent 1px);
-  background-size: 44px 44px;
-}
+/* Overhead glow + lower vignette, behind everything */
 body.theme-minimal::after {
   content: ""; position: fixed; inset: 0;
   pointer-events: none; z-index: 0;
