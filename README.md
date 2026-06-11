@@ -72,7 +72,8 @@ bash install/install.sh
 1. Turn on the Linux development environment: **Settings → About ChromeOS → Linux**.
 2. Open the Terminal app, then follow the macOS / Linux steps above.
 
-The dashboard opens at **http://localhost:7777**.
+The dashboard opens at **http://localhost:7777**. (Not technical? See
+[INSTALL.txt](INSTALL.txt) for a plain-language walkthrough.)
 
 ## Connect your AI
 

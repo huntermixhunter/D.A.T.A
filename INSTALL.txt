@@ -1,0 +1,85 @@
+========================================================================
+  DATA - Dashboard for Analytical Thought and Action
+  Quick Install Guide
+========================================================================
+
+Thank you for your purchase! DATA runs entirely on your own computer.
+No accounts with us, no cloud, no data leaves your machine.
+
+You will need TWO things:
+  1. Python 3.10 or newer        (free - python.org)
+  2. One AI provider you log in to (your own Claude, ChatGPT,
+     Gemini, or a free local model - see step 3)
+
+------------------------------------------------------------------------
+  WINDOWS
+------------------------------------------------------------------------
+1. Unzip this folder somewhere you like (e.g. Documents\DATA).
+2. Open the DATA folder, then double-click:  install\install.ps1
+   - If Windows blocks it, right-click install.ps1 > "Run with
+     PowerShell". (You can also open PowerShell in the folder and run
+     .\install\install.ps1)
+   - Don't have Python? Get it from https://python.org/downloads
+     and check "Add Python to PATH" during setup, then run the
+     installer again.
+3. When it finishes, double-click:  start_data.bat
+   Your browser opens to http://localhost:7777
+
+------------------------------------------------------------------------
+  MAC / LINUX / CHROMEBOOK
+------------------------------------------------------------------------
+(Chromebook: first turn on Linux - Settings > About ChromeOS > Linux -
+ then open the Terminal app.)
+
+1. Unzip this folder.
+2. In a terminal, go into the folder and run:
+       bash install/install.sh
+3. Then launch it:
+       ./start_data.sh
+   Open http://localhost:7777 in your browser (use Chrome for voice
+   dictation).
+
+------------------------------------------------------------------------
+  CONNECT YOUR AI  (this is what powers the chat)
+------------------------------------------------------------------------
+DATA needs no API keys. It uses whichever AI command-line tool you
+have installed and log in to with YOUR OWN account. Pick one:
+
+  * Claude  (recommended)  - your Claude Pro/Max subscription
+        Install: https://docs.claude.com/en/docs/claude-code
+        Then run "claude" once and log in.
+
+  * GPT-5 Codex  - your ChatGPT subscription
+        npm i -g @openai/codex     then:  codex login
+
+  * Gemini  - Google account / free tier
+        npm i -g @google/gemini-cli   (log in on first run)
+
+  * Ollama  - free, fully local, no account
+        Install from https://ollama.com
+        then:  ollama pull qwen2.5-coder:7b
+
+Install any ONE and chat works. Install several and switch between
+them from the dropdown at the top of the chat panel.
+
+------------------------------------------------------------------------
+  TIPS
+------------------------------------------------------------------------
+  * Switch themes (MINIMAL / CYBER) from the bottom-left of the footer.
+  * Settings live in the ".env" file - copy ".env.example" to ".env"
+    to change the port or add an access token.
+  * Everything you do stays in the DATA folder. To uninstall, just
+    delete the folder.
+
+------------------------------------------------------------------------
+  TROUBLE?
+------------------------------------------------------------------------
+  * "Python not found" - install Python 3.10+ and make sure it's on
+    your PATH, then re-run the installer.
+  * Chat says no provider - install one of the four tools above and
+    log in, then refresh the page.
+  * A log of what happened is written to "bridge.log" in the DATA
+    folder - handy if you need to ask for help.
+
+Enjoy DATA.
+========================================================================
