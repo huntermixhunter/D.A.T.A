@@ -44,7 +44,6 @@ document.addEventListener('click', (e) => {
 
 // ── Tunnel URL widget (Cloudflare phone access) ──────────────────────────
 let _tunnelUrl = '';
-let _standDownSentAt = 0;   // timestamp of last manual stand-down click (SSE race guard)
 async function _pollTunnelUrl() {
   try {
     const res  = await fetch(`${API_BASE}/tunnel_url`);
@@ -5079,13 +5078,6 @@ function _unlockAudio() {
   if (!ctx) return;
   const finish = () => {
     _audioUnlocked = true;
-    // Prime the SEPARATE klaxon AudioContext during this same gesture so an
-    // auto-triggered Red Alert (shields down / critical temp / disk) can sound
-    // the synth siren later without its own context being stuck "suspended".
-    try {
-      _klaxonCtx = _klaxonCtx || new (window.AudioContext || window.webkitAudioContext)();
-      if (_klaxonCtx.state === 'suspended') _klaxonCtx.resume().catch(() => {});
-    } catch (_) {}
     _AUDIO_UNLOCK_EVENTS.forEach(ev =>
       window.removeEventListener(ev, _unlockAudio, true));
   };
@@ -5528,28 +5520,6 @@ let _shipsHealthSSE   = null;
 let _shipsModalOpen   = false;
 let _lastShipsHealth  = null;
 
-// Threshold reasons (CPU/GPU temp, disk, battery) arrive from the bridge ONLY
-// on the rising-edge tick a metric crosses critical, so we persist them here for
-// the duration of the alert and clear them when the ship stands down. Powers the
-// hover tooltip on the small ship view that explains why Red Alert engaged.
-let _redAlertReasonStore = [];
-const _SHIP_DEFAULT_TITLE = 'Click for full Master Systems Display';
-
-// Build the human-readable list of reasons the ship is at Red Alert RIGHT NOW.
-// Combines persisted threshold reasons with the conditions derivable every tick
-// (manual trigger, shields down, and any subsystem below the 60% critical line —
-// mirrors the backend `worst < 60` rule in build_ships_health()).
-function _composeRedAlertReasons(h) {
-  const reasons = [];
-  if (h.red_alert_manual) reasons.push('Manual Red Alert engaged from the bridge.');
-  if (h.shields_down)     reasons.push('Shields down — system memory (RAM) at full capacity.');
-  if (typeof h.hull === 'number' && h.hull < 60) reasons.push(`Hull integrity critical (${Math.round(h.hull)}%).`);
-  if (typeof h.sif  === 'number' && h.sif  < 60) reasons.push(`Structural Integrity Field critical (${Math.round(h.sif)}%) — disk near full.`);
-  if (typeof h.damp === 'number' && h.damp < 60) reasons.push(`Inertial dampers critical (${Math.round(h.damp)}%) — event loop lagging.`);
-  for (const r of _redAlertReasonStore) if (!reasons.includes(r)) reasons.push(r);
-  return reasons;
-}
-
 function _setBar(id, pct) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -5677,76 +5647,6 @@ function _applyShipsHealth(h) {
   // Shields down (RAM maxed) — collapses the shield ring around the ship.
   document.body.classList.toggle('shields-down', !!h.shields_down);
 
-  // Sync Red Alert button + body pulse with backend truth.
-  const btn = document.getElementById('red-alert-btn');
-  if (btn) btn.classList.toggle('active', !!h.red_alert_manual);
-  // Guard: if the Captain just clicked Stand Down, don't let a race-condition
-  // SSE tick re-light the bridge for up to 2 seconds while the POST resolves.
-  const _sdAge = Date.now() - (_standDownSentAt || 0);
-  if (h.alert !== 'red' || _sdAge > 2000) {
-    document.body.classList.toggle('red-alert', h.alert === 'red');
-  }
-  // Keep audio in sync with server truth — prevents klaxon outliving the alert,
-  // AND sounds the klaxon when the bridge AUTO-engages red alert (shields down /
-  // critical health / engine-core breach), not just on a manual button click.
-  const _nowRed = (h.alert === 'red');
-  if (!_nowRed) {
-    const _alertAudio = document.getElementById('red-alert-audio');
-    if (_alertAudio && !_alertAudio.paused) {
-      try { _alertAudio.pause(); _alertAudio.currentTime = 0; } catch(_e){}
-    }
-    _stopSynthKlaxon();
-  } else if (!window._prevRedAlert) {
-    // Rising edge: red alert just engaged. Sound the klaxon if it isn't already
-    // going (the manual toggle may have started it — re-starting a looped audio
-    // that's already playing is a harmless no-op). Falls back to the synth
-    // klaxon if the MP3 didn't load or autoplay is blocked.
-    const _alertAudio = document.getElementById('red-alert-audio');
-    const _haveMp3 = _alertAudio && _alertAudio.readyState >= 2 && !isNaN(_alertAudio.duration);
-    if (_haveMp3) {
-      if (_alertAudio.paused) {
-        try {
-          _alertAudio.currentTime = 0;
-          _alertAudio.loop = true;
-          _alertAudio.play().catch(() => _startSynthKlaxon());
-        } catch (_e) { _startSynthKlaxon(); }
-      }
-    } else {
-      _startSynthKlaxon();
-    }
-  }
-  window._prevRedAlert = _nowRed;
-  // Button label tells the Captain what the next click will do.
-  if (btn) btn.textContent = (h.alert === 'red') ? 'STAND DOWN' : 'RED ALERT';
-
-  // Critical-threshold auto-trigger: bridge sends a reasons[] only on the
-  // rising-edge tick a metric crosses into the critical zone. Log each so
-  // the captain knows what set off the klaxon, and persist them so the ship
-  // tooltip can keep explaining the alert on every subsequent tick.
-  if (Array.isArray(h.red_alert_reasons) && h.red_alert_reasons.length) {
-    for (const r of h.red_alert_reasons) {
-      addLog(`🚨 CRITICAL — ${r}`);
-      if (!_redAlertReasonStore.includes(r)) _redAlertReasonStore.push(r);
-    }
-  }
-  // Clear the persisted reasons the moment we leave Red Alert.
-  if (h.alert !== 'red') _redAlertReasonStore = [];
-
-  // Hover-over-ship explainer: while Red Alert is up, the small ship view's
-  // tooltip spells out exactly why. Restored to the default hint otherwise.
-  const _shipWidget = document.getElementById('ships-health-widget');
-  if (_shipWidget) {
-    if (h.alert === 'red') {
-      const _rs   = _composeRedAlertReasons(h);
-      const _body = _rs.length ? _rs.map(r => '• ' + r).join('\n')
-                               : '• Critical condition detected.';
-      _shipWidget.title = '🚨 RED ALERT — cause:\n' + _body
-                        + '\n\n(Click for full Master Systems Display)';
-    } else {
-      _shipWidget.title = _SHIP_DEFAULT_TITLE;
-    }
-  }
-
   // ── Sparkline buffers — always push so opening the modal shows history ──
   _pushSpark('cpu', h.cpu);
   _pushSpark('ram', h.ram);
@@ -5870,7 +5770,7 @@ async function _refreshMsd() {
 
     // Power Core health (uncached prompt token budget). Baseline is the
     // first-ever used_tokens reading; at 2× baseline the core is at 10%
-    // health, which triggers a one-shot breach popup + red alert.
+    // health, which triggers a one-shot breach popup.
     const wc = d.power_core || {};
     const health = (typeof wc.health_pct === 'number') ? wc.health_pct : null;
     set('msd-ctx', health === null ? '—' : `${health.toFixed(0)}% HEALTH`);
@@ -6069,97 +5969,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && _shipsModalOpen) closeShipModal();
 });
 
-// ── Klaxon — tries the MP3 file first, falls back to a synthesized retro-klaxon
-// two-tone siren via Web Audio API so red alert always makes noise.
-let _klaxonCtx = null;       // AudioContext (lazy)
-let _klaxonStop = null;      // cleanup fn while a synth klaxon is running
-
-function _startSynthKlaxon() {
-  if (_klaxonStop) return;   // already running
-  try {
-    _klaxonCtx = _klaxonCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const ctx = _klaxonCtx;
-    if (ctx.state === 'suspended') ctx.resume();
-
-    // Two oscillators: a sawtooth carrier + a sine LFO that swings the carrier
-    // between ~480 Hz and ~620 Hz at ~1.4 Hz — the classic "wheee-whaaa".
-    const carrier = ctx.createOscillator();
-    const lfo     = ctx.createOscillator();
-    const lfoGain = ctx.createGain();
-    const masterGain = ctx.createGain();
-
-    carrier.type = 'sawtooth';
-    carrier.frequency.value = 550;
-    lfo.type = 'sine';
-    lfo.frequency.value = 1.4;
-    lfoGain.gain.value = 70;     // ±70 Hz swing → 480..620 Hz
-
-    masterGain.gain.value = 0;
-    masterGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.05);
-
-    lfo.connect(lfoGain).connect(carrier.frequency);
-    carrier.connect(masterGain).connect(ctx.destination);
-    carrier.start();
-    lfo.start();
-
-    _klaxonStop = () => {
-      try {
-        masterGain.gain.cancelScheduledValues(ctx.currentTime);
-        masterGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.08);
-        setTimeout(() => { try { carrier.stop(); lfo.stop(); } catch (_) {} }, 100);
-      } catch (_) {}
-      _klaxonStop = null;
-    };
-  } catch (e) {
-    addLog && addLog(`Klaxon synth failed: ${e.message || e}`);
-  }
-}
-function _stopSynthKlaxon() { if (_klaxonStop) _klaxonStop(); }
-
-async function toggleRedAlert() {
-  // Optimistic UI flip — backend SSE will overwrite with truth on next tick.
-  // Read state from BOTH the body class and the manual flag so the toggle
-  // is always correct even if the SSE and the button race.
-  const on = !(document.body.classList.contains('red-alert'));
-  document.body.classList.toggle('red-alert', on);
-  const btn = document.getElementById('red-alert-btn');
-  if (btn) btn.classList.toggle('active', on);
-  if (btn) btn.textContent = on ? 'STAND DOWN' : 'RED ALERT';
-  // Record the timestamp so the SSE guard knows not to re-engage for 2s.
-  if (!on) { window._standDownSentAt = Date.now(); }
-
-  // Sound: prefer the MP3 if it actually loaded; otherwise fall back to the
-  // synthesized klaxon so red alert always makes noise even without the asset.
-  const audio = document.getElementById('red-alert-audio');
-  const haveMp3 = audio && audio.readyState >= 2 && !isNaN(audio.duration);
-  if (on) {
-    if (haveMp3) {
-      try { audio.currentTime = 0; audio.loop = true; await audio.play(); }
-      catch (_) { _startSynthKlaxon(); }
-    } else {
-      _startSynthKlaxon();
-    }
-  } else {
-    if (haveMp3) { try { audio.pause(); } catch (_) {} }
-    _stopSynthKlaxon();
-  }
-
-  try {
-    await fetch(`${API_BASE}/red_alert`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ on }),
-    });
-  } catch (e) {
-    addLog(`Red Alert request failed: ${e.message || e}`);
-  }
-}
-
 // ── Power Core breach popup — fires once per breach episode ──
 // Server sets power_core.popup_pending=true on the rising-edge crossing
 // of the 10%-health threshold. We display the modal exactly once and
-// ack the server so it doesn't re-send. Closing the modal is a no-op
-// for red alert state — only the manual Red Alert button clears that.
+// ack the server so it doesn't re-send.
 function _showEngineCoreBreach(wc) {
   const modal = document.getElementById('engine-core-breach-modal');
   if (!modal || !modal.hidden) return;        // already shown

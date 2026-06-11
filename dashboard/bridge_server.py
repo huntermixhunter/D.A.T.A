@@ -5664,19 +5664,6 @@ def stream_voice_pipeline(audio_bytes: bytes, suffix: str, send_sse,
         send_sse('interrupt', json.dumps({"reason": "computer-stop"}))
         return
 
-    # Voice commands: "red alert" engages, "stand down" / "all clear" /
-    # "cancel red alert" clears. Mirrors the /chat_stream phrase triggers
-    # so conversation-mode voice works the same as typed/dictated chat.
-    if re.search(
-        r"\b(?:stand[\s\-]?down|all[\s\-]?clear|(?:cancel|clear|end|cease)[\s\-]+red[\s\-]?alert|red[\s\-]?alert[\s\-]+off)\b",
-        user_text, re.IGNORECASE,
-    ):
-        set_red_alert(False)
-        log.info("[stream-voice] red alert cleared by stand-down phrase")
-    elif re.search(r"\bred[\s\-]?alert\b", user_text, re.IGNORECASE):
-        set_red_alert(True)
-        log.info("[stream-voice] red alert engaged by voice phrase")
-
     # Tell the dashboard which officer is answering — authoritative, so the
     # status band / transcript label come from the bridge, not a client guess.
     send_sse('crew', json.dumps({"voice": voice, "name": crew_display_name(voice)}))
@@ -6082,7 +6069,6 @@ def build_vitals() -> dict:
 
 _tool_results_window = collections.deque(maxlen=20)   # (name, ok, ts) tuples
 _llm_results_window  = collections.deque(maxlen=20)   # bool — last 20 LLM calls succeeded?
-_red_alert_manual   = False             # Captain-triggered Red Alert override
 _event_loop_lag_ms  = 0.0               # updated by sampler thread
 _token_velocity     = collections.deque(maxlen=40)   # (timestamp, char_count) pairs
 _gpu_stats_cache    = {"ts": 0.0, "util": 0, "mem_used_mb": 0, "mem_total_mb": 0, "temp_c": 0}
@@ -6242,7 +6228,7 @@ _start_dampeners_sampler()
 # Treats `used_tokens` (system prompt + history sent on the FIRST request of
 # a session, before prompt caching kicks in) as a proxy for engine-core
 # integrity. At the captured baseline → 100% health. At 2× baseline → 10%
-# health → automatic red alert + one-shot breach popup.
+# health → one-shot breach popup.
 _power_core_baseline_tokens   = 0
 _power_core_was_above_thresh  = True   # tracks crossings — popup fires once per breach episode
 _power_core_popup_pending     = False  # set on crossing; cleared by client /power_core/ack
@@ -6275,7 +6261,7 @@ _power_core_baseline_tokens = _load_power_core_baseline()
 
 def compute_power_core(used_tokens: int) -> dict:
     """Returns the current engine-core readout AND fires the breach popup +
-    red alert on the rising edge of the 10%-health crossing."""
+    the breach popup on the rising edge of the 10%-health crossing."""
     global _power_core_baseline_tokens, _power_core_was_above_thresh, _power_core_popup_pending
 
     # First-ever call snapshots a baseline against current usage.
@@ -6290,13 +6276,9 @@ def compute_power_core(used_tokens: int) -> dict:
 
     breached = health <= 10.0
     if breached and _power_core_was_above_thresh:
-        # Rising-edge crossing — fire the popup and force red alert.
+        # Rising-edge crossing — fire the popup.
         _power_core_was_above_thresh = False
         _power_core_popup_pending = True
-        try:
-            set_red_alert(True)
-        except Exception:
-            pass
     if not breached:
         _power_core_was_above_thresh = True
 
@@ -6326,7 +6308,7 @@ def power_core_reset(used_tokens: int) -> int:
     return _power_core_baseline_tokens
 
 
-# ── Auto red alert on critical thresholds ────────────────────
+# ── Critical-threshold tracking ────────────────────
 # Each metric: (trigger_value, recover_value). Hysteresis prevents
 # bouncing — once a breach fires we need value to drop to recover
 # before we'll fire again for the same metric.
@@ -6340,7 +6322,7 @@ _CRITICAL_THRESHOLDS = {
     # ram and engine_load are deliberately omitted — both routinely sit near
     # 95-100% whenever DATA is working hard (voice models resident, LLM
     # inference, TTS). That is normal operation, not an emergency, so neither
-    # auto-triggers Red Alert. CPU/GPU temp, disk, and battery still do.
+    # is logged as critical. CPU/GPU temp, disk, and battery still do.
     "battery":     (7.0,  15.0),    # ≤7% on battery power
 }
 _CRITICAL_DIRECTIONS = {
@@ -6372,18 +6354,6 @@ def _check_critical(metric: str, value, label: str, unit: str = "") -> str:
     if in_breach and recovered:
         _critical_breach_state[metric] = False
     return ""
-
-
-def set_red_alert(on: bool) -> None:
-    global _red_alert_manual, _power_core_popup_pending
-    _red_alert_manual = bool(on)
-    if not on:
-        # Clearing red alert dismisses any pending breach popup so the
-        # next breach episode (after recovery) can fire its own. Also
-        # re-arm critical-threshold tracking so the next crossing fires.
-        _power_core_popup_pending = False
-        for k in _critical_breach_state:
-            _critical_breach_state[k] = False
 
 
 def build_ships_health() -> dict:
@@ -6469,17 +6439,15 @@ def build_ships_health() -> dict:
         except Exception:
             pass
 
-    # ── Auto red alert on critical-threshold crossings ──────
+    # ── Critical-threshold logging ──────────────────────────
     # Each check returns a reason string only on the rising-edge tick.
-    # If any reason fires, engage red alert and push the reasons through
-    # to the client so the dashboard can log what happened.
-    red_alert_reasons = []
+    critical_reasons = []
     for reason in (
         _check_critical("cpu_temp",    cpu_temp_c, "CPU temp",    "°C"),
         _check_critical("gpu_temp",    gpu_temp_c if gpu_temp_c else None, "GPU temp", "°C"),
         _check_critical("disk",        disk_used_pct, "Disk",     "%"),
         # ram + engine_load intentionally NOT checked — both sit near capacity
-        # under normal heavy load. Manual Red Alert + the other thresholds
+        # under normal heavy load. The other thresholds
         # (CPU/GPU temp, disk, battery) still apply.
         # Only fire battery alert when ON battery power. If the charger is
         # connected, the captain knows and an alert is just noise. The
@@ -6491,19 +6459,18 @@ def build_ships_health() -> dict:
         ),
     ):
         if reason:
-            red_alert_reasons.append(reason)
-    if red_alert_reasons:
-        set_red_alert(True)
-        log.warning(f"[critical] auto red alert: {'; '.join(red_alert_reasons)}")
+            critical_reasons.append(reason)
+    if critical_reasons:
+        log.warning(f"[critical] threshold crossed: {'; '.join(critical_reasons)}")
 
     # Shield is excluded from `worst` — it is RAM-derived and would otherwise
     # peg the ship red whenever memory sits near capacity (normal on this
     # box). Instead, a full shield collapse (RAM maxed) reds the ship itself.
     worst = min(hull, sif, damp)
-    if   _red_alert_manual or shields_down: alert = "red"
-    elif worst < 60:                        alert = "red"
-    elif worst < 90 or shield < 35:         alert = "yellow"
-    else:                                   alert = "green"
+    if   shields_down:              alert = "red"
+    elif worst < 60:                alert = "red"
+    elif worst < 90 or shield < 35: alert = "yellow"
+    else:                           alert = "green"
 
     return {
         # Real-time gauges (sparkline-friendly)
@@ -6536,10 +6503,6 @@ def build_ships_health() -> dict:
         "sif":    sif,
         "damp":   damp,
         "alert":  alert,
-        "red_alert_manual": _red_alert_manual,
-        # Populated only on the tick a threshold first crosses into the
-        # critical zone (rising edge). Empty list otherwise.
-        "red_alert_reasons": red_alert_reasons,
         "tunnel": _tunnel_healthy(),
     }
 
@@ -8204,13 +8167,6 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=_do_shutdown, daemon=True).start()
             return
 
-        elif path == "/red_alert":
-            # Manual Red Alert toggle from the System Health widget. Body: {"on": true|false}.
-            on = bool(data.get("on", True))
-            set_red_alert(on)
-            self._json({"red_alert": on})
-            return
-
         elif path == "/power_core/ack":
             # Client confirms it displayed the breach popup; stop pending it.
             power_core_ack()
@@ -8617,24 +8573,6 @@ class Handler(BaseHTTPRequestHandler):
                         f"any Claude option (API or CLI) in the model selector."
                     )}, 400)
                     return
-            # Voice-or-text command: "red alert" engages it; "stand down" /
-            # "all clear" / "cancel red alert" clears it. Detection runs
-            # before the LLM so the dashboard reacts immediately. Clear
-            # takes priority over engage if both phrases somehow appear.
-            stand_down_triggered = bool(re.search(
-                r"\b(?:stand[\s\-]?down|all[\s\-]?clear|(?:cancel|clear|end|cease)[\s\-]+red[\s\-]?alert|red[\s\-]?alert[\s\-]+off)\b",
-                message or "", re.IGNORECASE,
-            ))
-            red_alert_triggered = bool(re.search(
-                r"\bred[\s\-]?alert\b", message or "", re.IGNORECASE,
-            )) and not stand_down_triggered
-            if stand_down_triggered:
-                set_red_alert(False)
-                log.info("[chat_stream] red alert cleared by stand-down phrase")
-            elif red_alert_triggered:
-                set_red_alert(True)
-                log.info("[chat_stream] red alert engaged by chat phrase")
-
             log.info(f"/chat_stream message={message!r} pane_id={pane_id!r} provider={req_provider or '(default)'} attachments={len(attachments)} audio_transcribed={len(transcript_log_lines)}")
             mark_user_activity()
 
@@ -8694,13 +8632,6 @@ class Handler(BaseHTTPRequestHandler):
                     # — lets CLI providers (claude-cli, codex, gemini) trigger
                     # the spawn even though they don't see our structured tools.
                     filtered_sse = _marker_filter_sse(send_sse)
-                    # If the captain just engaged red alert via voice/chat,
-                    # surface that fact in the thinking stream so the UI
-                    # acknowledges the trigger before the LLM responds.
-                    if red_alert_triggered:
-                        filtered_sse('thinking', "*🚨 Red alert engaged.*")
-                    if stand_down_triggered:
-                        filtered_sse('thinking', "*🟢 Stand down — red alert cleared.*")
                     # Surface any audio transcripts the HTTP layer produced
                     # as thinking lines, so the user sees what Whisper heard
                     # before the LLM starts streaming.

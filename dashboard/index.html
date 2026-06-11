@@ -137,11 +137,6 @@
               <div class="bar-track"><div class="bar-fill orange" id="damp-bar" style="width:100%"></div></div>
             </div>
           </div>
-          <button id="red-alert-btn" class="data-btn-sm" onclick="toggleRedAlert()"
-                  title="Manual Red Alert — flash the bridge and sound the klaxon."
-                  style="width:100%;margin-top:6px;background:#5a0d0d;color:#ffb0b0;">
-            RED ALERT
-          </button>
           <div class="status-row" style="margin-top:6px;">
             <span class="status-label">UPTIME</span>
             <span class="status-indicator" id="vitals-uptime">—</span>
@@ -733,14 +728,10 @@
       <div class="engine-core-breach-body">
         Uncached prompt has crossed <span id="engine-core-breach-tokens">—</span> tokens
         (<span id="engine-core-breach-pct">—</span>% core health).<br/>
-        Compact memory or trim conversation history to restore integrity.<br/>
-        <em>Red alert engaged. Dismissing this notice will not stand down the alert.</em>
+        Compact memory or trim conversation history to restore integrity.
       </div>
     </div>
   </div>
-
-  <!-- ── Red Alert klaxon (graceful no-op if file missing) ────── -->
-  <audio id="red-alert-audio" src="sounds/red_alert.mp3" preload="auto"></audio>
 
   <script>
     // Theme bootstrap — runs before app.js to avoid flash-of-wrong-theme
