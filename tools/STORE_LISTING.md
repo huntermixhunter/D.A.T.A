@@ -58,8 +58,8 @@ Everything runs on your computer. No telemetry, no cloud, no accounts with us. Y
 Download the zip, unzip it, and open INSTALL.txt for a 5-minute setup. Verify your download with the SHA-256 below.
 
 ## File integrity (publish on the page)
-DATA-v1.0.5.zip
-SHA-256: 1c84253ca2bb9575b7e33f984b49ae6a324e155d4804b5458178b0b72038ac28
+DATA-v1.0.6.zip
+SHA-256: 8e70f9a965244339619c95e1df0aec62f4f4826f0818266d6f06969af076695f
 
 ## License key
 Enable Lemon Squeezy license-key generation. (DATA does not enforce keys yet — this just issues a unique key per buyer so enforcement can be added later without orphaning early customers.)
@@ -72,7 +72,7 @@ ai, dashboard, productivity, developer-tools, self-hosted, claude, llm, desktop-
 ## Setup steps in Lemon Squeezy (do these in the browser)
 1. Create account at lemonsqueezy.com → create your Store (business name, country).
 2. Add payout details (bank / where the money lands).
-3. New Product → Digital download → upload `dist\DATA-v1.0.5.zip`.
+3. New Product → Digital download → upload `dist\DATA-v1.0.6.zip`.
 4. Paste the name, descriptions, price ($39), and requirements from above.
 5. Turn ON license-key generation.
 6. Paste the SHA-256 into the description; set the post-purchase delivery note.
