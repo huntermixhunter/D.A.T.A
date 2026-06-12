@@ -1034,6 +1034,8 @@ async function sendMessage() {
   // Allow sending with only attachments (no text) — like ChatGPT/Gemini.
   if (!text && mainBucket.length === 0) return;
 
+  _mainChatUsed = true;
+
   // Snapshot + clear the staged attachments now so a fast second submit
   // can't double-send them.
   const attachments = mainBucket.splice(0);
@@ -2882,7 +2884,12 @@ async function renderDocsGraph() {
 function openDocsProject(path, name) {
   playDataSound('engage');
   addLog(`Opening project: ${name}`);
-  openProjectWorkspace(path, { forceNewPane: true });
+  // A pristine main channel (no project attached, nothing sent yet) adopts
+  // the first DOCUMENTS click — the main window re-roots to that folder
+  // instead of spawning a second pane. Once the main chat has been used or
+  // a project already owns it, every click opens a new window as before.
+  const adoptMain = !_mainProjectSet && !_mainChatUsed;
+  openProjectWorkspace(path, { forceNewPane: !adoptMain });
 }
 
 // Refresh whichever matrix sub-tab is currently active.
@@ -6116,6 +6123,10 @@ async function systemShutdown() {
 
 let _wsCounter = 0;
 let _mainProjectSet = false;
+// True once the user has sent anything through the main channel this
+// session. A pristine main chat lets the first DOCUMENTS project click
+// re-root the main window instead of spawning a second pane.
+let _mainChatUsed = false;
 const _workspaces = new Map();  // wsId → { path, name, isThinking, projectNodes, isMain, provider }
 
 // ── Per-window provider dropdown ────────────────────────────
@@ -6360,8 +6371,9 @@ async function openProjectWorkspace(path, opts = {}) {
   // forceNewPane: the caller is an explicit "open a new window/tab" action
   // (the matrix + button, or Data's spawn_workspaces marker). Those must
   // ALWAYS create a separate pane — never silently adopt the main channel,
-  // which the Captain reads as "you re-rooted my current window". Only the
-  // project_rooted fallback (re-root with no main yet) is allowed to adopt.
+  // which the Captain reads as "you re-rooted my current window". Adoption
+  // is allowed only for the project_rooted fallback (re-root with no main
+  // yet) and a DOCUMENTS click on a pristine main chat (openDocsProject).
   const forceNewPane = opts.forceNewPane === true;
   const wsId = ++_wsCounter;
   const name = path.split(/[/\\]/).pop() || `PROJECT ${wsId}`;
