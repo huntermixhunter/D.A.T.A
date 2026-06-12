@@ -65,7 +65,21 @@ $python bridge_server.py
 Set-Content -Path "$root\start_data.bat" -Value $launcher -Encoding ascii
 Write-Host "  [OK] Launcher written: start_data.bat"
 
+# 6. Desktop shortcut with the DATA icon
+try {
+    $ws  = New-Object -ComObject WScript.Shell
+    $lnk = $ws.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\DATA.lnk")
+    $lnk.TargetPath       = "$root\start_data.bat"
+    $lnk.WorkingDirectory = $root
+    $lnk.IconLocation     = "$root\dashboard\favicon.ico"
+    $lnk.Description      = "DATA - Dashboard for Analytical Thought and Action"
+    $lnk.Save()
+    Write-Host "  [OK] Desktop shortcut created: DATA"
+} catch {
+    Write-Host "  [!!] Could not create a desktop shortcut - use start_data.bat directly." -ForegroundColor Yellow
+}
+
 Write-Host ""
-Write-Host "  Done. Run start_data.bat to launch DATA." -ForegroundColor Green
+Write-Host "  Done. Run start_data.bat (or the DATA desktop shortcut) to launch." -ForegroundColor Green
 Write-Host "  Dashboard: http://localhost:7777"
 Write-Host ""

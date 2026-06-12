@@ -71,6 +71,22 @@ EOF
 chmod +x "$ROOT/start_data.sh"
 echo "  [OK] Launcher written: start_data.sh"
 
+# 6. App-menu launcher with the DATA icon (Linux / ChromeOS)
+if [ "$(uname -s)" = "Linux" ]; then
+    mkdir -p "$HOME/.local/share/applications"
+    cat > "$HOME/.local/share/applications/data-dashboard.desktop" <<DESK
+[Desktop Entry]
+Type=Application
+Name=DATA
+Comment=Dashboard for Analytical Thought and Action
+Exec=$ROOT/start_data.sh
+Icon=$ROOT/dashboard/assets/icon-256.png
+Terminal=false
+Categories=Utility;Development;
+DESK
+    echo "  [OK] App launcher installed - find DATA in your application menu"
+fi
+
 echo ""
 echo "  Done. Run ./start_data.sh to launch DATA."
 echo "  Dashboard: http://localhost:7777"
