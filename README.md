@@ -75,6 +75,10 @@ bash install/install.sh
 The dashboard opens at **http://localhost:7777**. (Not technical? See
 [INSTALL.txt](INSTALL.txt) for a plain-language walkthrough.)
 
+Once it's running, the [Dashboard Guide](DASHBOARD_GUIDE.md) covers how to actually
+drive it — talking to the main channel, customizing the UI by conversation, and
+having DATA rewrite its own source to add features and capabilities.
+
 ## Connect your AI
 
 DATA doesn't need API keys. The bridge drives whichever AI CLIs are installed on
