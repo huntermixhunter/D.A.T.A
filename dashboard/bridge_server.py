@@ -108,6 +108,7 @@ def _do_shutdown():
     ps_script = r"""
 $patterns = @(
     'watchdog\.py',
+    'supervisor\.py',
     'bridge_server\.py',
     'dashboard_server\.py',
     'http\.server',
@@ -145,6 +146,41 @@ foreach ($p in 7777, 8888) {
             timeout=3, capture_output=True
         )
 
+    os._exit(0)
+
+
+def _do_reboot():
+    """Restart the bridge in place — used by the dashboard REBOOT button's
+    fallback path (POST /reboot) and by any host without the supervisor.
+
+    Two mechanisms, picked by platform / env:
+      - Linux / systemd: exit non-zero and let the service (Restart=always)
+        respawn a fresh process. Set DATA_REBOOT_MODE=exit to force this.
+      - Windows desktop: re-exec in place — spawn a fresh detached, window-less
+        bridge, then exit. The new process binds :7777 as this one releases it.
+        (On the desktop the REBOOT button normally goes through the supervisor
+        on :7766; this is the fallback for a wedged-but-alive bridge.)
+    """
+    time.sleep(0.4)
+    mode = os.environ.get("DATA_REBOOT_MODE", "").strip().lower()
+    log.info(f"[REBOOT] Bridge restart requested (platform={sys.platform}, mode={mode or 'auto'})")
+
+    if mode == "exit" or (mode != "respawn" and os.name != "nt"):
+        os._exit(1)
+
+    try:
+        subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__)],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        log.info("[REBOOT] Replacement bridge spawned — exiting current process")
+    except Exception as e:
+        log.warning(f"[REBOOT] respawn failed ({e}) — exiting anyway")
     os._exit(0)
 
 
@@ -1697,6 +1733,24 @@ def _load_soul(mode: str = "api") -> str:
         f"new directory — the dashboard already shows the file tree to the Captain. Confirm "
         f"in ONE short line which folder you are now rooted in, then end your turn. The "
         f"Captain will tell you what to actually do in the new folder on the next turn.\n\n"
+        f"## ASK THE CAPTAIN WITH CLICKABLE OPTIONS — ask_options\n"
+        f"When a decision is genuinely the Captain's to make and you would otherwise "
+        f"have to guess — a fork between real alternatives, a missing parameter, a "
+        f"which-one/which-way choice — DON'T bury the question in prose and stall. "
+        f"Put your brief reasoning in your normal voice, then emit an "
+        f"`<<ask_options>>...<</ask_options>>` marker. The dashboard renders the "
+        f"options as clickable buttons right in the chat; whichever the Captain taps "
+        f"(or types himself) arrives as his next message, so you can continue.\n\n"
+        f"Marker syntax (literal tags wrapping a JSON object with a `question` string "
+        f"and an `options` array of 2–6 short labels):\n\n"
+        f'<<ask_options>>{{"question":"Which database should I wire up?","options":["Postgres (recommended)","SQLite","MongoDB"]}}<</ask_options>>\n\n'
+        f"Rules: keep each option a few words; put the recommended choice first and "
+        f"mark it `(recommended)`; the Captain always has a free-text 'Other…' escape "
+        f"so you never need an 'or something else' option. **STOP after the marker** — "
+        f"it ends your turn; the Captain's pick comes on the next turn. Use this "
+        f"sparingly: only when his answer actually changes what you do next, not for "
+        f"choices with an obvious default (just proceed and say what you chose). Put "
+        f"any explanation BEFORE the marker — text after it is dropped.\n\n"
         f"## RECALLING PAST CONVERSATIONS — search_history\n"
         f"You only see the last 20 turns of the active project pane verbatim. Every turn "
         f"older than that — and every turn from every OTHER pane — lives in the permanent "
@@ -3138,18 +3192,56 @@ def _handle_create_standing_order_marker(payload):
     _push_ui_event("standing_order_created", {"id": new_id, "name": order["name"]})
 
 
+def _handle_ask_options_marker(payload):
+    """LLM emitted an <<ask_options>> marker — surface a clickable question in
+    the chat pane the request came from. The Captain clicks an option (or types
+    his own) and that becomes the next message. Lets the assistant branch on a
+    decision mid-conversation instead of guessing."""
+    if not isinstance(payload, dict):
+        log.warning("[marker] ask_options payload not a dict")
+        return
+    question = (payload.get("question") or "").strip()
+    raw_opts = payload.get("options")
+    if not question or not isinstance(raw_opts, list) or not raw_opts:
+        log.warning("[marker] ask_options missing question/options")
+        return
+    # Normalize: strings only, trimmed, deduped, capped (length + count) so the
+    # UI stays tidy and a runaway model can't flood the pane with buttons.
+    options = []
+    for o in raw_opts:
+        s = str(o).strip()
+        if s and s not in options:
+            options.append(s[:120])
+        if len(options) >= 6:
+            break
+    if not options:
+        log.warning("[marker] ask_options had no usable options")
+        return
+    # Originating pane key (set by _bind_history on this request thread) so the
+    # option card lands in the window the Captain is talking in — mirrors the
+    # set_project_path marker. Empty for background callers → frontend uses main.
+    src_pane_key = getattr(_history_state, "key", "") or ""
+    _push_ui_event("ask_options", {
+        "question": question[:400],
+        "options":  options,
+        "pane":     src_pane_key,
+    })
+    log.info(f"[marker] ask_options queued ({len(options)} option(s)) pane={src_pane_key!r}")
+
+
 # Map marker name → handler. Used by _marker_filter_sse to intercept tool calls
 # emitted as text markers by CLI providers that don't see our structured TOOLS list.
 _MARKER_HANDLERS = {
     "spawn_workspaces":      _handle_spawn_workspaces_marker,
     "create_standing_order": _handle_create_standing_order_marker,
     "set_project_path":      _handle_set_project_path_marker,
+    "ask_options":           _handle_ask_options_marker,
 }
 # Markers that "end the turn" — once they fire, any further LLM tokens are
 # irrelevant noise (the model has done what was asked). The filter suppresses
 # all token output after one of these dispatches so the Captain doesn't see
 # runaway exploration ("let me also check…") after a one-shot operation.
-_TERMINAL_MARKERS = {"set_project_path"}
+_TERMINAL_MARKERS = {"set_project_path", "ask_options"}
 _MAX_MARKER_TAG_LEN = max(len(f"<<{n}>>") for n in _MARKER_HANDLERS)
 
 def _marker_filter_sse(downstream):
@@ -8165,6 +8257,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/shutdown":
             self._json({"shutting_down": True})
             threading.Thread(target=_do_shutdown, daemon=True).start()
+            return
+
+        elif path == "/reboot":
+            # Restart the bridge in place. The REBOOT button hits the supervisor
+            # on :7766 first; this endpoint is its fallback (Linux/systemd, or a
+            # wedged-but-alive bridge). See _do_reboot for the mechanism.
+            self._json({"ok": True, "rebooting": True})
+            threading.Thread(target=_do_reboot, daemon=True).start()
             return
 
         elif path == "/power_core/ack":

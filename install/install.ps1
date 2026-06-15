@@ -55,12 +55,18 @@ if (-not (Test-Path "$root\.env")) {
 }
 
 # 5. Write the launcher
+# Starts the supervisor (port 7766), which spawns the bridge (port 7777) and
+# stays alive to handle the dashboard's REBOOT button — so DATA can be brought
+# back online from the page without closing the open windows. Stale instances on
+# either port are cleared first so a relaunch always gets a clean start.
 $launcher = @"
 @echo off
 title DATA-LaunchControl
 cd /d "%~dp0dashboard"
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :7777 ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :7766 ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
 start "" http://localhost:7777
-$python bridge_server.py
+$python supervisor.py
 "@
 Set-Content -Path "$root\start_data.bat" -Value $launcher -Encoding ascii
 Write-Host "  [OK] Launcher written: start_data.bat"

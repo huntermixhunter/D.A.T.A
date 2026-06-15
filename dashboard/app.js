@@ -5505,6 +5505,7 @@ async function fetchVitals() {
     document.getElementById('vitals-memory').textContent = v.memory_kb;
     document.getElementById('skill-pct').textContent     = `${v.api_tools}+${v.claude_skills}`;
     document.getElementById('vitals-status').textContent = 'ONLINE';
+    document.getElementById('reboot-btn')?.classList.remove('reboot-attention');
 
     // (Left sidebar HISTORY/MEMORY bars were replaced by SYSTEM HEALTH —
     // live-updated from /vitals_fast SSE in subscribeShipsHealth(). The
@@ -5515,6 +5516,9 @@ async function fetchVitals() {
     loadProviders();
   } catch (e) {
     document.getElementById('vitals-status').textContent = 'OFFLINE';
+    // Surface the recovery path: pulse the REBOOT button so the user knows how
+    // to bring the bridge back without closing the dashboard.
+    if (!_rebooting) document.getElementById('reboot-btn')?.classList.add('reboot-attention');
   }
   fetchMemoryStats();  // independent endpoint, separate try/catch
 }
@@ -6115,6 +6119,94 @@ async function systemShutdown() {
   btn.textContent = 'OFFLINE';
   addLog('System offline');
   window.close();
+}
+
+// ── System Reboot ─────────────────────────────────────────
+// Brings the bridge back online WITHOUT closing the dashboard windows. The
+// bridge serves this very page on :7777, so when it dies the page can't
+// relaunch it. The supervisor (supervisor.py) is a tiny always-on process on
+// :7766 whose only job is to (re)start the bridge — the REBOOT button hits the
+// supervisor, then waits for :7777 to answer again and refreshes the panes.
+// Falls back to the bridge's own /reboot endpoint (Linux/systemd, or a wedged-
+// but-alive bridge). Localhost target so reboot works from this machine.
+const SUPERVISOR_BASE = 'http://127.0.0.1:7766';
+let _rebooting = false;
+
+async function systemReboot() {
+  if (_rebooting) return;
+  const btn = document.getElementById('reboot-btn');
+
+  const looksOnline = document.getElementById('vitals-status')?.textContent === 'ONLINE';
+  if (looksOnline && !confirm('Restart the DATA bridge now? This relaunches the server and ends any in-flight reply. Your open windows stay open.')) {
+    return;
+  }
+
+  _rebooting = true;
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.classList.remove('reboot-attention');
+  btn.textContent = '⟳ REBOOTING…';
+  addLog('Reboot requested — relaunching bridge');
+
+  // 1. Supervisor first (desktop). If unreachable, fall back to the bridge's
+  //    own /reboot (droplet/systemd, or a wedged-but-alive bridge).
+  let issued = false;
+  try {
+    await fetch(`${SUPERVISOR_BASE}/reboot`, { method: 'POST' });
+    issued = true;
+  } catch (e) {
+    try {
+      await fetch(`${API_BASE}/reboot`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      issued = true;
+    } catch (e2) { /* both failed — handled below */ }
+  }
+
+  if (!issued) {
+    _rebooting = false;
+    btn.disabled = false;
+    btn.textContent = original;
+    addLog('Reboot could not be issued (supervisor :7766 and bridge both unreachable)');
+    appendMessage('data',
+      'I could not reach a reboot service, Captain. On the desktop the supervisor runs ' +
+      'on `127.0.0.1:7766` and starts with the bridge — if this session predates it, ' +
+      'relaunch via **start_data.bat** (or the DATA desktop shortcut) to enable one-click ' +
+      'reboot. If the bridge process is fully stopped, it must be started from outside the browser.');
+    return;
+  }
+
+  // 2. Poll /health (same-origin) until the fresh bridge answers. Cap ~60s.
+  setStatus('REBOOTING BRIDGE…');
+  const deadline = Date.now() + 60000;
+  let back = false;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+      if (res.ok) { back = true; break; }
+    } catch (_) { /* still down — keep polling */ }
+  }
+
+  _rebooting = false;
+  btn.disabled = false;
+
+  if (back) {
+    btn.textContent = '✓ BACK ONLINE';
+    addLog('Bridge back online');
+    playDataSound('engage');
+    setStatus('BRIDGE ONLINE');
+    try { fetchVitals(); } catch (_) {}
+    try { subscribeShipsHealth(); } catch (_) {}
+    try { _pollUiEvents(); } catch (_) {}
+    setTimeout(() => { btn.textContent = '⟳ REBOOT BRIDGE'; }, 4000);
+  } else {
+    btn.textContent = '⟳ REBOOT BRIDGE';
+    setStatus('REBOOT TIMED OUT');
+    addLog('Bridge did not come back within 60s');
+    appendMessage('data',
+      'The bridge did not answer within 60 seconds, Captain. The relaunch was issued — ' +
+      'check `bridge.log` for a startup error, or try once more.');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -6979,9 +7071,98 @@ function _handleUiEvent(evt) {
     // affected main — otherwise we'd overwrite main's tree with a secondary
     // pane's nodes.
     if (targetIsMain && Array.isArray(p.nodes)) renderProjectMiniMatrix(p.nodes, newPath);
+  } else if (evt.type === 'ask_options') {
+    _renderAskOptions(evt.payload || {});
   } else {
     addLog(`Unknown UI event: ${evt.type}`);
   }
+}
+
+// ── ask_options — the assistant poses a clickable choice in the chat ──
+// Emitted via an <<ask_options>> marker when a decision is the Captain's to
+// make; the bridge forwards it here. We render the question with option
+// buttons in the pane that asked. Tapping one (or typing via "Other…") sends
+// it as the Captain's next message, so the conversation continues in place.
+function _renderAskOptions(payload) {
+  const question = (payload.question || '').trim();
+  const options  = Array.isArray(payload.options) ? payload.options : [];
+  if (!question || !options.length) return;
+
+  // Resolve which chat window asked — mirror the project_rooted pane matching
+  // so the card lands in the right pane, falling back to the main window.
+  const paneKey = (payload.pane || '').toLowerCase();
+  let targetWsId = null, targetWs = null;
+  if (paneKey) {
+    for (const [id, w] of _workspaces.entries()) {
+      const wsPath = (w.path || '').toLowerCase();
+      const base   = w.isMain ? 'main' : `ws${id}`;
+      const wsKey  = `${wsPath}::${_paneId(base).toLowerCase()}`;
+      if (paneKey === wsKey || paneKey === wsPath) { targetWsId = id; targetWs = w; break; }
+    }
+  }
+  if (!targetWs) {
+    for (const [id, w] of _workspaces.entries()) { if (w.isMain) { targetWsId = id; targetWs = w; break; } }
+  }
+  const targetIsMain = !!targetWs?.isMain;
+  const paneWin = (targetWsId != null && !targetIsMain)
+    ? document.getElementById(`chat-win-ws${targetWsId}`) : null;
+  const chatWin = paneWin || document.getElementById('chat-window');
+  if (!chatWin) return;
+
+  playDataSound('doorbell');
+
+  const crewId = targetIsMain ? MAIN_CHAT_CREW : (targetWs?.crew || MAIN_CHAT_CREW);
+  const card = document.createElement('div');
+  card.className = 'chat-message data ask-options-card';
+  const optBtns = options.map((o, i) =>
+    `<button class="ask-opt-btn" data-idx="${i}">${escapeHtml(o)}</button>`).join('');
+  card.innerHTML = `
+    <div class="avatar">${_crewAvatar(crewId)}</div>
+    <div class="bubble ask-options-bubble">
+      <div class="ask-options-q">${escapeHtml(question)}</div>
+      <div class="ask-options-row">
+        ${optBtns}
+        <button class="ask-opt-btn ask-opt-other">✎ Other…</button>
+      </div>
+    </div>`;
+
+  card.querySelectorAll('.ask-opt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (card.classList.contains('answered')) return;
+      if (btn.classList.contains('ask-opt-other')) {
+        _focusPaneInput(targetWsId, targetIsMain);
+        return;
+      }
+      _answerAskOptions(card, options[parseInt(btn.dataset.idx, 10)], targetWsId, targetIsMain);
+    });
+  });
+
+  const wasPinned = _isPinnedToBottom(chatWin);
+  chatWin.appendChild(card);
+  if (wasPinned) chatWin.scrollTop = chatWin.scrollHeight;
+  addLog(`Asking: ${question.substring(0, 40)}…`);
+}
+
+function _answerAskOptions(card, choice, wsId, isMain) {
+  card.classList.add('answered');
+  card.querySelectorAll('.ask-opt-btn').forEach(b => {
+    b.disabled = true;
+    if (b.textContent === choice) b.classList.add('chosen');
+  });
+  if (isMain || wsId == null) {
+    const input = document.getElementById('chat-input');
+    if (input) input.value = choice;
+    sendMessage();
+  } else {
+    const input = document.getElementById(`pane-input-ws${wsId}`);
+    if (input) input.value = choice;
+    sendProjectMessage(wsId);
+  }
+}
+
+function _focusPaneInput(wsId, isMain) {
+  const id = (isMain || wsId == null) ? 'chat-input' : `pane-input-ws${wsId}`;
+  document.getElementById(id)?.focus();
 }
 
 async function _spawnWorkspacesFromEvent(specs) {

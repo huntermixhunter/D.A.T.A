@@ -277,6 +277,59 @@ html, body {
 }
 
 /* ── DATA Buttons ──────────────────────────────────────── */
+/* REBOOT button calls for attention when the bridge goes OFFLINE — a blue
+   pulse so the user sees the one-click recovery path. */
+@keyframes pulse-reboot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(102,178,255,0.55); }
+  50%      { box-shadow: 0 0 0 7px rgba(102,178,255,0); }
+}
+#reboot-btn.reboot-attention {
+  animation: pulse-reboot 1.4s ease-out infinite;
+  border-color: #66b2ff !important;
+}
+
+/* ask_options — the assistant's clickable choice card in the chat stream. */
+.ask-options-bubble {
+  border: 1px solid var(--data-orange, #ff9c00);
+  border-left-width: 4px;
+  background: rgba(255, 156, 0, 0.06);
+}
+.ask-options-q {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 10px;
+  color: var(--data-text, #e8e8e8);
+}
+.ask-options-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.ask-opt-btn {
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 7px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--data-blue, #6fa8ff);
+  background: rgba(111, 168, 255, 0.10);
+  color: var(--data-blue, #9cc4ff);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.05s;
+}
+.ask-opt-btn:hover:not(:disabled) { background: var(--data-blue, #6fa8ff); color: #04101f; }
+.ask-opt-btn:active:not(:disabled) { transform: translateY(1px); }
+.ask-opt-btn.ask-opt-other {
+  border-color: var(--data-text-dim, #8aa);
+  color: var(--data-text-dim, #9ab);
+  background: transparent;
+}
+.ask-opt-btn:disabled { cursor: default; opacity: 0.5; }
+.ask-opt-btn.chosen {
+  background: var(--data-orange, #ff9c00);
+  border-color: var(--data-orange, #ff9c00);
+  color: #1a0f00;
+  opacity: 1;
+  font-weight: 600;
+}
+.ask-options-card.answered .ask-opt-btn:not(.chosen) { opacity: 0.35; }
+
 .data-btn {
   display: block;
   width: 100%;
