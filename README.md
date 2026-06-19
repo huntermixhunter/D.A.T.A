@@ -53,8 +53,14 @@ Linux container — see below).
 ```powershell
 git clone https://github.com/huntermixhunter/D.A.T.A.git
 cd DATA
-.\install\install.ps1
+.\install\install.bat
 ```
+
+**Double-click `install\install.bat`** (or run the line above). Do **not** double-click
+`install.ps1` directly — Windows blocks unsigned scripts and the window will flash and
+close before you can read anything. The `.bat` wrapper bypasses that and pauses on exit so
+you can always see what happened. (Prerequisite: install **Python 3.10+** from
+python.org first, checking **"Add python.exe to PATH"**.)
 
 The installer asks **"Add a DATA icon to your desktop? [Y/n]"** — press **Enter**
 for yes. Then just **double-click the DATA icon** to launch (it runs
