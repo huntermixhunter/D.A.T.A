@@ -4866,6 +4866,9 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
         soul_file.write(soul_cli); soul_file.close()
         log.info(f"[CLI] subprocess starting — model=claude-opus-4-8 prompt_len={len(prompt)} exe={claude_exe}")
         cli_env = {k: v for k, v in os.environ.items() if k != 'ANTHROPIC_API_KEY'}
+        # Silence Node's DEP0169 (url.parse) and other deprecation warnings the
+        # bundled CLI emits on newer Node runtimes; preserve any user NODE_OPTIONS.
+        cli_env["NODE_OPTIONS"] = (cli_env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
         result = subprocess.run(
             [claude_exe, "--print", "--output-format", "text",
              "--model", "claude-opus-4-8",
@@ -4945,6 +4948,9 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     try:
         # Strip API key so claude CLI uses subscription auth, not API credits
         cli_env = {k: v for k, v in os.environ.items() if k != 'ANTHROPIC_API_KEY'}
+        # Silence Node's DEP0169 (url.parse) and other deprecation warnings the
+        # bundled CLI emits on newer Node runtimes; preserve any user NODE_OPTIONS.
+        cli_env["NODE_OPTIONS"] = (cli_env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
         # Resolve absolute path — pythonw.exe may not have ~/.local/bin in PATH
         claude_exe = _provider_executable(_current_provider_id()) or "claude"
         # SOUL is too long for Windows 32KB cmdline — write to temp file
@@ -5185,6 +5191,7 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
     full_input = soul + "\n\n---\n\n" + prompt  # codex has no --system-prompt; prepend persona
 
     env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY")}
+    env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
     send_sse('thinking', "*Codex Mode — invoking ChatGPT subscription*")
     log.info(f"[CODEX] subprocess starting prompt_len={len(full_input)}")
 
@@ -5331,6 +5338,7 @@ def ask_gemini_cli_stream(message: str, project_path: str, send_sse) -> None:
     full_input = soul + "\n\n---\n\n" + prompt
 
     env = {k: v for k, v in os.environ.items() if k not in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY")}
+    env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
     send_sse('thinking', "*Gemini Mode — invoking Google AI Studio*")
     log.info(f"[GEMINI] subprocess starting prompt_len={len(full_input)}")
 
@@ -7222,6 +7230,7 @@ def _compact_memory_file() -> dict:
     cli = _provider_executable("claude-cli") or "claude"
     try:
         cli_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        cli_env["NODE_OPTIONS"] = (cli_env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
         # Opus over Sonnet here: compaction is rare (a few times/month) but the
         # cost of a bad rewrite is catastrophic (lost persistent memory). Opus
         # is materially better at multi-rule instruction following and verbatim
