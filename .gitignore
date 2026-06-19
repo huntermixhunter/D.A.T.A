@@ -9,6 +9,8 @@ dashboard/news_cache.json
 dashboard/og_image_cache.json
 dashboard/cloudflared.log
 dashboard/tunnel_url.txt
+dashboard/retail_bridge.out.log
+dashboard/retail_bridge.err.log
 
 # Secrets
 .env

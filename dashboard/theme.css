@@ -4831,3 +4831,69 @@ body.theme-cyberpunk .header-title .ship-name {
   letter-spacing: 0.12em;
   white-space: nowrap;
 }
+
+/* ════════════════════════════════════════════════════════════
+   AI CONNECTORS PANEL
+   ════════════════════════════════════════════════════════════ */
+.data-btn-sm.green { background: var(--data-green); color: #06210f; }
+.data-btn-sm.red   { background: var(--data-red);   color: #fff; }
+.provider-menu-add { opacity: 0.85; font-style: italic; border-top: 1px solid rgba(255,153,0,0.25); }
+
+.connectors-body { padding: 14px 18px; overflow-y: auto; flex: 1; min-height: 0; }
+.conn-section { margin-bottom: 22px; }
+.conn-section-label {
+  color: var(--data-orange); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.12em; margin-bottom: 10px; text-transform: uppercase;
+  border-bottom: 1px solid rgba(255,153,0,0.25); padding-bottom: 5px;
+}
+.conn-sub { color: var(--data-blue); font-weight: 400; font-size: 10px; letter-spacing: 0.05em; text-transform: none; }
+
+/* Hardware grid */
+.conn-hw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.conn-hw-cell {
+  background: #0a0a14; border: 1px solid rgba(153,153,255,0.25);
+  border-radius: 6px; padding: 8px 10px;
+}
+.conn-hw-k { color: var(--data-blue); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+.conn-hw-v { color: #e8e8ff; font-size: 13px; font-weight: 600; margin-top: 2px; word-break: break-word; }
+
+/* Cards */
+.conn-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.conn-card {
+  display: flex; align-items: center; gap: 12px;
+  background: #0a0a14; border: 1px solid rgba(255,153,0,0.22);
+  border-radius: 8px; padding: 11px 13px;
+}
+.conn-card-rec { border-color: var(--data-green); box-shadow: 0 0 14px rgba(68,255,136,0.18); }
+.conn-card-main { flex: 1; min-width: 0; }
+.conn-card-title { color: var(--data-yellow); font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.conn-card-blurb { color: #c8c8e0; font-size: 11px; margin-top: 3px; line-height: 1.35; }
+.conn-card-meta  { color: var(--data-blue); font-size: 10px; margin-top: 4px; letter-spacing: 0.04em; }
+.conn-card-meta code { background: rgba(153,153,255,0.15); padding: 1px 4px; border-radius: 3px; color: #d8d8ff; }
+.conn-card-action { flex-shrink: 0; display: flex; align-items: center; min-width: 84px; justify-content: flex-end; }
+
+/* Fit / status pills */
+.conn-pill {
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.08em;
+  padding: 2px 6px; border-radius: 4px; text-transform: uppercase; color: #06210f; white-space: nowrap;
+}
+.conn-pill.green  { background: var(--data-green);  color: #06210f; }
+.conn-pill.yellow { background: var(--data-yellow); color: #2a2000; }
+.conn-pill.orange { background: var(--data-orange); color: #2a1500; }
+.conn-pill.red    { background: var(--data-red);    color: #fff; }
+.conn-pill.teal   { background: var(--data-teal);   color: #052420; }
+.conn-pill.blue   { background: var(--data-blue);   color: #0a0a2a; }
+
+/* Inline install progress */
+.conn-progress { width: 130px; }
+.conn-progress-bar {
+  height: 6px; width: 0%; background: var(--data-orange);
+  border-radius: 3px; transition: width 0.4s ease;
+}
+.conn-progress-txt { display: block; font-size: 9px; color: var(--data-blue); margin-top: 3px; }
+.conn-warn {
+  grid-column: 1 / -1; background: rgba(255,153,0,0.08);
+  border: 1px solid rgba(255,153,0,0.35); border-radius: 6px;
+  padding: 9px 12px; color: var(--data-yellow); font-size: 11px;
+}
+.conn-warn a { color: var(--data-orange); }

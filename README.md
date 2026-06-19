@@ -56,7 +56,21 @@ cd DATA
 .\install\install.ps1
 ```
 
-Then double-click `start_data.bat` (or run it from a terminal).
+The installer asks **"Add a DATA icon to your desktop? [Y/n]"** — press **Enter**
+for yes. Then just **double-click the DATA icon** to launch (it runs
+`start_data.bat` and opens the dashboard for you).
+
+### After install — your DATA icon
+
+When the installer finishes, you'll have a **DATA** icon on your desktop:
+
+![DATA desktop icon](dashboard/assets/icon-256.png)
+
+**Double-click it** to start DATA — it launches the bridge and opens the dashboard
+at **http://localhost:7777** automatically. The same mark appears on your browser
+tab and in the taskbar while DATA is running. (Said *no* to the shortcut, or on
+Mac/Linux? Launch with `start_data.bat` / `./start_data.sh` from the DATA folder
+anytime — you can drag it to your dock or taskbar to pin it.)
 
 ### macOS / Linux
 
@@ -81,9 +95,11 @@ having DATA rewrite its own source to add features and capabilities.
 
 ## Connect your AI
 
-DATA doesn't need API keys. The bridge drives whichever AI CLIs are installed on
-your machine and **detects them automatically at startup** — you pick the active
-one from the provider dropdown in the dashboard's panel header.
+DATA doesn't need API keys. You manage every brain from the **AI Connectors** page in
+the dashboard, which **scans your hardware**, **recommends and installs a local model**
+that fits your machine, and **connects cloud providers** through subscriptions you
+already pay for. Whatever you connect there is exactly what the model menu on the main
+channel offers — no config files, no restart.
 
 | Provider | One-time setup | Billing |
 |----------|---------------|---------|
@@ -136,6 +152,8 @@ completely blank memory.
 - **Memory banks** — persistent per-user memory plus a searchable archive of every
   conversation
 - **Standing orders** — cron-scheduled AI tasks (reports, checks, refreshes)
+- **AI Connectors** — hardware scan, one-click local-model install (via Ollama), and
+  cloud-provider connect; populates the main-channel model menu live
 - **Neural Matrix** — a live node-graph of the system: skills, memory, crew
 - **System vitals** — engine gauge and subsystem bars driven by real CPU/RAM/GPU
   metrics, with a Master Systems Display

@@ -71,18 +71,33 @@ $python supervisor.py
 Set-Content -Path "$root\start_data.bat" -Value $launcher -Encoding ascii
 Write-Host "  [OK] Launcher written: start_data.bat"
 
-# 6. Desktop shortcut with the DATA icon
+# 6. Desktop shortcut with the DATA icon (opt-in)
+# Ask first so the user stays in control. Defaults to Yes on a bare Enter.
+# In a non-interactive run (no console), skip the prompt and create it anyway.
+$makeShortcut = $true
 try {
-    $ws  = New-Object -ComObject WScript.Shell
-    $lnk = $ws.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\DATA.lnk")
-    $lnk.TargetPath       = "$root\start_data.bat"
-    $lnk.WorkingDirectory = $root
-    $lnk.IconLocation     = "$root\dashboard\favicon.ico"
-    $lnk.Description      = "DATA - Dashboard for Analytical Thought and Action"
-    $lnk.Save()
-    Write-Host "  [OK] Desktop shortcut created: DATA"
+    if (-not [Environment]::UserInteractive) { throw "non-interactive" }
+    $answer = Read-Host "  Add a DATA icon to your desktop? [Y/n]"
+    if ($answer -and $answer.Trim().ToLower().StartsWith("n")) { $makeShortcut = $false }
 } catch {
-    Write-Host "  [!!] Could not create a desktop shortcut - use start_data.bat directly." -ForegroundColor Yellow
+    # No interactive console - keep the default (create the shortcut).
+}
+
+if ($makeShortcut) {
+    try {
+        $ws  = New-Object -ComObject WScript.Shell
+        $lnk = $ws.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\DATA.lnk")
+        $lnk.TargetPath       = "$root\start_data.bat"
+        $lnk.WorkingDirectory = $root
+        $lnk.IconLocation     = "$root\dashboard\favicon.ico"
+        $lnk.Description      = "DATA - Dashboard for Analytical Thought and Action"
+        $lnk.Save()
+        Write-Host "  [OK] Desktop shortcut created: DATA"
+    } catch {
+        Write-Host "  [!!] Could not create a desktop shortcut - use start_data.bat directly." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  [--] Skipped desktop shortcut - launch with start_data.bat anytime."
 }
 
 Write-Host ""

@@ -292,7 +292,7 @@ function showPanel(name) {
 
   document.getElementById(`panel-${name}`).classList.add('active');
 
-  const btnMap = { chat: 0, matrix: 1, orders: 2, briefing: 3 };
+  const btnMap = { chat: 0, matrix: 1, orders: 2, briefing: 3, connectors: 4 };
   const idx = btnMap[name];
   if (idx !== undefined) document.querySelectorAll('.data-btn')[idx].classList.add('active');
 
@@ -300,6 +300,7 @@ function showPanel(name) {
   if (name === 'matrix' && !matrixInitialized) initMatrix();
   if (name === 'orders') refreshStandingOrders();
   if (name === 'briefing') loadBriefing();
+  if (name === 'connectors') loadConnectors();
 }
 
 // ── Open a path in Windows Explorer ──────────────────────
@@ -5444,26 +5445,35 @@ async function loadProviders() {
     if (!menu) return;
     menu.innerHTML = '';
     let activeProvider = null;
-    for (const p of data.providers) {
+    // Selector shows ONLY connected/installed models. Discovery + install of
+    // new ones lives on the AI Connectors page.
+    const connected = data.providers.filter(p => p.available);
+    for (const p of connected) {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'provider-menu-item';
-      item.textContent = p.available ? p.label : `${p.label} — not installed`;
-      item.disabled = !p.available;
+      item.textContent = p.label;
       if (p.id === data.active) {
         item.classList.add('active');
         activeProvider = p;
       }
-      if (p.available) {
-        item.addEventListener('click', () => {
-          document.getElementById('provider-menu')?.classList.add('hidden');
-          setProvider(p.id);
-        });
-      } else if (p.install_hint) {
-        item.title = p.install_hint;
-      }
+      item.addEventListener('click', () => {
+        document.getElementById('provider-menu')?.classList.add('hidden');
+        setProvider(p.id);
+      });
       menu.appendChild(item);
     }
+    // Footer link into the connector manager
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'provider-menu-item provider-menu-add';
+    add.textContent = '+ Add / manage models…';
+    add.addEventListener('click', () => {
+      document.getElementById('provider-menu')?.classList.add('hidden');
+      showPanel('connectors');
+    });
+    menu.appendChild(add);
+    if (!activeProvider) activeProvider = connected.find(p => p.id === data.active) || null;
     // Sync the title-bar pill and the sidebar model line
     _updateProviderPill(activeProvider);
     _updateVitalsModelLine(activeProvider);
@@ -5492,6 +5502,216 @@ async function setProvider(providerId) {
   } catch (e) {
     addLog(`Provider switch error: ${e.message || e}`);
   }
+}
+
+// ══ AI Connectors ═══════════════════════════════════════════
+// Hardware scan → local-model catalog with fit badges → one-click install
+// (Ollama pull / CLI connector) → newly-installed models appear in the
+// model selector. Active install polls are tracked here.
+let _connectorsLoaded = false;
+const _installPolls = {};   // model/connector id → interval handle
+
+const _FIT_META = {
+  'fits':     { cls: 'green',  label: 'RUNS GREAT' },
+  'tight':    { cls: 'yellow', label: 'TIGHT FIT' },
+  'cpu':      { cls: 'orange', label: 'CPU / SLOW' },
+  'wont-fit': { cls: 'red',    label: "WON'T FIT" },
+};
+
+async function loadConnectors(force = false) {
+  const btn = document.getElementById('connectors-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'SCANNING…'; }
+  try {
+    // Force a fresh hardware read on explicit rescan
+    if (force) await fetch(`${API_BASE}/hardware?force=1`).catch(() => {});
+    const res  = await fetch(`${API_BASE}/llm/catalog`);
+    const data = await res.json();
+    _renderHardware(data.hardware);
+    _renderRecommendation(data);
+    _renderModels(data.models, data.ollama_installed);
+    _renderConnectors(data.connectors);
+    const pill = document.getElementById('connectors-active-pill');
+    if (pill) pill.textContent = (_lastKnownActiveProvider || '—').toUpperCase();
+    _connectorsLoaded = true;
+  } catch (e) {
+    addLog(`Connectors load failed: ${e.message || e}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'RESCAN'; }
+  }
+}
+
+function _renderHardware(hw) {
+  const el = document.getElementById('conn-hw-grid');
+  if (!el || !hw) return;
+  const cells = [
+    ['CPU',  hw.cpu || '—'],
+    ['CORES', (hw.cpu_cores != null ? `${hw.cpu_cores}c` : '—') + (hw.cpu_threads != null ? ` / ${hw.cpu_threads}t` : '')],
+    ['RAM',  hw.ram_total_gb ? `${hw.ram_total_gb} GB` : '—'],
+    ['FREE RAM', hw.ram_available_gb ? `${hw.ram_available_gb} GB` : '—'],
+    ['GPU',  hw.has_gpu ? (hw.gpu_name || 'GPU') : 'None detected'],
+    ['VRAM', hw.has_gpu ? `${hw.vram_total_gb} GB` : '—'],
+    ['OS',   `${hw.os || ''} ${hw.os_release || ''}`.trim() || '—'],
+    ['OLLAMA', hw.ollama_installed ? 'Installed ✓' : 'Not installed'],
+  ];
+  el.innerHTML = cells.map(([k, v]) =>
+    `<div class="conn-hw-cell"><div class="conn-hw-k">${k}</div><div class="conn-hw-v">${_esc(String(v))}</div></div>`
+  ).join('');
+}
+
+function _renderRecommendation(data) {
+  const sec  = document.getElementById('conn-rec-section');
+  const card = document.getElementById('conn-rec-card');
+  if (!sec || !card) return;
+  const rec = data.models.find(m => m.recommended);
+  if (!rec) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  const action = rec.installed
+    ? `<button class="data-btn-sm green" onclick="useModel('${rec.provider_id}')">USE NOW</button>`
+    : `<button class="data-btn-sm orange" id="install-btn-${_cssId(rec.model)}" onclick="installModel('${rec.model}')">INSTALL</button>`;
+  card.innerHTML = `
+    <div class="conn-card conn-card-rec">
+      <div class="conn-card-main">
+        <div class="conn-card-title">★ ${_esc(rec.label)} <span class="conn-pill ${_FIT_META[rec.fit]?.cls||'blue'}">${_FIT_META[rec.fit]?.label||rec.fit}</span></div>
+        <div class="conn-card-blurb">${_esc(rec.blurb)} — best fit for your ${data.hardware.has_gpu ? `${data.hardware.vram_total_gb} GB GPU` : 'CPU'}.</div>
+        <div class="conn-card-meta">${rec.params} · ${rec.size_gb} GB download</div>
+      </div>
+      <div class="conn-card-action" id="action-${_cssId(rec.model)}">${action}</div>
+    </div>`;
+}
+
+function _renderModels(models, ollamaInstalled) {
+  const el = document.getElementById('conn-models');
+  if (!el) return;
+  let head = '';
+  if (!ollamaInstalled) {
+    head = `<div class="conn-warn">Ollama is not installed — it runs local models for free.
+      <a href="https://ollama.com" target="_blank" rel="noopener">Download Ollama</a>, then click RESCAN.</div>`;
+  }
+  el.innerHTML = head + models.map(m => {
+    const fit = _FIT_META[m.fit] || { cls: 'blue', label: m.fit };
+    let action;
+    if (m.installed) {
+      action = `<button class="data-btn-sm green" onclick="useModel('${m.provider_id}')">USE</button>`;
+    } else if (m.fit === 'wont-fit') {
+      action = `<button class="data-btn-sm" disabled title="Exceeds this machine's memory">TOO BIG</button>`;
+    } else {
+      const dis = ollamaInstalled ? '' : 'disabled title="Install Ollama first"';
+      action = `<button class="data-btn-sm orange" id="install-btn-${_cssId(m.model)}" onclick="installModel('${m.model}')" ${dis}>INSTALL</button>`;
+    }
+    return `
+      <div class="conn-card" id="card-${_cssId(m.model)}">
+        <div class="conn-card-main">
+          <div class="conn-card-title">${_esc(m.label)}
+            <span class="conn-pill ${fit.cls}">${fit.label}</span>
+            ${m.installed ? '<span class="conn-pill teal">INSTALLED</span>' : ''}
+          </div>
+          <div class="conn-card-blurb">${_esc(m.blurb)}</div>
+          <div class="conn-card-meta">${m.params} · ${m.size_gb} GB · ${m.use === 'code' ? 'coding' : 'general'}</div>
+        </div>
+        <div class="conn-card-action" id="action-${_cssId(m.model)}">${action}</div>
+      </div>`;
+  }).join('');
+}
+
+function _renderConnectors(connectors) {
+  const el = document.getElementById('conn-connectors');
+  if (!el) return;
+  el.innerHTML = (connectors || []).map(c => {
+    let action;
+    if (c.available) {
+      action = `<span class="conn-pill green">CONNECTED</span>`;
+    } else if (c.install_cmd) {
+      action = `<button class="data-btn-sm orange" id="install-btn-${_cssId(c.id)}" onclick="installConnector('${c.id}', '${_esc(c.install_cmd)}')">INSTALL</button>`;
+    } else {
+      action = `<a class="data-btn-sm blue" href="${c.install_url}" target="_blank" rel="noopener" style="text-decoration:none">GET IT</a>`;
+    }
+    return `
+      <div class="conn-card" id="card-${_cssId(c.id)}">
+        <div class="conn-card-main">
+          <div class="conn-card-title">${_esc(c.name)}</div>
+          <div class="conn-card-blurb">${_esc(c.blurb)}</div>
+          <div class="conn-card-meta">${_esc(c.models)}${c.available ? '' : ` · after install: <code>${_esc(c.login_cmd)}</code>`}</div>
+        </div>
+        <div class="conn-card-action" id="action-${_cssId(c.id)}">${action}</div>
+      </div>`;
+  }).join('');
+}
+
+async function installModel(model) {
+  const actionEl = document.getElementById(`action-${_cssId(model)}`);
+  if (actionEl) actionEl.innerHTML = `<div class="conn-progress"><div class="conn-progress-bar" id="bar-${_cssId(model)}"></div><span class="conn-progress-txt" id="txt-${_cssId(model)}">starting…</span></div>`;
+  try {
+    const res = await fetch(`${API_BASE}/llm/install`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'ollama', target: model }),
+    });
+    const job = await res.json();
+    if (job.error) { _installFailed(model, job.error); return; }
+    addLog(`Pulling local model ${model}…`);
+    _pollInstall(job.id, model, true);
+  } catch (e) { _installFailed(model, e.message || e); }
+}
+
+async function installConnector(id, cmd) {
+  const actionEl = document.getElementById(`action-${_cssId(id)}`);
+  if (actionEl) actionEl.innerHTML = `<span class="conn-progress-txt">installing…</span>`;
+  try {
+    const res = await fetch(`${API_BASE}/llm/install`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'cli', target: cmd }),
+    });
+    const job = await res.json();
+    if (job.error) { _installFailed(id, job.error); return; }
+    addLog(`Installing connector ${id}…`);
+    _pollInstall(job.id, id, false);
+  } catch (e) { _installFailed(id, e.message || e); }
+}
+
+function _pollInstall(jobId, key, isModel) {
+  if (_installPolls[key]) clearInterval(_installPolls[key]);
+  _installPolls[key] = setInterval(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/llm/install_status?job=${jobId}`);
+      const j = await res.json();
+      if (j.error) return;
+      if (isModel) {
+        const bar = document.getElementById(`bar-${_cssId(key)}`);
+        const txt = document.getElementById(`txt-${_cssId(key)}`);
+        if (bar) bar.style.width = `${j.pct || 0}%`;
+        if (txt) txt.textContent = `${j.status_text || ''} ${j.pct ? Math.round(j.pct) + '%' : ''}`.trim();
+      }
+      if (j.state === 'done') {
+        clearInterval(_installPolls[key]); delete _installPolls[key];
+        addLog(`Installed ${key} ✓`);
+        loadProviders();              // refresh the selector with the new model
+        loadConnectors();             // refresh this page
+      } else if (j.state === 'error') {
+        clearInterval(_installPolls[key]); delete _installPolls[key];
+        _installFailed(key, j.error || 'install failed');
+      }
+    } catch (_) { /* transient — keep polling */ }
+  }, 1200);
+}
+
+function _installFailed(key, msg) {
+  addLog(`Install failed (${key}): ${msg}`);
+  const actionEl = document.getElementById(`action-${_cssId(key)}`);
+  if (actionEl) actionEl.innerHTML = `<span class="conn-pill red" title="${_esc(String(msg))}">FAILED</span>`;
+}
+
+async function useModel(providerId) {
+  await setProvider(providerId);
+  addLog(`Active model → ${providerId}`);
+  const pill = document.getElementById('connectors-active-pill');
+  if (pill) pill.textContent = providerId.toUpperCase();
+  loadConnectors();
+}
+
+// CSS-safe id from a model name (qwen2.5:3b → qwen2-5_3b)
+function _cssId(s) { return String(s).replace(/[^a-zA-Z0-9]/g, '_'); }
+function _esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Vitals ────────────────────────────────────────────────
@@ -6234,13 +6454,11 @@ function _populateWindowProviderSelect(wsId) {
   const sel = document.getElementById(`pane-provider-ws${wsId}`);
   const ws  = _workspaces.get(wsId);
   if (!sel || !ws) return;
-  const opts = (_providersCache.length ? _providersCache
+  const opts = (_providersCache.length ? _providersCache.filter(p => p.available)
                                        : [{ id: ws.provider, label: ws.provider, available: true }]);
-  sel.innerHTML = opts.map(p => {
-    const lbl = p.available ? p.label : `${p.label} — n/a`;
-    const dis = p.available ? '' : ' disabled';
-    return `<option value="${p.id}"${dis}${p.id === ws.provider ? ' selected' : ''}>${lbl}</option>`;
-  }).join('');
+  sel.innerHTML = opts.map(p =>
+    `<option value="${p.id}"${p.id === ws.provider ? ' selected' : ''}>${p.label}</option>`
+  ).join('');
 }
 
 function _refreshAllWindowProviderDropdowns() {
@@ -6265,13 +6483,11 @@ function _populateMainProviderSelect() {
   const mainWs = [..._workspaces.values()].find(w => w.isMain);
   const selected = mainWs?.provider || _lastKnownActiveProvider || 'claude-cli';
   const opts = _providersCache.length
-    ? _providersCache
+    ? _providersCache.filter(p => p.available)
     : [{ id: selected, label: selected, available: true }];
-  sel.innerHTML = opts.map(p => {
-    const lbl = p.available ? p.label : `${p.label} — n/a`;
-    const dis = p.available ? '' : ' disabled';
-    return `<option value="${p.id}"${dis}${p.id === selected ? ' selected' : ''}>${lbl}</option>`;
-  }).join('');
+  sel.innerHTML = opts.map(p =>
+    `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${p.label}</option>`
+  ).join('');
 }
 
 async function setMainProvider(providerId) {

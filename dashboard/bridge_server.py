@@ -1061,6 +1061,7 @@ def _provider_available(provider_id: str) -> bool:
 
 def _list_providers() -> list:
     """Return a list of {id, label, model, available, install_hint} for the UI."""
+    _sync_ollama_providers()   # surface any freshly-pulled local models in the selector
     out = []
     for pid, p in PROVIDERS.items():
         out.append({
@@ -1072,6 +1073,315 @@ def _list_providers() -> list:
             "install_hint": p.get("install_hint", ""),
         })
     return out
+
+
+# ════════════════════════════════════════════════════════════════════════
+# AI CONNECTORS — hardware detection, local-model catalog, recommendation,
+# and one-click install. Powers the "AI Connectors" dashboard page: detect
+# this machine's CPU/RAM/GPU, recommend a local LLM that will actually run
+# on it, pull it via Ollama, and surface it in the model selector. Also
+# tracks the CLI connectors (Claude / Codex / Gemini) the Captain can add.
+# ════════════════════════════════════════════════════════════════════════
+
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
+
+# Curated local-model catalog. size_gb = on-disk download (q4_K_M class);
+# the fit estimator pads it ~25% for KV-cache/context headroom. Ordered
+# small → large so the recommender can walk it.
+OLLAMA_CATALOG = [
+    {"model": "qwen2.5:0.5b",      "label": "Qwen2.5 0.5B",        "params": "0.5B", "size_gb": 0.4,  "use": "chat", "blurb": "Tiniest model — runs on almost anything. Basic chat only."},
+    {"model": "llama3.2:1b",       "label": "Llama 3.2 1B",        "params": "1B",   "size_gb": 1.3,  "use": "chat", "blurb": "Very light general chat, snappy even on CPU."},
+    {"model": "qwen2.5:3b",        "label": "Qwen2.5 3B",          "params": "3B",   "size_gb": 1.9,  "use": "chat", "blurb": "Voice-friendly. Good instruction-following + tool calls."},
+    {"model": "llama3.2:3b",       "label": "Llama 3.2 3B",        "params": "3B",   "size_gb": 2.0,  "use": "chat", "blurb": "Solid small all-rounder from Meta."},
+    {"model": "phi3.5",            "label": "Phi-3.5 Mini",        "params": "3.8B", "size_gb": 2.2,  "use": "chat", "blurb": "Microsoft — strong reasoning for its size."},
+    {"model": "mistral:7b",        "label": "Mistral 7B",          "params": "7B",   "size_gb": 4.4,  "use": "chat", "blurb": "Fast, capable, hugely popular 7B."},
+    {"model": "qwen2.5-coder:7b",  "label": "Qwen2.5-Coder 7B",    "params": "7B",   "size_gb": 4.7,  "use": "code", "blurb": "Best small coding model. Fits an 8GB GPU."},
+    {"model": "llama3.1:8b",       "label": "Llama 3.1 8B",        "params": "8B",   "size_gb": 4.9,  "use": "chat", "blurb": "Excellent general 8B — Meta's small flagship."},
+    {"model": "gemma2:9b",         "label": "Gemma 2 9B",          "params": "9B",   "size_gb": 5.4,  "use": "chat", "blurb": "Google — very strong mid-size model."},
+    {"model": "qwen2.5:14b",       "label": "Qwen2.5 14B",         "params": "14B",  "size_gb": 9.0,  "use": "chat", "blurb": "Big quality jump. Wants 12GB+ of VRAM."},
+    {"model": "qwen2.5-coder:14b", "label": "Qwen2.5-Coder 14B",   "params": "14B",  "size_gb": 9.0,  "use": "code", "blurb": "Strong coding model. 12GB+ VRAM."},
+    {"model": "qwen2.5:32b",       "label": "Qwen2.5 32B",         "params": "32B",  "size_gb": 20.0, "use": "chat", "blurb": "Near-frontier local quality. Needs 24GB VRAM."},
+    {"model": "llama3.3:70b",      "label": "Llama 3.3 70B",       "params": "70B",  "size_gb": 43.0, "use": "chat", "blurb": "Top-tier local. Workstation / multi-GPU only."},
+]
+
+# CLI connectors the Captain can browse + add. Each maps to a PROVIDERS id.
+CONNECTOR_CATALOG = [
+    {"id": "claude-cli", "name": "Claude Code (Anthropic)", "models": "Opus · Sonnet · Haiku · Fable",
+     "install_cmd": "", "install_url": "https://docs.claude.com/en/docs/claude-code",
+     "login_cmd": "claude  (then /login)",
+     "blurb": "Anthropic's Claude family through your Claude subscription — no per-token cost.",
+     "provider_ids": ["claude-cli", "claude-cli-sonnet", "claude-cli-haiku", "claude-cli-fable"]},
+    {"id": "codex", "name": "Codex (OpenAI)", "models": "GPT-5 Codex",
+     "install_cmd": "npm i -g @openai/codex", "install_url": "https://github.com/openai/codex",
+     "login_cmd": "codex login",
+     "blurb": "GPT-5 Codex through your ChatGPT subscription.",
+     "provider_ids": ["codex"]},
+    {"id": "gemini", "name": "Gemini CLI (Google)", "models": "Gemini 2.5 Pro",
+     "install_cmd": "npm i -g @google/gemini-cli", "install_url": "https://github.com/google-gemini/gemini-cli",
+     "login_cmd": "gemini  (then sign in)",
+     "blurb": "Google's Gemini 2.5 — free tier available on Google AI Studio.",
+     "provider_ids": ["gemini"]},
+]
+
+# Cache of `ollama list` output so page polls don't fork the CLI constantly.
+_ollama_models_cache = {"ts": 0.0, "names": []}
+_hw_cache = {"ts": 0.0, "data": None}
+
+
+def _ollama_installed_models(force: bool = False) -> list:
+    """Names of locally-pulled Ollama models (e.g. 'qwen2.5:3b'). Cached 20s.
+    Returns [] if Ollama isn't installed or the daemon can't be reached."""
+    now = time.time()
+    if not force and now - _ollama_models_cache["ts"] < 20.0:
+        return _ollama_models_cache["names"]
+    names: list = []
+    exe = _provider_executable("ollama")
+    if exe:
+        try:
+            out = subprocess.run([exe, "list"], capture_output=True, text=True, timeout=8)
+            for line in out.stdout.splitlines()[1:]:   # skip header row
+                parts = line.split()
+                if parts:
+                    names.append(parts[0])             # NAME column (e.g. qwen2.5:3b)
+        except Exception as e:
+            log.warning(f"[connectors] `ollama list` failed: {e}")
+    _ollama_models_cache.update({"ts": now, "names": names})
+    return names
+
+
+def _sync_ollama_providers() -> None:
+    """Register every locally-pulled Ollama model as an 'ollama:<model>'
+    provider so it appears in the model selector and is dispatchable. Idempotent."""
+    for name in _ollama_installed_models():
+        pid = f"ollama:{name}"
+        if pid in PROVIDERS:
+            continue
+        # Skip embedding-only models — they cannot answer a chat turn.
+        if "embed" in name.lower():
+            continue
+        # Skip if a built-in provider already represents this exact model
+        if any(p.get("model") == name for p in PROVIDERS.values()):
+            continue
+        PROVIDERS[pid] = {
+            "label":        f"{name} (Local)",
+            "model":        name,
+            "kind":         "http",
+            "executables":  ["ollama", "ollama.exe"],
+            "url":          OLLAMA_CHAT_URL,
+            "install_hint": f"ollama pull {name}",
+        }
+
+
+def _gpu_name() -> str:
+    """Best-effort NVIDIA GPU model name via nvidia-smi. '' if unavailable."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if out.returncode == 0:
+            return out.stdout.strip().splitlines()[0].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _detect_hardware(force: bool = False) -> dict:
+    """Snapshot this machine's compute resources for LLM sizing. Cached 15s."""
+    import platform
+    now = time.time()
+    if not force and _hw_cache["data"] and now - _hw_cache["ts"] < 15.0:
+        return _hw_cache["data"]
+    hw = {
+        "os":               platform.system(),
+        "os_release":       platform.release(),
+        "arch":             platform.machine(),
+        "cpu":              platform.processor() or platform.machine() or "Unknown CPU",
+        "cpu_cores":        None,
+        "cpu_threads":      None,
+        "ram_total_gb":     0.0,
+        "ram_available_gb": 0.0,
+        "has_gpu":          False,
+        "gpu_name":         "",
+        "vram_total_gb":    0.0,
+        "ollama_installed": bool(_provider_executable("ollama")),
+    }
+    if psutil:
+        try:
+            hw["cpu_cores"]   = psutil.cpu_count(logical=False)
+            hw["cpu_threads"] = psutil.cpu_count(logical=True)
+            vm = psutil.virtual_memory()
+            hw["ram_total_gb"]     = round(vm.total / 1e9, 1)
+            hw["ram_available_gb"] = round(vm.available / 1e9, 1)
+        except Exception:
+            pass
+    try:
+        g = _gpu_stats()
+        if g.get("mem_total_mb"):
+            hw["has_gpu"]       = True
+            hw["vram_total_gb"] = round(g["mem_total_mb"] / 1024, 1)
+            hw["gpu_name"]      = _gpu_name() or "NVIDIA GPU"
+    except Exception:
+        pass
+    _hw_cache.update({"ts": now, "data": hw})
+    return hw
+
+
+def _model_fit(m: dict, hw: dict) -> str:
+    """Classify whether a catalog model will run on this hardware.
+    Returns one of: 'fits' (comfortable on GPU), 'tight' (fits GPU, low headroom),
+    'cpu' (no/insufficient GPU but RAM can carry it — slower), 'wont-fit'."""
+    need = m["size_gb"] * 1.25     # weights + KV-cache/context headroom
+    vram = hw.get("vram_total_gb", 0.0)
+    ram  = hw.get("ram_total_gb", 0.0)
+    if hw.get("has_gpu") and need <= vram * 0.92:
+        return "fits"
+    if hw.get("has_gpu") and need <= vram:
+        return "tight"
+    if need <= ram * 0.6:
+        return "cpu"
+    return "wont-fit"
+
+
+def _recommend_model(hw: dict) -> dict | None:
+    """Pick the largest catalog model that runs well on this machine.
+    Prefers a comfortable GPU fit; falls back to tight/CPU if nothing fits cleanly."""
+    for tier in (("fits",), ("tight", "cpu")):
+        candidates = [m for m in OLLAMA_CATALOG if _model_fit(m, hw) in tier]
+        if candidates:
+            return max(candidates, key=lambda m: m["size_gb"])
+    return None
+
+
+def _llm_catalog_payload() -> dict:
+    """Full payload for the AI Connectors page: hardware + per-model fit/install
+    state + connector status + recommendation."""
+    hw        = _detect_hardware()
+    installed = set(_ollama_installed_models())
+    _sync_ollama_providers()   # keep selector + page in lockstep
+    rec       = _recommend_model(hw)
+    models = []
+    for m in OLLAMA_CATALOG:
+        is_inst = m["model"] in installed
+        models.append({
+            **m,
+            "fit":          _model_fit(m, hw),
+            "installed":    is_inst,
+            "recommended":  bool(rec and m["model"] == rec["model"]),
+            "provider_id":  f"ollama:{m['model']}",
+        })
+    connectors = []
+    for c in CONNECTOR_CATALOG:
+        available = any(_provider_available(pid) for pid in c["provider_ids"])
+        connectors.append({**c, "available": available})
+    return {
+        "hardware":        hw,
+        "models":          models,
+        "connectors":      connectors,
+        "recommendation":  (rec["model"] if rec else None),
+        "ollama_installed": hw["ollama_installed"],
+    }
+
+
+# ── Install jobs ─────────────────────────────────────────────────────────
+# Background pulls (Ollama models) and connector installs (npm). Each job is
+# polled by the frontend via /llm/install_status?job=<id>.
+_install_jobs: dict = {}
+_install_lock = threading.Lock()
+
+
+def _ollama_pull_job(job_id: str, model: str) -> None:
+    """Stream `ollama pull` progress via the Ollama HTTP API into the job record."""
+    url = f"{OLLAMA_BASE_URL}/api/pull"
+    body = json.dumps({"name": model, "stream": True}).encode("utf-8")
+    try:
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=3600) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except Exception:
+                    continue
+                status = ev.get("status", "")
+                completed = ev.get("completed")
+                total = ev.get("total")
+                pct = None
+                if completed and total:
+                    pct = round(completed / total * 100, 1)
+                with _install_lock:
+                    j = _install_jobs.get(job_id)
+                    if j:
+                        j["status_text"] = status
+                        if pct is not None:
+                            j["pct"] = pct
+                if ev.get("error"):
+                    raise RuntimeError(ev["error"])
+        with _install_lock:
+            j = _install_jobs.get(job_id)
+            if j:
+                j["state"] = "done"; j["pct"] = 100.0; j["status_text"] = "complete"
+        _ollama_installed_models(force=True)   # refresh cache so it shows up immediately
+        _sync_ollama_providers()
+        log.info(f"[connectors] pulled local model {model}")
+    except Exception as e:
+        log.warning(f"[connectors] pull {model} failed: {e}")
+        with _install_lock:
+            j = _install_jobs.get(job_id)
+            if j:
+                j["state"] = "error"; j["error"] = str(e)
+
+
+def _cli_install_job(job_id: str, cmd: str) -> None:
+    """Run a connector install shell command (e.g. npm i -g ...) and capture output."""
+    try:
+        proc = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=900,
+        )
+        ok = proc.returncode == 0
+        tail = (proc.stdout + "\n" + proc.stderr).strip()[-800:]
+        with _install_lock:
+            j = _install_jobs.get(job_id)
+            if j:
+                j["state"]       = "done" if ok else "error"
+                j["status_text"] = "complete" if ok else f"exit {proc.returncode}"
+                j["pct"]         = 100.0 if ok else j.get("pct", 0)
+                j["log"]         = tail
+                if not ok:
+                    j["error"] = tail or f"exit code {proc.returncode}"
+        log.info(f"[connectors] cli install `{cmd}` rc={proc.returncode}")
+    except Exception as e:
+        log.warning(f"[connectors] cli install `{cmd}` failed: {e}")
+        with _install_lock:
+            j = _install_jobs.get(job_id)
+            if j:
+                j["state"] = "error"; j["error"] = str(e)
+
+
+def _start_install_job(kind: str, target: str) -> dict:
+    """Kick off an install (kind='ollama' model pull, or 'cli' connector command).
+    Returns the new job record."""
+    import uuid
+    job_id = uuid.uuid4().hex[:12]
+    job = {"id": job_id, "kind": kind, "target": target, "state": "running",
+           "pct": 0.0, "status_text": "starting", "error": "", "log": ""}
+    with _install_lock:
+        _install_jobs[job_id] = job
+    if kind == "ollama":
+        if not _provider_executable("ollama"):
+            job["state"] = "error"
+            job["error"] = "Ollama is not installed. Install it from https://ollama.com first."
+            return job
+        threading.Thread(target=_ollama_pull_job, args=(job_id, target), daemon=True).start()
+    elif kind == "cli":
+        threading.Thread(target=_cli_install_job, args=(job_id, target), daemon=True).start()
+    else:
+        job["state"] = "error"; job["error"] = f"unknown install kind '{kind}'"
+    return job
+
 
 # File extensions → node type + colour category
 EXT_TYPE = {
@@ -5300,6 +5610,10 @@ def ask_ollama_stream(message: str, project_path: str, send_sse) -> None:
 
 def _provider_runner(provider_id: str):
     """Return the streaming runner function for a provider id."""
+    # Dynamically-pulled local models register as "ollama:<model>" providers
+    # (see _sync_ollama_providers) — route every ollama* id to the local runner.
+    if provider_id.startswith("ollama"):
+        return ask_ollama_stream
     return {
         "claude-cli":        ask_hermes_cli_stream,
         "claude-cli-sonnet": ask_hermes_cli_stream,  # same runner; model read from PROVIDERS[active]['model']
@@ -7546,6 +7860,24 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/providers":
             self._json({"active": ACTIVE_PROVIDER, "providers": _list_providers()})
 
+        # ── AI Connectors page ────────────────────────────────
+        elif path == "/hardware":
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            self._json(_detect_hardware(force=("force" in _q)))
+
+        elif path == "/llm/catalog":
+            self._json(_llm_catalog_payload())
+
+        elif path == "/llm/install_status":
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            job_id = _q.get("job", [""])[0]
+            with _install_lock:
+                job = _install_jobs.get(job_id)
+            if not job:
+                self._json({"error": "unknown job"}, 404)
+            else:
+                self._json(job)
+
         elif path == "/ui_events":
             # Drain and return all queued UI events. Frontend polls this.
             with _ui_events_lock:
@@ -8496,6 +8828,25 @@ class Handler(BaseHTTPRequestHandler):
             ACTIVE_PROVIDER = new_provider
             log.info(f"[PROVIDER] switched to {ACTIVE_PROVIDER}")
             self._json({"active": ACTIVE_PROVIDER, "providers": _list_providers()})
+
+        elif path == "/llm/install":
+            # kind='ollama' → pull a local model;  kind='cli' → install a connector
+            kind   = (data.get("kind") or "").strip()
+            target = (data.get("target") or "").strip()
+            if kind == "ollama":
+                valid = {m["model"] for m in OLLAMA_CATALOG}
+                if target not in valid:
+                    self._json({"error": f"unknown model '{target}'"}, 400); return
+            elif kind == "cli":
+                # Only allow the exact install commands from our connector catalog
+                # (never run arbitrary shell from the client).
+                cmds = {c["install_cmd"] for c in CONNECTOR_CATALOG if c["install_cmd"]}
+                if target not in cmds:
+                    self._json({"error": "install command not in connector catalog"}, 400); return
+            else:
+                self._json({"error": "kind must be 'ollama' or 'cli'"}, 400); return
+            job = _start_install_job(kind, target)
+            self._json(job)
 
         elif path == "/voice/provider":
             global VOICE_PROVIDER

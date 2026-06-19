@@ -78,6 +78,9 @@
           <button class="data-btn purple" id="nav-briefing-btn" onclick="showPanel('briefing')">
             POTENTIAL UPGRADES <span class="briefing-badge" id="briefing-badge" style="display:none">0</span>
           </button>
+          <button class="data-btn green" onclick="showPanel('connectors')">
+            AI CONNECTORS
+          </button>
         </div>
 
         <div class="sidebar-divider"></div>
@@ -382,6 +385,51 @@
           </div>
           <div id="briefing-list" class="briefing-list">
             <div class="briefing-empty">No scan yet. Click REFRESH to discover new AI tools, MCP servers, and skills.</div>
+          </div>
+        </div>
+
+        <!-- AI CONNECTORS -->
+        <div class="panel" id="panel-connectors">
+          <div class="panel-header">
+            <div class="panel-title-bar">
+              <span class="panel-title">AI CONNECTORS — HARDWARE SCAN · LOCAL MODELS · CLI PROVIDERS</span>
+              <div class="panel-pills">
+                <span class="pill teal" id="connectors-active-pill">—</span>
+                <button class="data-btn-sm orange" onclick="loadConnectors(true)" id="connectors-refresh-btn">RESCAN</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="connectors-body" id="connectors-body">
+            <!-- Hardware readout -->
+            <section class="conn-section">
+              <div class="conn-section-label">THIS MACHINE</div>
+              <div class="conn-hw-grid" id="conn-hw-grid">
+                <div class="briefing-empty">Scanning hardware…</div>
+              </div>
+            </section>
+
+            <!-- Recommendation -->
+            <section class="conn-section" id="conn-rec-section" style="display:none">
+              <div class="conn-section-label">RECOMMENDED LOCAL MODEL</div>
+              <div id="conn-rec-card"></div>
+            </section>
+
+            <!-- Local models catalog -->
+            <section class="conn-section">
+              <div class="conn-section-label">LOCAL MODELS <span class="conn-sub">(via Ollama — free, runs on this machine)</span></div>
+              <div class="conn-cards" id="conn-models">
+                <div class="briefing-empty">Loading model catalog…</div>
+              </div>
+            </section>
+
+            <!-- CLI connectors -->
+            <section class="conn-section">
+              <div class="conn-section-label">CLI PROVIDERS <span class="conn-sub">(cloud models via your subscriptions)</span></div>
+              <div class="conn-cards" id="conn-connectors">
+                <div class="briefing-empty">Loading connectors…</div>
+              </div>
+            </section>
           </div>
         </div>
 

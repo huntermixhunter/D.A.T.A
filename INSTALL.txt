@@ -22,8 +22,13 @@ You will need TWO things:
    - Don't have Python? Get it from https://python.org/downloads
      and check "Add Python to PATH" during setup, then run the
      installer again.
-3. When it finishes, double-click:  start_data.bat
-   Your browser opens to http://localhost:7777
+3. Near the end it asks: "Add a DATA icon to your desktop? [Y/n]"
+   Just press ENTER for yes. You'll get a DATA icon on your desktop.
+4. DOUBLE-CLICK THE DATA ICON to launch (or double-click start_data.bat
+   in the folder). Your browser opens to http://localhost:7777
+   - The DATA icon is a small blue ship-arrow on a black tile - the same
+     mark you'll see on the browser tab while it's running.
+   - From now on, starting DATA is just: double-click the desktop icon.
 
 ------------------------------------------------------------------------
   MAC / LINUX / CHROMEBOOK
