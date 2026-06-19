@@ -12,7 +12,7 @@ DATA — Your Self-Hosted AI Command Center
 A dark, mission-control dashboard that turns your own AI subscription into a crew of specialist agents — running entirely on your machine.
 
 ## Price
-$39 one-time (launch discount: $29 for the first wave)
+$29 one-time (launch discount: $19 for the first wave)
 
 ## Short description (store card)
 DATA is a self-hosted AI operations dashboard. Connect the AI you already pay for — Claude, ChatGPT, Gemini, or a free local model — and get a command center with a crew of specialist agents, persistent memory, project workspaces, scheduled tasks, and live system vitals. No subscriptions to us. No cloud. No data ever leaves your computer.
@@ -73,7 +73,7 @@ ai, dashboard, productivity, developer-tools, self-hosted, claude, llm, desktop-
 1. Create account at lemonsqueezy.com → create your Store (business name, country).
 2. Add payout details (bank / where the money lands).
 3. New Product → Digital download → upload `dist\DATA-v1.0.7.zip`.
-4. Paste the name, descriptions, price ($39), and requirements from above.
+4. Paste the name, descriptions, price ($29 regular, $19 launch), and requirements from above.
 5. Turn ON license-key generation.
 6. Paste the SHA-256 into the description; set the post-purchase delivery note.
 7. Publish → grab the product/checkout link → that link is what you share/sell.
