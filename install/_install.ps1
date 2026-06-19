@@ -71,6 +71,23 @@ if (Test-Path "$root\dashboard\install_skills.py") {
 # stays alive to handle the dashboard's REBOOT button — so DATA can be brought
 # back online from the page without closing the open windows. Stale instances on
 # either port are cleared first so a relaunch always gets a clean start.
+#
+# The supervisor is launched DETACHED via the windowless interpreter (pythonw),
+# so the launcher exits immediately instead of holding a "DATA-LaunchControl"
+# console open for the life of the app. Every launch path — the desktop
+# shortcut, the .vbs, or double-clicking this .bat directly — now stays clean.
+$pythonw = $python
+try {
+    $exe = & $python -c "import sys; print(sys.executable)" 2>$null
+    if ($exe) {
+        $cand = Join-Path (Split-Path -Parent $exe) "pythonw.exe"
+        if (Test-Path $cand) { $pythonw = "`"$cand`"" }
+    }
+} catch {}
+if ($pythonw -eq $python) {
+    Write-Host "  [!!] pythonw.exe not found next to $python - the launcher may flash a console. Continuing." -ForegroundColor Yellow
+}
+
 $launcher = @"
 @echo off
 title DATA-LaunchControl
@@ -78,10 +95,37 @@ cd /d "%~dp0dashboard"
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :7777 ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :7766 ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
 start "" http://localhost:7777
-$python supervisor.py
+start "DATA" $pythonw supervisor.py
 "@
 Set-Content -Path "$root\start_data.bat" -Value $launcher -Encoding ascii
-Write-Host "  [OK] Launcher written: start_data.bat"
+Write-Host "  [OK] Launcher written: start_data.bat (windowless - no console stays open)"
+
+# 5b. Background launcher — runs start_data.bat with a hidden console so DATA
+# lives in the background with NO visible "DATA-LaunchControl" window. The
+# supervisor still stays alive (REBOOT keeps working); the dashboard still opens
+# in the browser. This is the launcher the desktop shortcut points at.
+$vbs = @"
+' DATA - starts the dashboard in the background with no console window.
+Set fso = CreateObject("Scripting.FileSystemObject")
+Set sh  = CreateObject("WScript.Shell")
+scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
+sh.Run """" & scriptDir & "\start_data.bat""", 0, False
+"@
+Set-Content -Path "$root\start_data.vbs" -Value $vbs -Encoding ascii
+Write-Host "  [OK] Background launcher written: start_data.vbs (no console window)"
+
+# 5c. Clean stop — since the background launcher has no window to close, give the
+# user a one-click way to shut DATA down (frees both ports).
+$stopper = @"
+@echo off
+title DATA-Stop
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :7777 ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :7766 ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
+echo DATA stopped.
+timeout /t 2 >nul
+"@
+Set-Content -Path "$root\stop_data.bat" -Value $stopper -Encoding ascii
+Write-Host "  [OK] Stop script written: stop_data.bat"
 
 # 6. Desktop shortcut with the DATA icon (opt-in)
 # Ask first so the user stays in control. Defaults to Yes on a bare Enter.
@@ -99,7 +143,7 @@ if ($makeShortcut) {
     try {
         $ws  = New-Object -ComObject WScript.Shell
         $lnk = $ws.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\DATA.lnk")
-        $lnk.TargetPath       = "$root\start_data.bat"
+        $lnk.TargetPath       = "$root\start_data.vbs"
         $lnk.WorkingDirectory = $root
         $lnk.IconLocation     = "$root\dashboard\favicon.ico"
         $lnk.Description      = "DATA - Dashboard for Analytical Thought and Action"
@@ -113,6 +157,9 @@ if ($makeShortcut) {
 }
 
 Write-Host ""
-Write-Host "  Done. Run start_data.bat (or the DATA desktop shortcut) to launch." -ForegroundColor Green
+Write-Host "  Done. Launch with the DATA desktop shortcut (runs in the background," -ForegroundColor Green
+Write-Host "  no console window). To stop DATA later, run stop_data.bat."
 Write-Host "  Dashboard: http://localhost:7777"
+Write-Host "  Tip: both start_data.bat and the shortcut now run windowless. For"
+Write-Host "  debugging output, check bridge.log next to start_data.bat."
 Write-Host ""
