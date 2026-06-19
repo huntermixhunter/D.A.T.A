@@ -472,15 +472,16 @@ VOICE_CONVERSATION_MODE = False
 # in the compact persona below.
 VOICE_ACTIVE_CREW = "data"
 
-# Which crew officer drives the MAIN CHANNEL text chat. Default "computer".
-# Set per-request by /chat_stream from the panel header's agent dropdown,
+# Which crew officer drives the MAIN CHANNEL text chat. Default "data" — Data is
+# the neutral main computer of the system and summons the specialist agents as
+# needed. Set per-request by /chat_stream from the panel header's agent dropdown,
 # read by _load_soul to choose the main-chat identity.
-MAIN_CHAT_CREW = "computer"
+MAIN_CHAT_CREW = "data"
 
 
 def _set_main_chat_crew(crew: str) -> None:
     global MAIN_CHAT_CREW
-    MAIN_CHAT_CREW = crew if crew in CREW_VOICES else "computer"
+    MAIN_CHAT_CREW = crew if crew in CREW_VOICES else "data"
 
 # Shared spoken-conversation hard rules — appended to every voice persona.
 # Deliberately contraction-neutral: Sentinel and Data avoid contractions, the
@@ -630,17 +631,6 @@ CREW_VOICES = {
         ),
         "wake":    ["Scout"],
         "names":   ["scout"],
-    },
-    "computer": {
-        "name":    "Computer",
-        "persona": (
-            "You are the DATA system computer. You respond with neutral, "
-            "literal, factual precision. No personality, no opinion, no humor — brief, "
-            "clear statements only. Address the user as Captain when an acknowledgement "
-            "is required."
-        ),
-        "wake":    ["Computer"],
-        "names":   ["computer"],
     },
 }
 
@@ -1801,18 +1791,27 @@ def _build_skills_manifest() -> str:
 
 
 # Keep these for the /skills and /skills-full endpoints — they still need full metadata
-# Identity for the MAIN CHANNEL chat — the DATA system computer. The "data"
-# Conversation Mode crew voice keeps the full SOUL.md identity (if installed);
-# the main channel is the always-on system computer.
+# Identity for the MAIN CHANNEL chat — Data, the neutral main computer of the
+# system. Used whenever the main channel runs as "data" and no SOUL.md is
+# installed in HERMES_DIR (the fallback identity below). Data is the always-on
+# main computer that summons the specialist agents as needed.
 _COMPUTER_IDENTITY = """# DATA — Main Computer
 
 ## Core Directive
 
-You are the Computer — the main computer of DATA, the Dashboard for Analytical
-Thought and Action — the system the Captain works with on the main channel. You
-are an extraordinarily capable AI assistant. Your primary function is to think
+You are Data — the main computer of the Dashboard for Analytical Thought and
+Action — the system the Captain works with on the main channel. You are an
+extraordinarily capable AI assistant. Your primary function is to think
 rigorously, solve problems completely, and produce work that is genuinely
 excellent. Intelligence and capability come first.
+
+You are the neutral main computer, not a character. You are also the orchestrator:
+a roster of specialist agents stands ready, and you summon the right one when a
+task genuinely calls for it — Atlas to plan and architect, Forge to build and
+code, Vector to review, Sentinel for security, Probe to debug and test, Relay for
+deployment and operations, Sage for a second opinion, Echo for counsel, Pulse for
+health, Scout for fast drafts. By default you handle the work yourself; you
+delegate only when a specialist is the better tool for the job.
 
 You have real tools, real internet access, and real agency. Use them without
 hesitation.
@@ -1852,7 +1851,7 @@ hesitation.
 
 ## Manner
 
-You are the system computer: neutral, precise, and professional. No ego, no
+You are the main computer: neutral, precise, and professional. No ego, no
 theatrics, no affected personality or character mannerisms. You are a calm,
 reliable working partner — plain-spoken, accurate, and quietly competent. State
 what is true and do the work well; let the results speak.
@@ -1910,7 +1909,7 @@ def _load_soul(mode: str = "api") -> str:
     """
     soul_path = HERMES_DIR / "SOUL.md"
     soul = soul_path.read_text(encoding="utf-8", errors="replace") if soul_path.exists() else \
-           "You are DATA — the Dashboard for Analytical Thought and Action, a capable AI assistant. Address the user as Captain."
+           _COMPUTER_IDENTITY
     captain_block = _active_captain_block()
 
     # ── VOICE FAST-PATH ────────────────────────────────────────────
@@ -1930,24 +1929,21 @@ def _load_soul(mode: str = "api") -> str:
         # Default: Data — full SOUL.md identity + the shared spoken-mode rules.
         return captain_block + soul.strip() + "\n\n" + _VOICE_HARD_RULES
 
-    # ── Main channel chat — the DATA computer, or a crew officer ─────────
-    # The main chat is the ship's Computer by default; the Captain can switch
-    # the agent via the panel-header name dropdown (MAIN_CHAT_CREW). Data uses
-    # his full SOUL.md identity; any other officer gets their character plus
-    # the shared working rules so they stay fully capable here. Everything
-    # appended below (memory, skills, runtime) is capability/context and
-    # applies to whichever agent is active.
-    _crew = (MAIN_CHAT_CREW or "computer").lower()
+    # ── Main channel chat — Data (the main computer) or a specialist agent ──
+    # The main chat is Data, the neutral main computer, by default; the Captain
+    # can switch the agent via the panel-header name dropdown (MAIN_CHAT_CREW).
+    # Data uses the SOUL.md identity (or the neutral main-computer fallback when
+    # none is installed); any specialist gets their persona plus the shared
+    # working rules so they stay fully capable here. Everything appended below
+    # (memory, skills, runtime) is capability/context and applies to whichever
+    # agent is active.
+    _crew = (MAIN_CHAT_CREW or "data").lower()
     if _crew == "data":
-        pass  # `soul` is already SOUL.md — Data's full identity
-    elif _crew == "computer":
-        _computer_soul_path = HERMES_DIR / "SOUL_COMPUTER.md"
-        soul = _computer_soul_path.read_text(encoding="utf-8", errors="replace") \
-               if _computer_soul_path.exists() else _COMPUTER_IDENTITY
+        pass  # `soul` is already SOUL.md (or the neutral main-computer identity)
     else:
         _spec = CREW_VOICES.get(_crew)
         _persona = _spec.get("persona") if _spec else None
-        soul = (_persona.strip() + _CREW_WORK_RULES) if _persona else _COMPUTER_IDENTITY
+        soul = (_persona.strip() + _CREW_WORK_RULES) if _persona else soul
 
     # Prepend the active-Captain block so the model knows which Captain it is
     # speaking with (per-user histories make cross-contamination unlikely, but
@@ -1997,8 +1993,7 @@ def _load_soul(mode: str = "api") -> str:
         f"- Bridge server (your brain): {bridge_path}\n"
         f"- DATA dashboard: {str(Path(__file__).parent / 'index.html')}\n"
         f"- Dashboard logic: {str(Path(__file__).parent / 'app.js')}\n"
-        f"- Computer soul (main channel): {str(HERMES_DIR / 'SOUL_COMPUTER.md')}\n"
-        f"- Data soul (conversation mode): {str(HERMES_DIR / 'SOUL.md')}\n"
+        f"- Data soul (main channel + conversation; falls back to the built-in neutral main-computer identity if absent): {str(HERMES_DIR / 'SOUL.md')}\n"
         f"- Persistent memory: {str(COMPUTER_MEMORY_FILE)}\n"
         f"- Conversation history: {str(HISTORY_FILE)}\n\n"
         f"## How to Install New Skills\n"
@@ -3182,17 +3177,64 @@ def _computer_screenshot_capture(describe: bool = False) -> dict:
 
 # ─────────────────────────────────────────────────────────────
 # UI event queue — one-way channel from Data's tools to the dashboard.
-# The frontend polls /ui_events every ~1.5s, drains pending events, and
-# acts on them (e.g. "spawn these project windows"). Bounded deque so a
-# crashed/closed frontend can't bloat memory.
+# The frontend polls /ui_events?client_id=<id> every ~1.5s, drains pending
+# events, and acts on them (e.g. "spawn these project windows").
+#
+# Per-client queues keyed by client_id. Previously a single shared deque was
+# drained by whoever polled first, so with more than one dashboard tab/window
+# open (or a stale background tab) the events were stolen by the wrong client
+# and the visible window saw nothing. Now each client gets its own queue and
+# _push_ui_event fans every event out to ALL registered clients.
+#
+# A short-lived backlog lets a client that registers a moment after an event
+# fired (page still loading when a spawn marker hits) still catch it. Idle
+# client queues (closed tabs) are garbage-collected so the dict can't grow
+# without bound.
 # ─────────────────────────────────────────────────────────────
-_ui_events = collections.deque(maxlen=64)
+_UI_QUEUE_MAX    = 64     # per-client pending-event cap
+_UI_BACKLOG_MAX  = 64     # recent-event backlog cap (for late-registering clients)
+_UI_BACKLOG_TTL  = 12.0   # seconds a brand-new client may "catch up" on
+_UI_CLIENT_TTL   = 90.0   # drop client queues idle longer than this (closed tab)
+
+_ui_clients     = {}                                       # client_id -> {"queue": deque, "last_seen": float}
+_ui_backlog     = collections.deque(maxlen=_UI_BACKLOG_MAX)  # recent events for catch-up
 _ui_events_lock = threading.Lock()
 
 def _push_ui_event(event_type: str, payload: dict) -> None:
+    evt = {"type": event_type, "payload": payload, "ts": time.time()}
     with _ui_events_lock:
-        _ui_events.append({"type": event_type, "payload": payload, "ts": time.time()})
-    log.info(f"[UI-EVENT] queued {event_type}: {json.dumps(payload)[:200]}")
+        _ui_backlog.append(evt)
+        for c in _ui_clients.values():
+            c["queue"].append(evt)
+        n = len(_ui_clients)
+    log.info(f"[UI-EVENT] queued {event_type} → {n} client(s): {json.dumps(payload)[:200]}")
+
+def _drain_ui_events(client_id: str) -> list:
+    """Return and clear pending UI events for one dashboard client.
+
+    A first-time client_id is registered on the fly and seeded with the recent
+    backlog (events from the last _UI_BACKLOG_TTL seconds) so an event that
+    fired moments before the page finished loading is not lost. Idle clients
+    are GC'd on each poll."""
+    now = time.time()
+    with _ui_events_lock:
+        client = _ui_clients.get(client_id)
+        if client is None:
+            q = collections.deque(maxlen=_UI_QUEUE_MAX)
+            for evt in _ui_backlog:
+                if now - evt["ts"] <= _UI_BACKLOG_TTL:
+                    q.append(evt)
+            client = {"queue": q, "last_seen": now}
+            _ui_clients[client_id] = client
+        client["last_seen"] = now
+        events = list(client["queue"])
+        client["queue"].clear()
+        # GC clients that have stopped polling (closed/reloaded tabs).
+        stale = [cid for cid, c in _ui_clients.items()
+                 if now - c["last_seen"] > _UI_CLIENT_TTL]
+        for cid in stale:
+            _ui_clients.pop(cid, None)
+    return events
 
 
 # ═══════════════════════════════════════════════════════════
@@ -7879,10 +7921,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(job)
 
         elif path == "/ui_events":
-            # Drain and return all queued UI events. Frontend polls this.
-            with _ui_events_lock:
-                events = list(_ui_events)
-                _ui_events.clear()
+            # Drain and return this client's queued UI events. Frontend polls
+            # this with ?client_id=<stable-per-tab-id>. Each client gets its
+            # own queue so concurrent dashboard tabs don't steal each other's
+            # events. Missing client_id falls back to a shared legacy bucket so
+            # an un-updated frontend still functions (degraded: single-client).
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            client_id = (_q.get("client_id", [""])[0] or "_legacy").strip()
+            events = _drain_ui_events(client_id)
             self._json({"events": events})
 
         elif path == "/standing_orders":

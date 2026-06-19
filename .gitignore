@@ -17,6 +17,7 @@ dashboard/retail_bridge.err.log
 
 # Release artifacts
 dist/
+preview_*/
 
 # Python
 __pycache__/

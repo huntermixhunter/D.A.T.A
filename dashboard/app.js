@@ -388,12 +388,15 @@ let _autoSpeakNextReply = false;
 
 // The agent you are chatting with on the main channel. Drives the persona
 // (sent to /chat_stream as `crew`), the bubble name + avatar, and the TTS
-// voice. Switchable from the panel-header name dropdown. Default: the Computer.
-let MAIN_CHAT_CREW = localStorage.getItem('main-chat-crew') || 'computer';
+// voice. Switchable from the panel-header name dropdown. Default: Data, the
+// neutral main computer that summons the specialist agents as needed.
+let MAIN_CHAT_CREW = localStorage.getItem('main-chat-crew') || 'data';
+// Migrate the retired "computer" agent onto Data (Data is now the main computer).
+if (MAIN_CHAT_CREW === 'computer') { MAIN_CHAT_CREW = 'data'; localStorage.setItem('main-chat-crew', 'data'); }
 const CREW_LABELS = {
-  computer: 'Computer',
-  data:     'Data - Build/Code',
+  data:     'Data',
   atlas:   'Atlas - Plan/Architect',
+  forge:    'Forge - Build/Code',
   vector:    'Vector - Review',
   sentinel:     'Sentinel - Security',
   probe:   'Probe - Debug/Test',
@@ -403,16 +406,15 @@ const CREW_LABELS = {
   sage:   'Sage - Advisor',
   scout:   'Scout - Content',
 };
-function crewLabel(id) { return CREW_LABELS[id] || 'Computer'; }
+function crewLabel(id) { return CREW_LABELS[id] || 'Data'; }
 function _crewAvatar(id) {
-  return id === 'computer' ? '◉' : (crewLabel(id)[0] || '◉').toUpperCase();
+  return id === 'data' ? '◉' : (crewLabel(id)[0] || '◉').toUpperCase();
 }
 
 // Crew wake words carried over from Conversation Mode into the global comms
 // listener. The whole finalized utterance must BE the wake word (optionally
 // "hey"-prefixed) — anchored, so "the data looks fine" never false-triggers.
 const CREW_WAKE = {
-  computer: ['computer'],
   data:     ['data'],
   vector:    ['vector'],
   probe:   ['probe'],
@@ -2640,7 +2642,7 @@ const MEMORY_DATA = [
     entries: [
       'LLM: your configured provider (Claude CLI by default)',
       'Memory: per-user persistent memory + searchable archive',
-      'Crew: 10 specialist agents + the main computer',
+      'Crew: Data (the main computer) + 10 specialist agents it can summon',
     ]
   },
 ];
@@ -7193,9 +7195,27 @@ async function sendProjectMessage(wsId) {
 // Lets Data's tools push commands to the UI (e.g. spawn N project
 // windows). Frontend polls /ui_events every ~1.5s and dispatches.
 // ═══════════════════════════════════════════════════════════
+// Stable per-tab client id so the bridge can keep a private event queue for
+// THIS dashboard instead of a single shared deque that concurrent tabs would
+// race to drain. Persisted in sessionStorage so a reload reuses the same id
+// (one tab == one client); each separate tab/window gets its own.
+const _UI_CLIENT_ID = (() => {
+  try {
+    let id = sessionStorage.getItem('dataUiClientId');
+    if (!id) {
+      id = (crypto?.randomUUID?.() ||
+            `c${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      sessionStorage.setItem('dataUiClientId', id);
+    }
+    return id;
+  } catch (_) {
+    return `c${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+})();
+
 async function _pollUiEvents() {
   try {
-    const res = await fetch(`${API_BASE}/ui_events`);
+    const res = await fetch(`${API_BASE}/ui_events?client_id=${encodeURIComponent(_UI_CLIENT_ID)}`);
     const { events } = await res.json();
     for (const evt of (events || [])) _handleUiEvent(evt);
   } catch (e) { /* bridge offline — silent */ }
