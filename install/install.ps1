@@ -54,6 +54,18 @@ if (-not (Test-Path "$root\.env")) {
     Write-Host "  [OK] Created .env (edit it to set weather coords, port, etc.)"
 }
 
+# 4b. Install the bundled DATA-core skills (idempotent; never clobbers your own copies)
+if (Test-Path "$root\dashboard\install_skills.py") {
+    Write-Host "  [..] Installing bundled DATA-core skills..."
+    try {
+        & $python "$root\dashboard\install_skills.py" | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK] DATA-core skills installed" }
+        else { Write-Host "  [!!] Skill install reported an issue - DATA still runs. Re-run: python dashboard\install_skills.py" -ForegroundColor Yellow }
+    } catch {
+        Write-Host "  [!!] Skill install failed - DATA still runs. Re-run later: python dashboard\install_skills.py" -ForegroundColor Yellow
+    }
+}
+
 # 5. Write the launcher
 # Starts the supervisor (port 7766), which spawns the bridge (port 7777) and
 # stays alive to handle the dashboard's REBOOT button — so DATA can be brought

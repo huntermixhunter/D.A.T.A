@@ -58,6 +58,16 @@ if [ ! -f "$ROOT/.env" ]; then
     echo "  [OK] Created .env (edit it to set weather coords, port, etc.)"
 fi
 
+# 4b. Install the bundled DATA-core skills (idempotent; never clobbers your own copies)
+if [ -f "$ROOT/dashboard/install_skills.py" ]; then
+    echo "  [..] Installing bundled DATA-core skills..."
+    if "$PYTHON" "$ROOT/dashboard/install_skills.py" >/dev/null 2>&1; then
+        echo "  [OK] DATA-core skills installed"
+    else
+        echo "  [!!] Skill install hit an issue — DATA still runs. Re-run later: python dashboard/install_skills.py"
+    fi
+fi
+
 # 5. Write the launcher
 cat > "$ROOT/start_data.sh" <<EOF
 #!/usr/bin/env bash

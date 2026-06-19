@@ -1,0 +1,5 @@
+# Runtime markers written at install time — never commit these.
+# The bundle itself (manifest.json, claude/, hermes/) MUST stay committed so it
+# travels with the repo/zip.
+.installed
+install.log

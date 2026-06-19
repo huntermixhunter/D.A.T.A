@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>D.A.T.A. // FIELD DEBRIEF — bthewizardart</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root{
+  --bg:#05060c;
+  --panel:#0a0f1d;
+  --panel2:#0d1426;
+  --cyan:#00e5ff;
+  --amber:#ffb000;
+  --mag:#ff2e9a;
+  --green:#3dff9a;
+  --red:#ff4d5e;
+  --ink:#cfe7f2;
+  --dim:#5c7a8c;
+  --line:#16314a;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:var(--bg);color:var(--ink);font-family:'JetBrains Mono',monospace;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+
+@page{ size:794px 1123px; margin:0; }
+
+.page{
+  position:relative;
+  width:794px;
+  height:1123px;
+  padding:46px 52px;
+  background:
+    radial-gradient(1200px 500px at 80% -10%, rgba(0,229,255,.07), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgba(255,46,154,.06), transparent 55%),
+    var(--bg);
+  overflow:hidden;
+  page-break-after:always;
+  border-bottom:none;
+}
+.page:last-child{page-break-after:auto}
+
+/* scanline + grid texture */
+.page::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(0,229,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,.035) 1px, transparent 1px);
+  background-size:34px 34px;
+  mask-image:radial-gradient(120% 120% at 50% 0%, #000 40%, transparent 95%);
+}
+.page::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 2px, transparent 2px 4px);
+  opacity:.35;
+}
+
+.scr{position:relative;z-index:2}
+
+/* ---- top bar ---- */
+.topbar{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:22px}
+.brandmark{font-family:'Orbitron';font-weight:900;letter-spacing:3px;font-size:15px;color:var(--cyan)}
+.brandmark b{color:var(--amber)}
+.topmeta{font-family:'Share Tech Mono';font-size:10px;color:var(--dim);text-align:right;line-height:1.5}
+.topmeta .blink{color:var(--green)}
+
+/* corner brackets utility */
+.bk{position:relative}
+.bk::before,.bk::after{content:"";position:absolute;width:14px;height:14px;border:2px solid var(--cyan);opacity:.8}
+.bk::before{left:-1px;top:-1px;border-right:none;border-bottom:none}
+.bk::after{right:-1px;bottom:-1px;border-left:none;border-top:none}
+
+/* ---- headings ---- */
+.kicker{font-family:'Share Tech Mono';font-size:11px;letter-spacing:4px;color:var(--mag);text-transform:uppercase;margin-bottom:6px}
+h1.title{font-family:'Orbitron';font-weight:900;font-size:34px;line-height:1.05;letter-spacing:1px;color:#eafcff;text-shadow:0 0 22px rgba(0,229,255,.35)}
+h2.sec{font-family:'Orbitron';font-weight:700;font-size:19px;letter-spacing:1px;color:var(--cyan);margin:0 0 14px;display:flex;align-items:center;gap:10px}
+h2.sec .num{font-family:'Share Tech Mono';font-size:12px;color:var(--bg);background:var(--cyan);padding:3px 8px;border-radius:3px;font-weight:700}
+
+.lead{font-size:12.5px;line-height:1.65;color:var(--ink);opacity:.92}
+.dimtext{color:var(--dim)}
+
+/* ---- panels ---- */
+.panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin-bottom:14px}
+.panel .ph{font-family:'Share Tech Mono';font-size:10px;letter-spacing:3px;color:var(--amber);text-transform:uppercase;margin-bottom:10px;display:flex;justify-content:space-between}
+
+/* stat grid */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
+.stat{background:linear-gradient(180deg,var(--panel),#070b16);border:1px solid var(--line);border-radius:6px;padding:14px 12px;position:relative}
+.stat .v{font-family:'Orbitron';font-weight:900;font-size:26px;color:#eafcff;line-height:1}
+.stat .l{font-family:'Share Tech Mono';font-size:9px;letter-spacing:1.5px;color:var(--dim);text-transform:uppercase;margin-top:8px}
+.stat .tag{position:absolute;top:10px;right:10px;font-size:8px;font-family:'Share Tech Mono';padding:2px 5px;border-radius:3px}
+.tag.ok{color:var(--green);border:1px solid rgba(61,255,154,.4)}
+.tag.warn{color:var(--amber);border:1px solid rgba(255,176,0,.4)}
+.tag.crit{color:var(--red);border:1px solid rgba(255,77,94,.4)}
+.stat .v.crit{color:var(--red)} .stat .v.warn{color:var(--amber)} .stat .v.ok{color:var(--green)}
+
+/* bar chart rows */
+.bars{display:flex;flex-direction:column;gap:9px;margin-top:6px}
+.brow{display:grid;grid-template-columns:150px 1fr 38px;align-items:center;gap:10px;font-family:'Share Tech Mono';font-size:10px}
+.brow .lab{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track{height:14px;background:#0a1322;border:1px solid var(--line);border-radius:3px;overflow:hidden;position:relative}
+.fill{height:100%;border-radius:2px}
+.brow .val{text-align:right;color:var(--cyan)}
+.f-cyan{background:linear-gradient(90deg,#0066aa,var(--cyan))}
+.f-amber{background:linear-gradient(90deg,#7a4d00,var(--amber))}
+.f-mag{background:linear-gradient(90deg,#7a0048,var(--mag))}
+.f-green{background:linear-gradient(90deg,#0a7a3d,var(--green))}
+.f-red{background:linear-gradient(90deg,#7a1620,var(--red))}
+
+/* two-col diag */
+.diag{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.diag .col{border:1px solid var(--line);border-radius:6px;padding:14px}
+.diag .col.good{background:linear-gradient(180deg,rgba(61,255,154,.06),transparent)}
+.diag .col.bad{background:linear-gradient(180deg,rgba(255,77,94,.06),transparent)}
+.diag h3{font-family:'Orbitron';font-size:13px;margin-bottom:10px;letter-spacing:1px}
+.diag .good h3{color:var(--green)} .diag .bad h3{color:var(--red)}
+.diag ul{list-style:none}
+.diag li{font-size:10.5px;line-height:1.5;padding-left:16px;position:relative;margin-bottom:9px;color:var(--ink)}
+.diag .good li::before{content:"▲";position:absolute;left:0;color:var(--green);font-size:8px;top:3px}
+.diag .bad li::before{content:"▼";position:absolute;left:0;color:var(--red);font-size:8px;top:3px}
+
+/* directive cards */
+.directive{display:flex;gap:14px;border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin-bottom:12px;background:linear-gradient(180deg,var(--panel),#070b16)}
+.directive .dn{font-family:'Orbitron';font-weight:900;font-size:30px;color:var(--cyan);line-height:1;min-width:46px;text-shadow:0 0 16px rgba(0,229,255,.4)}
+.directive .db h3{font-family:'Orbitron';font-size:14px;color:#eafcff;margin-bottom:5px;letter-spacing:.5px}
+.directive .db p{font-size:10.5px;line-height:1.55;color:var(--ink);opacity:.9}
+.directive .db .why{font-family:'Share Tech Mono';font-size:9.5px;color:var(--amber);margin-top:6px;display:block}
+
+/* timeline */
+.tl{border-left:2px solid var(--line);margin-left:8px;padding-left:18px}
+.tl .ti{position:relative;margin-bottom:14px}
+.tl .ti::before{content:"";position:absolute;left:-25px;top:3px;width:10px;height:10px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.tl .ti .day{font-family:'Share Tech Mono';font-size:10px;color:var(--mag);letter-spacing:2px}
+.tl .ti .act{font-size:11px;line-height:1.5;color:var(--ink);margin-top:3px}
+
+.footer{position:absolute;bottom:22px;left:52px;right:52px;display:flex;justify-content:space-between;font-family:'Share Tech Mono';font-size:9px;color:var(--dim);border-top:1px solid var(--line);padding-top:8px;z-index:2}
+
+.glow{color:var(--cyan)} .amberc{color:var(--amber)} .magc{color:var(--mag)} .greenc{color:var(--green)} .redc{color:var(--red)}
+.pill{display:inline-block;font-family:'Share Tech Mono';font-size:9px;border:1px solid var(--cyan);color:var(--cyan);padding:2px 8px;border-radius:10px;letter-spacing:1px}
+
+/* cover specifics */
+.cover-hero{position:relative;height:100%;display:flex;flex-direction:column;justify-content:center}
+.bigsys{font-family:'Orbitron';font-weight:900;font-size:120px;letter-spacing:8px;line-height:.9;color:transparent;-webkit-text-stroke:1.5px var(--cyan);opacity:.92;text-shadow:0 0 40px rgba(0,229,255,.25)}
+.cover-sub{font-family:'Share Tech Mono';font-size:13px;letter-spacing:6px;color:var(--amber);margin-top:18px}
+.cover-target{margin-top:40px;border:1px solid var(--line);border-radius:8px;padding:22px;background:linear-gradient(180deg,var(--panel),#070b16);max-width:520px}
+.cover-target .row{display:flex;justify-content:space-between;font-family:'Share Tech Mono';font-size:11px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.cover-target .row:last-child{border-bottom:none}
+.cover-target .row span:first-child{color:var(--dim);letter-spacing:1px}
+.cover-target .row span:last-child{color:var(--ink)}
+.crosshair{position:absolute;right:40px;top:60px;width:150px;height:150px;border:1px solid rgba(0,229,255,.3);border-radius:50%;opacity:.5}
+.crosshair::before,.crosshair::after{content:"";position:absolute;background:rgba(0,229,255,.3)}
+.crosshair::before{left:50%;top:-10px;bottom:-10px;width:1px;transform:translateX(-50%)}
+.crosshair::after{top:50%;left:-10px;right:-10px;height:1px;transform:translateY(-50%)}
+.statusband{display:inline-flex;align-items:center;gap:8px;font-family:'Share Tech Mono';font-size:10px;color:var(--green);border:1px solid rgba(61,255,154,.4);padding:5px 12px;border-radius:4px;margin-bottom:20px;letter-spacing:2px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+
+.callout{border-left:3px solid var(--amber);background:rgba(255,176,0,.06);padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0;font-size:11px;line-height:1.6}
+.callout b{color:var(--amber)}
+
+.quote{font-family:'Share Tech Mono';font-size:11px;color:var(--cyan);border:1px dashed var(--line);padding:12px 16px;border-radius:6px;background:rgba(0,229,255,.04);line-height:1.6}
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1 — COVER ============ -->
+<div class="page">
+ <div class="scr cover-hero">
+   <div class="crosshair"></div>
+   <div class="statusband"><span class="dot"></span> SIGNAL ACQUIRED // TARGET LOCKED</div>
+   <div class="kicker">Diagnostic Analysis &amp; Tactical Assessment Unit</div>
+   <div class="bigsys">D.A.T.A.</div>
+   <div class="cover-sub">FIELD DEBRIEF — INSTAGRAM GROWTH RECON</div>
+
+   <div class="cover-target bk">
+     <div class="row"><span>SUBJECT HANDLE</span><span class="glow">@bthewizardart</span></div>
+     <div class="row"><span>OPERATOR</span><span>Brandon Bailey — "Brandon the Wizard"</span></div>
+     <div class="row"><span>CLASS</span><span>Multidimensional Artist // Painter · Producer · Storyteller</span></div>
+     <div class="row"><span>SECTOR</span><span>Southern California</span></div>
+     <div class="row"><span>SCAN DATE</span><span>2026.06.11</span></div>
+     <div class="row"><span>SAMPLE DEPTH</span><span>33 most-recent transmissions</span></div>
+     <div class="row"><span>CLEARANCE</span><span class="amberc">EYES-ONLY // FRIENDLY ASSET</span></div>
+   </div>
+
+   <div style="margin-top:34px;max-width:540px" class="lead dimtext">
+     Compiled by automated reconnaissance for a fellow operator. The signal is strong —
+     the broadcast pattern is not. What follows is the full readout and the protocol to fix it.
+   </div>
+ </div>
+ <div class="footer"><span>D.A.T.A. // FIELD DEBRIEF</span><span>01 / 06 — TRANSMISSION OPEN</span></div>
+</div>
+
+<!-- ============ PAGE 2 — VITALS ============ -->
+<div class="page">
+ <div class="scr">
+   <div class="topbar">
+     <div class="brandmark">D.A.T.A. <b>//</b> ACCOUNT VITALS</div>
+     <div class="topmeta">RECON SWEEP <span class="blink">● LIVE</span><br>@bthewizardart // 546 LOGGED OBJECTS</div>
+   </div>
+
+   <div class="kicker">Section 01</div>
+   <h2 class="sec"><span class="num">01</span> SYSTEM VITALS</h2>
+   <p class="lead">Raw telemetry pulled from the public profile. The account is established and active — half a thousand posts deep, a healthy follower-to-following ratio. The reach engine is intact. The problem is downstream.</p>
+
+   <div class="stats">
+     <div class="stat"><div class="v">4,971</div><div class="l">Followers</div><div class="tag ok">SOLID</div></div>
+     <div class="stat"><div class="v">546</div><div class="l">Total Posts</div><div class="tag ok">PROLIFIC</div></div>
+     <div class="stat"><div class="v">1,372</div><div class="l">Following</div><div class="tag ok">3.6:1 RATIO</div></div>
+     <div class="stat"><div class="v ok">YES</div><div class="l">Link in Bio Active</div><div class="tag ok">GOOD</div></div>
+   </div>
+
+   <div class="panel bk">
+     <div class="ph"><span>ENGAGEMENT READOUT // 33-POST SAMPLE</span><span>UNIT: PER POST</span></div>
+     <div class="stats" style="margin:4px 0 0">
+       <div class="stat"><div class="v warn">8.8</div><div class="l">Avg Likes / Post</div><div class="tag warn">LOW</div></div>
+       <div class="stat"><div class="v warn">1.4</div><div class="l">Avg Comments / Post</div><div class="tag warn">LOW</div></div>
+       <div class="stat"><div class="v crit">0.18%</div><div class="l">Engagement Rate</div><div class="tag crit">CRITICAL</div></div>
+       <div class="stat"><div class="v">~3-6</div><div class="l">Posts / Day</div><div class="tag warn">HIGH VOL</div></div>
+     </div>
+   </div>
+
+   <div class="callout">
+     <b>READING:</b> A 0.18% engagement rate against ~5K followers means roughly
+     <b>9 of every 5,000 followers</b> react to a post. Healthy accounts this size run
+     <b>3–6%</b>. The audience exists — it is not being activated. This is a
+     <span class="amberc">strategy &amp; signal problem, not an audience problem.</span>
+   </div>
+
+   <div class="panel">
+     <div class="ph"><span>DIAGNOSIS PREVIEW</span><span>SEE SECTION 03</span></div>
+     <p class="lead" style="font-size:11.5px">Two root causes detected: <span class="redc">(1) content scatter</span> across
+     seven unrelated themes confuses the recommendation engine, and <span class="redc">(2) caption hooks</span> read as
+     product announcements instead of stakes the viewer cares about. Both are fixable inside two weeks.</p>
+   </div>
+ </div>
+ <div class="footer"><span>D.A.T.A. // FIELD DEBRIEF</span><span>02 / 06 — VITALS</span></div>
+</div>
+
+<!-- ============ PAGE 3 — SIGNAL MAP / TOP POSTS ============ -->
+<div class="page">
+ <div class="scr">
+   <div class="topbar">
+     <div class="brandmark">D.A.T.A. <b>//</b> SIGNAL MAP</div>
+     <div class="topmeta">PERFORMANCE TELEMETRY<br>RANKED BY PUBLIC ENGAGEMENT</div>
+   </div>
+
+   <div class="kicker">Section 02</div>
+   <h2 class="sec"><span class="num">02</span> SIGNAL MAP — WHAT THE AUDIENCE ACTUALLY REWARDS</h2>
+   <p class="lead">Every recent post ranked by total public engagement (likes + comments). The pattern is loud:
+   <span class="glow">music drops, personal story, and persona-art spike</span> — while the serialized audiobook clips flatline.</p>
+
+   <div class="panel bk">
+     <div class="ph"><span>TOP TRANSMISSIONS // BY ENGAGEMENT</span><span>LIKES + COMMENTS</span></div>
+     <div class="bars">
+       <div class="brow"><div class="lab">🎵 Music drop "all platforms"</div><div class="track"><div class="fill f-green" style="width:100%"></div></div><div class="val">99</div></div>
+       <div class="brow"><div class="lab">🕯 Mental-health tribute</div><div class="track"><div class="fill f-green" style="width:48%"></div></div><div class="val">34</div></div>
+       <div class="brow"><div class="lab">🥷 Ninja-wizard persona reel</div><div class="track"><div class="fill f-cyan" style="width:44%"></div></div><div class="val">31</div></div>
+       <div class="brow"><div class="lab">🎤 "Circles" collab throwback</div><div class="track"><div class="fill f-cyan" style="width:27%"></div></div><div class="val">19</div></div>
+       <div class="brow"><div class="lab">📚 Ijia "city center" (best of series)</div><div class="track"><div class="fill f-cyan" style="width:26%"></div></div><div class="val">18</div></div>
+       <div class="brow"><div class="lab">🎸 Guitar riff "needs bars"</div><div class="track"><div class="fill f-amber" style="width:23%"></div></div><div class="val">16</div></div>
+       <div class="brow"><div class="lab">📖 Indie-comics / anti-monopoly take</div><div class="track"><div class="fill f-amber" style="width:18%"></div></div><div class="val">13</div></div>
+     </div>
+   </div>
+
+   <div class="panel bk">
+     <div class="ph"><span>DEAD-WEIGHT TRANSMISSIONS // DRAGGING THE AVERAGE</span><span>LIKES + COMMENTS</span></div>
+     <div class="bars">
+       <div class="brow"><div class="lab">📕 Ijia audiobook ch. (jungle)</div><div class="track"><div class="fill f-red" style="width:5%"></div></div><div class="val">1</div></div>
+       <div class="brow"><div class="lab">📕 Ijia audiobook ch. (beast)</div><div class="track"><div class="fill f-red" style="width:5%"></div></div><div class="val">1</div></div>
+       <div class="brow"><div class="lab">📕 Ijia "Part One" forest</div><div class="track"><div class="fill f-red" style="width:5%"></div></div><div class="val">1</div></div>
+       <div class="brow"><div class="lab">💎 Pendant product shot</div><div class="track"><div class="fill f-red" style="width:10%"></div></div><div class="val">2</div></div>
+       <div class="brow"><div class="lab">🎧 "This one slaps" (no context)</div><div class="track"><div class="fill f-red" style="width:14%"></div></div><div class="val">3</div></div>
+     </div>
+   </div>
+
+   <div class="callout">
+     <b>THE TELL:</b> The serialized <span class="glow">Ijia</span> audiobook is being posted chapter-by-chapter as
+     standalone reels — and almost none land. Posting <span class="redc">8–10 low-engagement clips in a row</span> trains
+     the algorithm to file the whole account as low-interest, which suppresses the <em>good</em> posts too.
+     The audiobook isn't bad — the <b>delivery format is starving it.</b>
+   </div>
+ </div>
+ <div class="footer"><span>D.A.T.A. // FIELD DEBRIEF</span><span>03 / 06 — SIGNAL MAP</span></div>
+</div>
+
+<!-- ============ PAGE 4 — DIAGNOSIS ============ -->
+<div class="page">
+ <div class="scr">
+   <div class="topbar">
+     <div class="brandmark">D.A.T.A. <b>//</b> DIAGNOSIS</div>
+     <div class="topmeta">ROOT-CAUSE ANALYSIS<br>STRENGTHS vs. LEAKS</div>
+   </div>
+
+   <div class="kicker">Section 03</div>
+   <h2 class="sec"><span class="num">03</span> DIAGNOSIS — THE CORE PROBLEM</h2>
+
+   <div class="quote" style="margin-bottom:16px">
+     ◢ PRIMARY FINDING: The account broadcasts <b>seven unrelated content pillars</b> with no through-line.
+     Instagram cannot decide who to show it to, and followers can't remember what they followed you for. ◣
+   </div>
+
+   <div class="panel">
+     <div class="ph"><span>DETECTED CONTENT PILLARS // 7 COMPETING SIGNALS</span></div>
+     <div class="bars">
+       <div class="brow"><div class="lab">🎨 Psychedelic / visionary paintings</div><div class="track"><div class="fill f-green" style="width:88%"></div></div><div class="val">A+</div></div>
+       <div class="brow"><div class="lab">🎵 Hip-hop / nerdcore music</div><div class="track"><div class="fill f-green" style="width:80%"></div></div><div class="val">A</div></div>
+       <div class="brow"><div class="lab">🧙 Wizard persona / identity</div><div class="track"><div class="fill f-cyan" style="width:72%"></div></div><div class="val">A-</div></div>
+       <div class="brow"><div class="lab">📖 Comic-industry commentary</div><div class="track"><div class="fill f-amber" style="width:55%"></div></div><div class="val">B</div></div>
+       <div class="brow"><div class="lab">🎸 Nu-metal guitar riffs</div><div class="track"><div class="fill f-amber" style="width:50%"></div></div><div class="val">B-</div></div>
+       <div class="brow"><div class="lab">📕 Ijia audiobook serial</div><div class="track"><div class="fill f-red" style="width:18%"></div></div><div class="val">D</div></div>
+       <div class="brow"><div class="lab">💎 Pendants / thrift reselling</div><div class="track"><div class="fill f-red" style="width:15%"></div></div><div class="val">D</div></div>
+     </div>
+   </div>
+
+   <div class="diag">
+     <div class="col good bk">
+       <h3>◤ SIGNAL STRENGTHS</h3>
+       <ul>
+         <li><b>A genuine, ownable brand</b> — "Brandon the Wizard" + psychedelic visionary art is rare and memorable.</li>
+         <li><b>Real creative assets</b> — original paintings, self-produced music, a full sci-fi universe (Ijia), a persona. Most creators would kill for this much raw material.</li>
+         <li><b>Best posts have stakes</b> — the mental-health tribute (30 likes) and music drops prove the audience responds to <em>emotion and event</em>, not product.</li>
+         <li><b>Consistency &amp; work ethic</b> — daily output. The engine is running; it just needs aim.</li>
+       </ul>
+     </div>
+     <div class="col bad bk">
+       <h3>◥ SIGNAL LEAKS</h3>
+       <ul>
+         <li><b>Pillar scatter</b> — 7 themes in one feed. The algorithm can't build an audience profile, so reach stays cold.</li>
+         <li><b>Announcement captions</b> — "now on all platforms," "official ijia ch. 4" are notices, not hooks. No curiosity, no stake.</li>
+         <li><b>Audiobook dumping</b> — many 1-like serial clips in a row poison the account's average and signal "low interest."</li>
+         <li><b>Nothing built to SAVE or SHARE</b> — saves + shares are what the algorithm amplifies. Almost no post earns either.</li>
+         <li><b>Strongest asset buried</b> — the paintings (his best visual) are posted as flat photos, not hooked reels.</li>
+       </ul>
+     </div>
+   </div>
+ </div>
+ <div class="footer"><span>D.A.T.A. // FIELD DEBRIEF</span><span>04 / 06 — DIAGNOSIS</span></div>
+</div>
+
+<!-- ============ PAGE 5 — THE MANUAL ============ -->
+<div class="page">
+ <div class="scr">
+   <div class="topbar">
+     <div class="brandmark">D.A.T.A. <b>//</b> FIELD MANUAL</div>
+     <div class="topmeta">CORRECTION PROTOCOL<br>SIX DIRECTIVES</div>
+   </div>
+
+   <div class="kicker">Section 04 — Instructional Manual</div>
+   <h2 class="sec"><span class="num">04</span> THE PROTOCOL — SIX DIRECTIVES TO RAISE THE SIGNAL</h2>
+
+   <div class="directive bk">
+     <div class="dn">01</div>
+     <div class="db"><h3>PICK ONE LANE. MAKE THE REST SUPPORTING.</h3>
+       <p>Choose <span class="glow">"Brandon the Wizard — visionary artist"</span> as the hero pillar (paintings + persona + music as proof of the world). Aim ~70% of posts there. Everything else (comics, thrift, pendants) becomes occasional flavor, not co-headliners.</p>
+       <span class="why">▸ WHY: A focused feed lets Instagram find your tribe and show you to lookalikes. Scatter keeps reach cold.</span>
+     </div>
+   </div>
+
+   <div class="directive bk">
+     <div class="dn">02</div>
+     <div class="db"><h3>HOOK ON STAKES, NOT ANNOUNCEMENTS.</h3>
+       <p>Kill "now on all platforms." Open with a first-person stake or a curiosity gap: <em>"I painted this in one sitting and it scared me a little —"</em> · <em>"They don't want you buying comics from these 3 publishers. Here's why."</em> Win the first 1 second.</p>
+       <span class="why">▸ WHY: Your best posts (tribute, conspiracy take) already had stakes. Make that the rule, not the exception.</span>
+     </div>
+   </div>
+
+   <div class="directive bk">
+     <div class="dn">03</div>
+     <div class="db"><h3>EVERY POST MUST EARN A SAVE OR A SHARE.</h3>
+       <p>Build in a reason to keep it: a technique reveal, a hot take worth arguing, a "save this for later," a quotable line. Saves + shares are the rocket fuel the algorithm amplifies — likes barely move the needle.</p>
+       <span class="why">▸ WHY: The account's reach ceiling is low because almost nothing is being saved or sent to a friend.</span>
+     </div>
+   </div>
+
+   <div class="directive bk">
+     <div class="dn">04</div>
+     <div class="db"><h3>STOP DUMPING THE AUDIOBOOK. REPACKAGE IT.</h3>
+       <p>Don't post Ijia chapter-by-chapter as raw reels. Cut <span class="amberc">one</span> high-impact trailer (best art + a cliffhanger line + your mom's narration) and pin it. Drive to the full audiobook via link. One great post beats ten dead ones.</p>
+       <span class="why">▸ WHY: A run of 1-like clips tells the algorithm the whole account is low-interest and suppresses your good posts.</span>
+     </div>
+   </div>
+
+   <div class="directive bk">
+     <div class="dn">05</div>
+     <div class="db"><h3>LEAD WITH THE PAINTINGS AS REELS.</h3>
+       <p>Your psychedelic art is your strongest visual — but it's posted as still photos. Film the <em>process</em>: time-lapse the canvas, hands moving, paint hitting in the first second. Art process is some of the most saved/shared content on the platform.</p>
+       <span class="why">▸ WHY: Strong visual in second 1 = the single biggest driver of watch-time and reach.</span>
+     </div>
+   </div>
+
+   <div class="directive bk">
+     <div class="dn">06</div>
+     <div class="db"><h3>FEWER, STRONGER. QUALITY OVER FLOOD.</h3>
+       <p>Drop from 3–6 posts/day to <span class="glow">1 strong post/day</span> (or even 4–5 great ones a week). Put the effort that went into 6 throwaway clips into one reel with a real hook, clean visual, and a save-worthy payoff.</p>
+       <span class="why">▸ WHY: The algorithm rewards your <em>average</em> post quality. Flooding lowers it; concentration raises it.</span>
+     </div>
+   </div>
+ </div>
+ <div class="footer"><span>D.A.T.A. // FIELD DEBRIEF</span><span>05 / 06 — FIELD MANUAL</span></div>
+</div>
+
+<!-- ============ PAGE 6 — 14 DAY PLAN + CLOSE ============ -->
+<div class="page">
+ <div class="scr">
+   <div class="topbar">
+     <div class="brandmark">D.A.T.A. <b>//</b> DEPLOYMENT</div>
+     <div class="topmeta">14-DAY FLIGHT PLAN<br>EXECUTE &amp; MEASURE</div>
+   </div>
+
+   <div class="kicker">Section 05</div>
+   <h2 class="sec"><span class="num">05</span> 14-DAY FLIGHT PLAN</h2>
+   <p class="lead">A two-week test run. Don't overhaul everything — run the experiment, then read the numbers.</p>
+
+   <div class="tl" style="margin-top:16px">
+     <div class="ti"><div class="day">DAY 1–2 // SET THE LANE</div><div class="act">Pick the hero pillar (wizard / visionary art). Update bio to say exactly what you make. Pin your single best post.</div></div>
+     <div class="ti"><div class="day">DAY 3–7 // ONE STRONG POST/DAY</div><div class="act">5 reels, hero pillar only. Each: a stakes hook in the first line + a strong visual in second 1 + a save-worthy payoff. Film at least 2 painting time-lapses.</div></div>
+     <div class="ti"><div class="day">DAY 8 // CUT THE TRAILER</div><div class="act">Build one Ijia trailer (best art + cliffhanger + narration). Pin it. Stop posting chapters individually.</div></div>
+     <div class="ti"><div class="day">DAY 9–13 // HOT TAKES + PROCESS</div><div class="act">Mix the indie-comics/anti-monopoly takes (your share-bait) with painting process reels. Ask one real question in every caption to pull comments.</div></div>
+     <div class="ti"><div class="day">DAY 14 // READ THE TELEMETRY</div><div class="act">Check Insights: which got the most SAVES and SHARES, not likes. Double down on the format that won. Repeat.</div></div>
+   </div>
+
+   <div class="panel bk" style="margin-top:18px">
+     <div class="ph"><span>SUCCESS METRICS // WHAT TO WATCH</span><span>IGNORE VANITY LIKES</span></div>
+     <div class="stats" style="margin:4px 0 0">
+       <div class="stat"><div class="v glow">SAVES</div><div class="l">Primary KPI</div><div class="tag ok">TRACK</div></div>
+       <div class="stat"><div class="v glow">SHARES</div><div class="l">Primary KPI</div><div class="tag ok">TRACK</div></div>
+       <div class="stat"><div class="v amberc">WATCH%</div><div class="l">Reel hook health</div><div class="tag warn">TRACK</div></div>
+       <div class="stat"><div class="v magc">NON-FOLLOWER</div><div class="l">% reach = growth</div><div class="tag warn">TRACK</div></div>
+     </div>
+   </div>
+
+   <div class="quote" style="margin-top:18px">
+     ◢ FINAL TRANSMISSION: Brandon — you are not short on talent or material. You have more raw creative
+     firepower than most accounts ten times your size. The only fix is <b>aim</b>: one lane, real hooks,
+     and posts built to be saved. Concentrate the signal and the reach will follow. ◣
+   </div>
+
+   <div style="margin-top:22px;text-align:center;font-family:'Share Tech Mono';font-size:10px;color:var(--dim);letter-spacing:2px">
+     — END OF DEBRIEF —<br>
+     <span style="color:var(--green)">D.A.T.A. UNIT // SIGNAL CLOSED</span> · COMPILED FOR A FELLOW OPERATOR · 2026.06.11
+   </div>
+ </div>
+ <div class="footer"><span>D.A.T.A. // FIELD DEBRIEF</span><span>06 / 06 — TRANSMISSION CLOSED</span></div>
+</div>
+
+</body>
+</html>
