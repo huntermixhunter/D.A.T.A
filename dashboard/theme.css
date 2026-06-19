@@ -2157,6 +2157,10 @@ html, body {
   min-height: 0;
   overflow: hidden;
 }
+/* A class selector outranks the UA [hidden] rule, so without this the
+   "closed" main pane stays rendered — leaving two panes stacked in a
+   one-cell grid with no splitter. Honor the hidden attribute explicitly. */
+.chat-pane[hidden] { display: none; }
 
 /* Pane header — hidden when only one pane */
 .chat-pane-header {

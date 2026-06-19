@@ -6659,8 +6659,11 @@ function _setupSplitterDrag(splitter, axis) {
 window.addEventListener('resize', () => {
   const wrapper = document.getElementById('chats-wrapper');
   if (!wrapper) return;
-  const count = wrapper.querySelectorAll('.chat-pane').length;
-  _renderChatSplitters(wrapper, count);
+  // Count only VISIBLE panes — a hidden (closed) main pane must not be
+  // included or the splitter math drifts out of sync with _updateChatGrid.
+  const count = wrapper.querySelectorAll('.chat-pane:not([hidden])').length;
+  const isMobile = window.matchMedia('(max-width: 900px)').matches;
+  _renderChatSplitters(wrapper, count, isMobile);
 });
 
 function addProjectTab() {
