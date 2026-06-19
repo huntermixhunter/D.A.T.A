@@ -8529,7 +8529,11 @@ class Handler(BaseHTTPRequestHandler):
                     _project_path = ""; _project_nodes = []; _project_text = ""
                 self._json({"cleared": True})
                 return
-            p = Path(new_path)
+            # Expand ~ / ~user and environment vars so spawn markers and the
+            # frontend can pass "~/Documents/Foo" paths (as the system prompt's
+            # own examples instruct). Without this, Path("~/...").is_dir() is
+            # always False and the window/scan silently fails.
+            p = Path(os.path.expanduser(os.path.expandvars(new_path)))
             if not p.is_dir():
                 self._json({"error": "Directory not found"}, 400)
                 return

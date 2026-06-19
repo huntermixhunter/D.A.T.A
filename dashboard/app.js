@@ -149,6 +149,7 @@ const _dataSoundCache = new Map();
 const _dataSoundLastPlayed = {};
 
 function initDataSounds() {
+  return; // SFX disabled — do not preload UI sound files
   for (const [name, cfg] of Object.entries(DATA_SOUNDS)) {
     if (_dataSoundCache.has(name)) continue;
     const audio = new Audio(cfg.src);
@@ -159,6 +160,7 @@ function initDataSounds() {
 }
 
 function playDataSound(name) {
+  return; // SFX disabled — UI sounds removed per Captain's order (better set TBD)
   const cfg = DATA_SOUNDS[name];
   if (!cfg) return;
 
@@ -3857,11 +3859,12 @@ async function startWakeDictation() {
   }
 
   // No server Whisper (core build) — route to the browser-STT fallback.
-  // No auto-send in this mode; the Captain reviews and hits TRANSMIT.
+  // Wake-initiated, so run it hands-free (wakeMode=true): the recognizer stops
+  // at the first natural pause, then auto-submits and re-arms the wake listener.
   if (!(await _serverSttAvailable())) {
     const btn = document.querySelector(`.dictate-btn[data-target-input="${targetId}"]`)
              || document.getElementById('dictate-btn');
-    _browserDictationToggle(btn, targetId);
+    _browserDictationToggle(btn, targetId, true);
     return;
   }
 
@@ -5203,7 +5206,7 @@ async function _serverSttAvailable() {
   return _sttServerAvailable;
 }
 
-function _browserDictationToggle(btn, targetId) {
+function _browserDictationToggle(btn, targetId, wakeMode = false) {
   if (_browserRec) { try { _browserRec.stop(); } catch {} return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -5215,13 +5218,17 @@ function _browserDictationToggle(btn, targetId) {
 
   const rec = new SR();
   rec.lang = navigator.language || 'en-US';
-  rec.continuous = true;
+  // Wake-initiated dictation is hands-free: continuous=false makes the
+  // recognizer auto-stop at the first natural pause so it can submit on its
+  // own. Manual (button) dictation stays continuous until the Captain hits ⏹.
+  rec.continuous = !wakeMode;
   rec.interimResults = false;
+  let _heardText = false;
   rec.onresult = (e) => {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       if (e.results[i].isFinal) {
         const txt = e.results[i][0].transcript.trim();
-        if (txt) input.value = (input.value.trimEnd() ? input.value.trimEnd() + ' ' : '') + txt;
+        if (txt) { input.value = (input.value.trimEnd() ? input.value.trimEnd() + ' ' : '') + txt; _heardText = true; }
       }
     }
   };
@@ -5233,13 +5240,22 @@ function _browserDictationToggle(btn, targetId) {
     if (btn) { btn.textContent = '🎙'; btn.classList.remove('dictating'); }
     input.focus();
     addLog('Dictation complete (browser STT)');
+    // Hands-free wake path: speak the reply back and auto-submit the dictated
+    // prompt. sendMessage() flips BRAIN.active, which gates the wake re-arm
+    // below so the mic does not immediately reopen mid-reply.
+    if (wakeMode && _heardText) {
+      if (targetId === 'chat-input') _autoSpeakNextReply = true;
+      if (typeof _autoSubmitFromInput === 'function') _autoSubmitFromInput(targetId);
+    }
     // Hand the recognizer slot back to the wake-word listener
     if (typeof _restartWakeIfEnabled === 'function') _restartWakeIfEnabled();
   };
 
   _browserRec = rec;
   if (btn) { btn.textContent = '⏹'; btn.classList.add('dictating'); }
-  addLog('Dictation (browser STT) — speak, click ⏹ to finish');
+  addLog(wakeMode
+    ? 'Wake dictation (browser STT) — speak; stops automatically at a pause'
+    : 'Dictation (browser STT) — speak, click ⏹ to finish');
   rec.start();
 }
 
