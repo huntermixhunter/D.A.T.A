@@ -2011,7 +2011,7 @@ def _load_soul(mode: str = "api") -> str:
         f"**DATA-core skill bundle (ships with a fresh install).** A curated set of skills travels INSIDE "
         f"the install at `dashboard/skills_bundle/` so a brand-new install has its core toolset on first "
         f"launch instead of an empty skill list. The installer copies the bundle out to the two discovery "
-        f"dirs above — `install/install.ps1` on Windows and `install/install.sh` on macOS/Linux/ChromeOS "
+        f"dirs above — `install/install.bat` on Windows and `install/install.sh` on macOS/Linux/ChromeOS "
         f"both run it once during setup. The flow has two sides, both driven by `skills_bundle/manifest.json` "
         f"(the source-of-truth list of which skills ship):\n"
         f"  - `dashboard/install_skills.py` — INSTALL side: copies the bundle → live dirs. Idempotent; "

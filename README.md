@@ -56,10 +56,9 @@ cd DATA
 .\install\install.bat
 ```
 
-**Double-click `install\install.bat`** (or run the line above). Do **not** double-click
-`install.ps1` directly — Windows blocks unsigned scripts and the window will flash and
-close before you can read anything. The `.bat` wrapper bypasses that and pauses on exit so
-you can always see what happened. (Prerequisite: install **Python 3.10+** from
+**Double-click `install\install.bat`** (or run the line above) — that is the only file
+you need to launch on Windows. It bypasses Windows' unsigned-script block and pauses on
+exit so you can always read the output. (Prerequisite: install **Python 3.10+** from
 python.org first, checking **"Add python.exe to PATH"**.)
 
 The installer asks **"Add a DATA icon to your desktop? [Y/n]"** — press **Enter**

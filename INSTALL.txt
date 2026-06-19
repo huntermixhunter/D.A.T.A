@@ -15,10 +15,10 @@ You will need TWO things:
   WINDOWS
 ------------------------------------------------------------------------
 1. Unzip this folder somewhere you like (e.g. Documents\DATA).
-2. Open the DATA folder, then double-click:  install\install.ps1
-   - If Windows blocks it, right-click install.ps1 > "Run with
-     PowerShell". (You can also open PowerShell in the folder and run
-     .\install\install.ps1)
+2. Open the DATA folder, then double-click:  install\install.bat
+   - This is the only file you need to run on Windows. It handles the
+     execution-policy block automatically and stays open so you can read
+     the output.
    - Don't have Python? Get it from https://python.org/downloads
      and check "Add Python to PATH" during setup, then run the
      installer again.
