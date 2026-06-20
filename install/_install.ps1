@@ -50,7 +50,9 @@ if ($providers.Count -gt 0) {
     Write-Host "      Claude Desktop app. The CLI installs via npm, which needs" -ForegroundColor Yellow
     Write-Host "      Node.js first: https://nodejs.org (LTS). Then in a terminal:" -ForegroundColor Yellow
     Write-Host "        npm install -g @anthropic-ai/claude-code" -ForegroundColor Yellow
-    Write-Host "      After installing, run 'claude' once and log in." -ForegroundColor Yellow
+    Write-Host "      After installing, run 'claude' in a terminal and type" -ForegroundColor Yellow
+    Write-Host "      '/login' once to sign in (DATA can't show the login" -ForegroundColor Yellow
+    Write-Host "      prompt itself; if chat says 'run /login', that's why)." -ForegroundColor Yellow
     Write-Host "      Verify with 'claude --version'." -ForegroundColor Yellow
 }
 

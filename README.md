@@ -111,7 +111,7 @@ channel offers — no config files, no restart.
 
 | Provider | One-time setup | Billing |
 |----------|---------------|---------|
-| **Claude** (Opus / Sonnet / Haiku) | Install [Claude Code](https://docs.claude.com/en/docs/claude-code), run `claude` once and log in | Your Claude subscription (Pro/Max) |
+| **Claude** (Opus / Sonnet / Haiku) | Install [Claude Code](https://docs.claude.com/en/docs/claude-code), then in a terminal run `claude` and type `/login` once to sign in | Your Claude subscription (Pro/Max) |
 
 > **Claude Code CLI vs. Claude Desktop — don't confuse them.** DATA drives the
 > **Claude Code command-line tool** (`claude` in a terminal), which you install
@@ -121,6 +121,13 @@ channel offers — no config files, no restart.
 > (the CLI installs via npm — `npm install -g @anthropic-ai/claude-code`), run
 > `claude` in a terminal and log in, then restart DATA. Verify with
 > `claude --version` — a version number means you have the right tool.
+>
+> **Log in once by hand.** After installing, open a normal terminal, run
+> `claude`, and type `/login` to sign in through the browser. DATA runs
+> Claude in the background and cannot display the login prompt, so until
+> you've authenticated this once, DATA's chat will error asking you to
+> run `/login`. Once you log in by hand, the credentials are cached and
+> DATA inherits them automatically — you won't need to do it again.
 | **GPT-5 Codex** | `npm i -g @openai/codex`, then `codex login` | Your ChatGPT subscription |
 | **Gemini 2.5** | `npm i -g @google/gemini-cli`, then log in on first run | Google free tier / account |
 | **Ollama** (local models) | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5-coder:7b` | Free — runs on your hardware |

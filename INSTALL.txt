@@ -52,7 +52,15 @@ have installed and log in to with YOUR OWN account. Pick one:
 
   * Claude  (recommended)  - your Claude Pro/Max subscription
         Install: https://docs.claude.com/en/docs/claude-code
-        Then run "claude" once and log in.
+
+        LOG IN ONCE BY HAND: open a normal terminal (PowerShell on
+        Windows, Terminal on Mac/Linux), type "claude" and press Enter.
+        When it opens, type "/login" and finish signing in through the
+        browser window it opens. Do this ONE time before using DATA.
+        Why: DATA runs Claude in the background and cannot show you the
+        login screen, so until you've logged in by hand once, DATA's chat
+        will error with a message telling you to run "/login". After you
+        log in this once, the credentials are saved and DATA just works.
 
         IMPORTANT: this is the Claude Code COMMAND-LINE tool, NOT the
         Claude Desktop app. They are different programs. The Desktop app
@@ -98,6 +106,10 @@ them from the dropdown at the top of the chat panel.
     your PATH, then re-run the installer.
   * Chat says no provider - install one of the four tools above and
     log in, then refresh the page.
+  * Chat error says to "run /login" - your Claude CLI isn't logged in
+    yet. Open a normal terminal, type "claude", then type "/login" and
+    sign in through the browser. Do this once, then restart DATA. (DATA
+    cannot show the login screen itself - it must be done by hand.)
   * A log of what happened is written to "bridge.log" in the DATA
     folder - handy if you need to ask for help.
 

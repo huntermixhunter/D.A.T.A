@@ -54,7 +54,9 @@ else
     echo "      Claude Desktop app. The CLI installs via npm, which needs"
     echo "      Node.js first: https://nodejs.org (LTS). Then run:"
     echo "        npm install -g @anthropic-ai/claude-code"
-    echo "      After installing, run 'claude' once and log in."
+    echo "      After installing, run 'claude' in a terminal and type"
+    echo "      '/login' once to sign in (DATA can't show the login"
+    echo "      prompt itself; if chat says 'run /login', that's why)."
     echo "      Verify with 'claude --version'."
 fi
 
