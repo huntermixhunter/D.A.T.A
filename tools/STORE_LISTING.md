@@ -59,7 +59,7 @@ Download the zip, unzip it, and open INSTALL.txt for a 5-minute setup. Verify yo
 
 ## File integrity (publish on the page)
 DATA-v1.0.13.zip
-SHA-256: (regenerated on build — see release.ps1 output)
+SHA-256: 0dea9fe7a3a563cc87cb6f25bd96db7d9bf084683ae0c5841043a36baffcedd8
 
 ## License key
 Enable Lemon Squeezy license-key generation. (DATA does not enforce keys yet — this just issues a unique key per buyer so enforcement can be added later without orphaning early customers.)
