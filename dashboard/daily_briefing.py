@@ -199,22 +199,31 @@ def _call_claude_api(prompt: str, api_key: str) -> str:
     return resp.content[0].text.strip()
 
 
+def _is_claude_desktop_stub(path: str) -> bool:
+    """True if `path` is the Claude DESKTOP launcher (AppData\\Local\\
+    AnthropicClaude\\claude.exe) rather than the Claude Code CLI. Spawning it
+    pops the desktop GUI and emits the DEP0169 url.parse warning — never use."""
+    return bool(path) and "anthropicclaude" in str(path).replace("/", "\\").lower()
+
+
 def _find_claude_exe() -> str:
-    """Locate the claude executable across platforms and install methods."""
+    """Locate the claude executable across platforms and install methods.
+    Skips the Claude Desktop launcher so a side-by-side desktop install can
+    never hijack the 'claude' command."""
     import shutil
     for candidate in ("claude", "claude.exe", "claude.cmd"):
         found = shutil.which(candidate)
-        if found:
+        if found and not _is_claude_desktop_stub(found):
             return found
+    # AnthropicClaude is deliberately NOT listed — it is the desktop app.
     candidates = [
         Path.home() / ".local" / "bin" / "claude",
         Path.home() / ".local" / "bin" / "claude.exe",
-        Path.home() / "AppData" / "Local" / "AnthropicClaude" / "claude.exe",
         Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / "claude.exe",
         Path.home() / "AppData" / "Roaming" / "npm" / "claude.cmd",
     ]
     for path in candidates:
-        if path.exists():
+        if path.exists() and not _is_claude_desktop_stub(str(path)):
             return str(path)
     if sys.platform == "win32":
         try:
@@ -224,7 +233,7 @@ def _find_claude_exe() -> str:
             )
             for line in r.stdout.splitlines():
                 p = line.strip()
-                if p and Path(p).exists():
+                if p and Path(p).exists() and not _is_claude_desktop_stub(p):
                     return p
         except Exception:
             pass

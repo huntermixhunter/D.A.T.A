@@ -986,31 +986,49 @@ PROVIDERS = {
 }
 
 
+def _is_claude_desktop_stub(path: str) -> bool:
+    """True if `path` is the Claude DESKTOP app launcher rather than the Claude
+    Code CLI. Claude Desktop installs a small 'claude.exe' Squirrel launcher
+    under AppData\\Local\\AnthropicClaude and adds that directory to PATH. If the
+    bridge ever spawns it instead of the real CLI, the desktop GUI pops open on
+    every message AND its Electron/Node runtime emits the harmless-but-noisy
+    DEP0169 url.parse deprecation warning. We must never resolve to it."""
+    if not path:
+        return False
+    return "anthropicclaude" in str(path).replace("/", "\\").lower()
+
+
 def _provider_executable(provider_id: str) -> str:
     """Locate the provider's executable on disk. Returns '' if not found.
     Checks: shutil.which → known install dirs → `cmd /c where`.
     The bridge often runs from pythonw.exe with a stripped PATH that doesn't
-    include user-local bins, so the fallbacks are critical."""
+    include user-local bins, so the fallbacks are critical.
+    Rejects the Claude Desktop launcher at every step (see
+    _is_claude_desktop_stub) so a side-by-side Claude Desktop install can never
+    hijack the 'claude' command."""
     import shutil
     p = PROVIDERS.get(provider_id, {})
     executables = p.get("executables", [])
     if not executables:
         return ""
 
-    # 1. PATH lookup
+    def _ok(path: str) -> bool:
+        return bool(path) and not _is_claude_desktop_stub(path)
+
+    # 1. PATH lookup (skip the Claude Desktop stub if it shadows the CLI)
     for exe in executables:
         found = shutil.which(exe)
-        if found:
+        if _ok(found):
             return found
 
-    # 2. Known install dirs (try every executable name with every dir)
+    # 2. Known install dirs (try every executable name with every dir).
+    #    AnthropicClaude is deliberately NOT listed — it is the desktop app.
     home = Path.home()
     base_name = executables[0]
     install_dirs = [
         home / ".local" / "bin",
         home / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links",
         home / "AppData" / "Roaming" / "npm",
-        home / "AppData" / "Local" / "AnthropicClaude",
         Path(r"C:\Program Files\nodejs"),
         Path(r"C:\Program Files (x86)\nodejs"),
     ]
@@ -1018,7 +1036,7 @@ def _provider_executable(provider_id: str) -> str:
         if not d.exists(): continue
         for suffix in (".exe", ".cmd", ".bat", ""):
             candidate = d / (base_name + suffix)
-            if candidate.is_file():
+            if candidate.is_file() and _ok(str(candidate)):
                 return str(candidate)
 
     # 3. Last-ditch: ask cmd.exe (which always has the full system+user PATH)
@@ -1029,7 +1047,7 @@ def _provider_executable(provider_id: str) -> str:
         )
         for line in r.stdout.splitlines():
             path = line.strip()
-            if path and Path(path).is_file():
+            if path and Path(path).is_file() and _ok(path):
                 return path
     except Exception:
         pass
@@ -4858,7 +4876,21 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
         soul_cli = _load_soul_cli()  # fresh per request — picks up new skills without restart
         # Use resolved absolute path — when the bridge runs from pythonw it
         # may not have ~/.local/bin in PATH, so plain "claude" can't be found.
-        claude_exe = _provider_executable("claude-cli") or "claude"
+        # NEVER fall back to the bare name "claude": on a machine where only
+        # Claude DESKTOP is installed, PATH resolves bare "claude" to the desktop
+        # Squirrel launcher — which pops the GUI open on every message and emits
+        # the DEP0169 url.parse warning from its Electron runtime. If the resolver
+        # returns "" the real Claude Code CLI genuinely is not installed; surface
+        # a clear install message instead of launching the wrong app.
+        claude_exe = _provider_executable("claude-cli")
+        if not claude_exe:
+            log.error("[CLI] real Claude Code CLI not found — only Claude Desktop or nothing on PATH")
+            return ("Claude Code CLI is not installed on this machine, Captain. "
+                    "Install it with:  npm install -g @anthropic-ai/claude-code  "
+                    "then run  claude  and sign in with  /login. "
+                    "Note: Claude Desktop is a different app and cannot run DATA — "
+                    "if the desktop app keeps opening, that is the missing CLI being "
+                    "resolved to the desktop launcher.")
         # SOUL.md + memory + tool docs together exceed Windows' 32KB cmdline
         # limit. Write to a temp file and pass via --system-prompt-file.
         soul_file = tempfile.NamedTemporaryFile(
@@ -4951,8 +4983,23 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         # Silence Node's DEP0169 (url.parse) and other deprecation warnings the
         # bundled CLI emits on newer Node runtimes; preserve any user NODE_OPTIONS.
         cli_env["NODE_OPTIONS"] = (cli_env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
-        # Resolve absolute path — pythonw.exe may not have ~/.local/bin in PATH
-        claude_exe = _provider_executable(_current_provider_id()) or "claude"
+        # Resolve absolute path — pythonw.exe may not have ~/.local/bin in PATH.
+        # NEVER fall back to bare "claude": with only Claude DESKTOP installed,
+        # PATH resolves it to the desktop launcher (GUI opens every message +
+        # DEP0169 warning). Empty == the provider CLI is genuinely not installed.
+        _pid = _current_provider_id()
+        claude_exe = _provider_executable(_pid)
+        if not claude_exe:
+            _hint = PROVIDERS.get(_pid, {}).get("install_hint", "")
+            log.error(f"[CLI-STREAM] provider '{_pid}' CLI not found on this machine")
+            send_sse('token',
+                     f"The '{_pid}' CLI is not installed on this machine, Captain. {_hint}  "
+                     "(If Claude Desktop keeps opening, that is the missing CLI being resolved "
+                     "to the desktop launcher — Claude Desktop is a separate app and cannot run DATA.)")
+            send_sse('meta', json.dumps({'input_tokens': 0, 'output_tokens': 0}))
+            send_sse('done', '')
+            _cleanup_cli_attachments(attach_tmpdir)
+            return
         # SOUL is too long for Windows 32KB cmdline — write to temp file
         sf = tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, encoding="utf-8")
@@ -7227,8 +7274,13 @@ def _compact_memory_file() -> dict:
     # claude CLI bills the metered API (which has no credit → exit 1); without
     # it the CLI uses the subscription OAuth token. This is the same trick the
     # chat CLI runners (ask_hermes_cli / ask_hermes_cli_stream) rely on.
-    cli = _provider_executable("claude-cli") or "claude"
+    # Do NOT fall back to bare "claude" — PATH resolves it to the Claude Desktop
+    # launcher when only the desktop app is installed (GUI + DEP0169). "" means
+    # the CLI is absent; skip the CLI path and let the API/other fallback handle it.
+    cli = _provider_executable("claude-cli")
     try:
+        if not cli:
+            raise FileNotFoundError("Claude Code CLI not installed (refusing to launch Claude Desktop)")
         cli_env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         cli_env["NODE_OPTIONS"] = (cli_env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
         # Opus over Sonnet here: compaction is rare (a few times/month) but the
