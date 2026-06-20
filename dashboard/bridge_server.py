@@ -4901,11 +4901,19 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
         # Silence Node's DEP0169 (url.parse) and other deprecation warnings the
         # bundled CLI emits on newer Node runtimes; preserve any user NODE_OPTIONS.
         cli_env["NODE_OPTIONS"] = (cli_env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
+        # Pass the prompt via STDIN, not as a positional arg. On a fresh
+        # Windows install `claude` resolves to the npm `.cmd` shim, and pushing
+        # a prompt through a .cmd shim's `%*` mangles/truncates it (newlines,
+        # quotes, special chars) — the model then receives an EMPTY user turn
+        # and replies "I don't see a task." Stdin sidesteps the shim, the 32KB
+        # cmdline limit, and all shell-escaping. `claude --print` reads the
+        # prompt from stdin when no positional prompt is given.
         result = subprocess.run(
             [claude_exe, "--print", "--output-format", "text",
              "--model", "claude-opus-4-8",
              "--dangerously-skip-permissions",
-             "--system-prompt-file", soul_file.name, prompt],
+             "--system-prompt-file", soul_file.name],
+            input=prompt,
             capture_output=True, text=True, encoding="utf-8",
             cwd=_active_cwd(), env=cli_env
         )
@@ -5006,16 +5014,34 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         sf.write(soul_cli); sf.close()
         soul_file_path = sf.name
         log.info(f"[CLI-STREAM] subprocess starting model={cli_model} prompt_len={len(prompt)} exe={claude_exe!r}")
+        # Prompt goes in via STDIN, not as a positional arg. On a fresh Windows
+        # install `claude` resolves to the npm `.cmd` shim; pushing the prompt
+        # through a .cmd shim's `%*` mangles/truncates it (newlines, quotes,
+        # special chars) so the model receives an EMPTY user turn and replies
+        # "I don't see a task." Stdin sidesteps the shim, the 32KB cmdline
+        # limit, and all shell-escaping. `claude --print` reads stdin when no
+        # positional prompt is given.
         proc = subprocess.Popen(
             [claude_exe, "--print", "--output-format", "stream-json", "--verbose",
              "--model", cli_model,
              "--dangerously-skip-permissions",
-             "--system-prompt-file", soul_file_path, prompt],
+             "--system-prompt-file", soul_file_path],
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
             cwd=_active_cwd(), env=cli_env
         )
         _register_active_proc(proc)
+        # Feed the prompt from a daemon thread, then close stdin so the CLI
+        # gets EOF and starts. A separate writer thread avoids any pipe-buffer
+        # deadlock if the prompt is larger than the OS pipe buffer.
+        def _feed_stdin():
+            try:
+                proc.stdin.write(prompt)
+                proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+        threading.Thread(target=_feed_stdin, daemon=True).start()
     except FileNotFoundError as fnf:
         # Log the FULL error — Windows often says "system can't find the file
         # specified" when it's actually the cwd or a child process that's missing,
