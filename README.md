@@ -101,6 +101,21 @@ Once it's running, the [Dashboard Guide](DASHBOARD_GUIDE.md) covers how to actua
 drive it — talking to the main channel, customizing the UI by conversation, and
 having DATA rewrite its own source to add features and capabilities.
 
+### Uninstall
+
+DATA is almost entirely self-contained, but the installer does place a desktop
+shortcut and a set of bundled skills **outside** the folder. To remove everything
+cleanly, run the uninstaller, then delete the folder:
+
+- **Windows:** double-click `install\uninstall.bat`
+- **macOS / Linux / ChromeOS:** `bash install/uninstall.sh`
+
+It stops DATA, removes the desktop shortcut and the generated launchers, and — if
+you confirm — removes the bundled skills it added (only the untouched copies; any
+skill you edited or already had is left alone). Your settings in `.env` are kept
+unless you ask to remove them. The shared `psutil` package and your AI provider CLI
+are never touched. After it finishes, delete the DATA folder and you're done.
+
 ## Connect your AI
 
 DATA doesn't need API keys. You manage every brain from the **AI Connectors** page in

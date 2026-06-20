@@ -104,8 +104,14 @@ them from the dropdown at the top of the chat panel.
   * Switch themes (MINIMAL / CYBER) from the bottom-left of the footer.
   * Settings live in the ".env" file - copy ".env.example" to ".env"
     to change the port or add an access token.
-  * Everything you do stays in the DATA folder. To uninstall, just
-    delete the folder.
+  * To uninstall cleanly, run the uninstaller first, then delete the
+    folder:
+        Windows:            install\uninstall.bat
+        macOS / Linux:      bash install/uninstall.sh
+    It stops DATA, removes the desktop shortcut, and (if you say yes)
+    the bundled skills it added. Your settings (.env) are kept unless
+    you ask to remove them. If you just delete the folder without
+    running it, the desktop shortcut and the skills are all that linger.
 
 ------------------------------------------------------------------------
   TROUBLE?
