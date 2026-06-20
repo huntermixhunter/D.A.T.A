@@ -128,6 +128,14 @@ channel offers — no config files, no restart.
 > you've authenticated this once, DATA's chat will error asking you to
 > run `/login`. Once you log in by hand, the credentials are cached and
 > DATA inherits them automatically — you won't need to do it again.
+>
+> **Windows: if `claude` errors with "running scripts is disabled on this
+> system",** Windows is blocking the command under its default policy. Run
+> this once in PowerShell, then try `claude` again:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+> ```
+> It affects only your own user account and is safe.
 | **GPT-5 Codex** | `npm i -g @openai/codex`, then `codex login` | Your ChatGPT subscription |
 | **Gemini 2.5** | `npm i -g @google/gemini-cli`, then log in on first run | Google free tier / account |
 | **Ollama** (local models) | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5-coder:7b` | Free — runs on your hardware |

@@ -57,6 +57,14 @@ have installed and log in to with YOUR OWN account. Pick one:
         Windows, Terminal on Mac/Linux), type "claude" and press Enter.
         When it opens, type "/login" and finish signing in through the
         browser window it opens. Do this ONE time before using DATA.
+
+        WINDOWS ONLY - if typing "claude" gives a red error about
+        "running scripts is disabled on this system", Windows is
+        blocking the command by default. Run this ONCE in the same
+        PowerShell window, then try "claude" again:
+            Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+        It only affects your own user account and is safe.
+
         Why: DATA runs Claude in the background and cannot show you the
         login screen, so until you've logged in by hand once, DATA's chat
         will error with a message telling you to run "/login". After you
@@ -110,6 +118,10 @@ them from the dropdown at the top of the chat panel.
     yet. Open a normal terminal, type "claude", then type "/login" and
     sign in through the browser. Do this once, then restart DATA. (DATA
     cannot show the login screen itself - it must be done by hand.)
+  * "running scripts is disabled on this system" (Windows) - the
+    default Windows policy blocks the "claude" command. Run this once
+    in PowerShell, then try again:
+        Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
   * A log of what happened is written to "bridge.log" in the DATA
     folder - handy if you need to ask for help.
 

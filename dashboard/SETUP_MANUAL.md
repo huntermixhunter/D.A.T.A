@@ -295,6 +295,14 @@ model menu (Claude Code alone adds Opus, Sonnet, Haiku, and Fable).
 > into the dashboard. A subscription login uses a plan you already pay for, with
 > no per-message billing.
 
+> **Windows — "running scripts is disabled on this system".** If the `claude`
+> command throws this error in PowerShell, Windows is blocking it under its
+> default execution policy. Run this once, then retry `claude`:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+> ```
+> It affects only your user account and is safe to leave in place.
+
 ### E. Using your connected models
 
 - Open the **Communications** page.
