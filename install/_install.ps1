@@ -46,6 +46,12 @@ if ($providers.Count -gt 0) {
     Write-Host "  [!!] No AI provider CLI found (claude / codex / gemini / ollama)." -ForegroundColor Yellow
     Write-Host "      The dashboard will load, but chat needs one. Recommended:"
     Write-Host "      https://docs.claude.com/en/docs/claude-code"
+    Write-Host "      NOTE: install the Claude Code COMMAND-LINE tool, not the" -ForegroundColor Yellow
+    Write-Host "      Claude Desktop app. The CLI installs via npm, which needs" -ForegroundColor Yellow
+    Write-Host "      Node.js first: https://nodejs.org (LTS). Then in a terminal:" -ForegroundColor Yellow
+    Write-Host "        npm install -g @anthropic-ai/claude-code" -ForegroundColor Yellow
+    Write-Host "      After installing, run 'claude' once and log in." -ForegroundColor Yellow
+    Write-Host "      Verify with 'claude --version'." -ForegroundColor Yellow
 }
 
 # 4. Seed .env from the example if missing

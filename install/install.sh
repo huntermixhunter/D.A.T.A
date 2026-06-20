@@ -50,6 +50,12 @@ else
     echo "  [!!] No AI provider CLI found (claude / codex / gemini / ollama)."
     echo "      The dashboard will load, but chat needs one. Recommended:"
     echo "      https://docs.claude.com/en/docs/claude-code"
+    echo "      NOTE: install the Claude Code COMMAND-LINE tool, not the"
+    echo "      Claude Desktop app. The CLI installs via npm, which needs"
+    echo "      Node.js first: https://nodejs.org (LTS). Then run:"
+    echo "        npm install -g @anthropic-ai/claude-code"
+    echo "      After installing, run 'claude' once and log in."
+    echo "      Verify with 'claude --version'."
 fi
 
 # 4. Seed .env from the example if missing

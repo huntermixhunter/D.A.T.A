@@ -39,8 +39,11 @@ Pick the agent for the main channel from the panel-header dropdown.
 
 - **Python 3.10+** — no required packages (`psutil` is optional, for system vitals)
 - **An AI provider CLI** — the bridge talks to whichever you have installed:
-  - [Claude Code](https://docs.claude.com/en/docs/claude-code) (recommended)
+  - [Claude Code](https://docs.claude.com/en/docs/claude-code) (recommended) —
+    the command-line tool, **not** the Claude Desktop app (see note below)
   - OpenAI Codex CLI, Gemini CLI, or a local [Ollama](https://ollama.com) model
+- **[Node.js](https://nodejs.org) (LTS)** — required for the Claude Code, Codex,
+  and Gemini CLIs, which install via `npm`. Not needed for Ollama-only setups.
 - A modern browser
 
 Works on **Windows**, **macOS**, **Linux**, and **Chromebooks** (via the built-in
@@ -109,6 +112,15 @@ channel offers — no config files, no restart.
 | Provider | One-time setup | Billing |
 |----------|---------------|---------|
 | **Claude** (Opus / Sonnet / Haiku) | Install [Claude Code](https://docs.claude.com/en/docs/claude-code), run `claude` once and log in | Your Claude subscription (Pro/Max) |
+
+> **Claude Code CLI vs. Claude Desktop — don't confuse them.** DATA drives the
+> **Claude Code command-line tool** (`claude` in a terminal), which you install
+> from the link above. The **Claude Desktop app** is a separate GUI program and
+> DATA cannot use it. Symptom of having the wrong one: the Claude Desktop window
+> opens every time you send a message in DATA. Fix: install [Node.js](https://nodejs.org)
+> (the CLI installs via npm — `npm install -g @anthropic-ai/claude-code`), run
+> `claude` in a terminal and log in, then restart DATA. Verify with
+> `claude --version` — a version number means you have the right tool.
 | **GPT-5 Codex** | `npm i -g @openai/codex`, then `codex login` | Your ChatGPT subscription |
 | **Gemini 2.5** | `npm i -g @google/gemini-cli`, then log in on first run | Google free tier / account |
 | **Ollama** (local models) | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5-coder:7b` | Free — runs on your hardware |

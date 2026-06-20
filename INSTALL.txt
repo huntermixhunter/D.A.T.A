@@ -54,11 +54,26 @@ have installed and log in to with YOUR OWN account. Pick one:
         Install: https://docs.claude.com/en/docs/claude-code
         Then run "claude" once and log in.
 
+        IMPORTANT: this is the Claude Code COMMAND-LINE tool, NOT the
+        Claude Desktop app. They are different programs. The Desktop app
+        is the GUI chat window you click on - it has no command line and
+        DATA cannot drive it. If chat keeps popping open the Claude
+        Desktop window every time you send a message, you have the wrong
+        one: install Claude Code with the link above, open a terminal,
+        type "claude" and log in, then restart DATA. Quick check - run
+        "claude --version" in a terminal; if it prints a version number,
+        you have the right tool.
+
   * GPT-5 Codex  - your ChatGPT subscription
         npm i -g @openai/codex     then:  codex login
 
   * Gemini  - Google account / free tier
         npm i -g @google/gemini-cli   (log in on first run)
+
+  NOTE: the "npm i -g ..." commands above need Node.js installed first
+  (npm ships with it). If npm is "not recognized", install Node.js LTS
+  from https://nodejs.org , reopen your terminal, and run the command
+  again. The Claude and Ollama options do not need Node.js.
 
   * Ollama  - free, fully local, no account
         Install from https://ollama.com
