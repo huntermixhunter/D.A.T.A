@@ -3041,8 +3041,10 @@ function renderComputerGraph(nodes, links, currentDir, container, highlightName 
       if (d.hub && d.path) {
         loadComputerDir(d.path);
       } else if (!d.hub && d.path) {
-        const folder = d.path.replace(/[/\\][^/\\]+$/, '');
-        fetch(`${API_BASE}/open?path=${encodeURIComponent(folder)}`).catch(() => {});
+        // File node — open the FILE itself in its default app, not its
+        // parent folder. openPath() hits /open → os.startfile(path).
+        openPath(d.path);
+        addLog(`Opening: ${d.label}`);
       }
     });
 

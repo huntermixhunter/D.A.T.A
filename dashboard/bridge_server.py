@@ -1414,6 +1414,27 @@ SKIP_DIRS  = {'__pycache__', 'node_modules', '.git', 'venv', '.venv', 'dist', 'b
 SKIP_FILES = {'.DS_Store', 'Thumbs.db'}
 
 
+def _is_hidden_system(p: Path) -> bool:
+    """True for Windows OS-protected entries (Hidden AND System set together).
+
+    This is what catches the legacy compatibility junctions Windows plants
+    inside the user's Documents folder — "My Music", "My Pictures",
+    "My Videos" — so they do not show up as project folders in the file
+    scan. Requiring BOTH attributes keeps the filter conservative: ordinary
+    project folders (and merely-hidden dotfolders) are unaffected.
+    """
+    try:
+        # lstat (no symlink/junction follow) so we read the link's OWN
+        # attributes, not the target's — the junctions point at folders
+        # that are not themselves Hidden+System.
+        attrs = p.lstat().st_file_attributes  # Windows-only stat field
+    except (OSError, AttributeError):
+        return False
+    HIDDEN = 0x2
+    SYSTEM = 0x4
+    return bool(attrs & HIDDEN) and bool(attrs & SYSTEM)
+
+
 def build_file_graph(root: Path, max_depth: int = 999, max_nodes: int = 500) -> dict:
     """
     Walk root and return {nodes, links} for the D3 graph.
@@ -1480,6 +1501,8 @@ def build_file_graph(root: Path, max_depth: int = 999, max_nodes: int = 500) -> 
                 if child.name in SKIP_FILES:
                     continue
                 if child.is_dir() and child.name in SKIP_DIRS:
+                    continue
+                if _is_hidden_system(child):
                     continue
                 walk(child, depth + 1)
                 links.append({
@@ -6493,7 +6516,8 @@ def _scan_project(root: str, max_depth: int = 4) -> tuple[list, str]:
         entries = [e for e in entries
                    if not (e.is_dir() and e.name in _IGNORE_DIRS)
                    and e.name not in _IGNORE_FILES
-                   and not e.name.startswith(".")]
+                   and not e.name.startswith(".")
+                   and not _is_hidden_system(e)]
         for i, entry in enumerate(entries):
             is_last  = i == len(entries) - 1
             connector = "└─ " if is_last else "├─ "
