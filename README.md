@@ -65,9 +65,11 @@ Linux container — see below).
 
 ### Windows
 
+1. **Download** the DATA `.zip` from your purchase link, then **extract it** to a
+   folder you'll remember (for example, your `Documents` folder).
+2. Open the extracted `DATA` folder and run the installer:
+
 ```powershell
-git clone https://github.com/huntermixhunter/D.A.T.A.git
-cd DATA
 .\install\install.bat
 ```
 
@@ -94,9 +96,10 @@ anytime — you can drag it to your dock or taskbar to pin it.)
 
 ### macOS / Linux
 
+**Download** the DATA `.zip` from your purchase link and **extract it**, then from
+the extracted `DATA` folder run:
+
 ```bash
-git clone https://github.com/huntermixhunter/D.A.T.A.git
-cd DATA
 bash install/install.sh
 ./start_data.sh
 ```
