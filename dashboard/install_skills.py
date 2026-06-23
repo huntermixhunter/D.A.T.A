@@ -27,6 +27,15 @@ import shutil
 import sys
 from pathlib import Path
 
+# Make stdout/stderr safe on any console codepage. The Windows installer runs
+# this with a hidden, non-UTF-8 pipe (cp1252), where printing a non-ASCII glyph
+# (e.g. an em-dash) would raise UnicodeEncodeError and crash with exit code 1.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 HERE = Path(__file__).resolve().parent
 BUNDLE_DIR = HERE / "skills_bundle"
 MANIFEST = BUNDLE_DIR / "manifest.json"
@@ -57,18 +66,26 @@ def _install(src: Path, dst: Path, label: str, stats: dict) -> None:
         stats["missing"].append(label)
         print(f"  MISS  {label}  (not in bundle)")
         return
-    if dst.exists():
-        if not FORCE:
-            stats["skipped"] += 1
-            print(f"  SKIP  {label}  (already installed)")
-            return
+    # One unusual target (a junction/symlink, a permission-protected path, a
+    # reparse point the install token cannot traverse -> WinError 448) must never
+    # abort the whole skill install. Guard every filesystem touch per-skill.
+    try:
+        if dst.exists():
+            if not FORCE:
+                stats["skipped"] += 1
+                print(f"  SKIP  {label}  (already installed)")
+                return
+            if not DRY:
+                shutil.rmtree(dst)
         if not DRY:
-            shutil.rmtree(dst)
-    if not DRY:
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(src, dst, ignore=_IGNORE)
-        if not _has_manifest(dst):
-            print(f"  WARN  {label}  (copied, but no SKILL.md/skill.md found)")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, dst, ignore=_IGNORE)
+            if not _has_manifest(dst):
+                print(f"  WARN  {label}  (copied, but no SKILL.md/skill.md found)")
+    except OSError as e:
+        stats["failed"].append(label)
+        print(f"  FAIL  {label}  ({e.__class__.__name__}: {e})")
+        return
     stats["installed"] += 1
     print(f"  {'(dry) ' if DRY else 'OK   '}{label}")
 
@@ -85,7 +102,7 @@ def main() -> int:
     print(f"Target (Hermes): {HERMES_SKILLS_DIR}")
     print(f"Mode:            {'DRY-RUN' if DRY else ('FORCE overwrite' if FORCE else 'install-missing')}\n")
 
-    stats = {"installed": 0, "skipped": 0, "missing": []}
+    stats = {"installed": 0, "skipped": 0, "missing": [], "failed": []}
 
     for name in man.get("claude", []):
         _install(BUNDLE_DIR / "claude" / name,
@@ -100,14 +117,27 @@ def main() -> int:
 
     print(f"\nInstalled: {stats['installed']}   "
           f"Skipped (already present): {stats['skipped']}   "
-          f"Missing from bundle: {len(stats['missing'])}")
+          f"Missing from bundle: {len(stats['missing'])}   "
+          f"Failed: {len(stats['failed'])}")
     if stats["missing"]:
         print("\nMissing from bundle (maintainer should run bundle_skills.py):")
         for m in stats["missing"]:
             print(f"  - {m}")
-    print("\nDone. New skills appear on DATA's next message — no restart needed.")
+    if stats["failed"]:
+        print("\nFailed to install (left for the user to add manually):")
+        for m in stats["failed"]:
+            print(f"  - {m}")
+    print("\nDone. New skills appear on DATA's next message - no restart needed.")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Never let an unexpected error fail the installer's skill step. Skills are a
+    # convenience layer; a partial or failed install must not break the product.
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except BaseException as e:
+        print(f"\nSkill install hit an unexpected error and was skipped: {e}")
+        raise SystemExit(0)
