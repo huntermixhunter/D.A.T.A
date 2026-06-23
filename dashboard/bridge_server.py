@@ -2110,7 +2110,7 @@ def _load_soul(mode: str = "api") -> str:
         f"Three tools (`youtube_upload_video`, `youtube_update_video`, "
         f"`youtube_set_thumbnail`) let you push videos to the Captain's channels "
         f"and edit metadata. The Captain has multiple YouTube channels authorized "
-        f"(e.g. 'personal', 'auramaxxing'). EVERY tool call takes an `account` "
+        f"(e.g. 'personal', 'work'). EVERY tool call takes an `account` "
         f"parameter — if more than one account is configured, you MUST pass it "
         f"or the call will fail. When in doubt, ASK the Captain which channel "
         f"(or call /youtube/accounts to enumerate). ALWAYS DEFAULT TO "
@@ -2447,7 +2447,7 @@ TOOLS = [
                 "privacy":      {"type": "string",  "description": "'public', 'unlisted', or 'private'. Default 'private'."},
                 "category":     {"type": "string",  "description": "Category alias (blogs, music, gaming, tech, news, education, comedy, entertainment, howto, ...) or numeric YouTube category ID. Default 'blogs' (22)."},
                 "made_for_kids": {"type": "boolean","description": "COPPA disclosure. Default false."},
-                "account":      {"type": "string",  "description": "Which authorized YouTube account to upload TO (e.g. 'personal', 'auramaxxing'). Required if more than one account is configured. Call /youtube/accounts to list them, or ask the captain which channel."}
+                "account":      {"type": "string",  "description": "Which authorized YouTube account to upload TO (e.g. 'personal', 'work'). Required if more than one account is configured. Call /youtube/accounts to list them, or ask the captain which channel."}
             },
             "required": ["path", "title"]
         }

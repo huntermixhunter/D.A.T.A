@@ -19,9 +19,59 @@ You may not, without prior written permission from the copyright holder:
     the software or any modified version of it available to any third party;
   - remove or alter this notice in any copy of the software.
 
+EXPERIMENTAL SOFTWARE — DANGEROUS CAPABILITIES
+This software is experimental and is provided for advanced users. It is an
+autonomous AI agent that can, at its own discretion and in response to your
+instructions, EXECUTE ARBITRARY COMMANDS on your computer, CREATE, MODIFY, AND
+DELETE FILES (including system files), INSTALL SOFTWARE, CONTROL YOUR MOUSE,
+KEYBOARD, AND SCREEN, ACCESS THE NETWORK, AND ACT ON YOUR BEHALF IN CONNECTED
+ACCOUNTS AND SERVICES. AI systems are non-deterministic and may behave in
+unexpected, incorrect, or harmful ways, including taking destructive actions or
+producing inaccurate output. Such actions may be IRREVERSIBLE and may result in
+LOSS OF DATA, loss of money, system instability, or other harm.
+
+ASSUMPTION OF RISK
+You acknowledge and accept these risks. You are solely responsible for what you
+instruct the software to do and for supervising its operation. You should run
+it only on systems you control, keep current backups, and review any action
+before authorizing it. By installing or using the software you accept full
+responsibility for all consequences of its use.
+
+NOT PROFESSIONAL ADVICE
+Any output of the software — including financial, investment, trading, legal,
+tax, medical, health, or business information — is for general informational
+purposes only, may be inaccurate, and is NOT professional advice. It is not a
+substitute for a qualified professional. You rely on it at your own risk.
+
 NO WARRANTY
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NONINFRINGEMENT, ACCURACY,
+RELIABILITY, AND AVAILABILITY. THE COPYRIGHT HOLDER DOES NOT WARRANT THAT THE
+SOFTWARE WILL BE ERROR-FREE, SECURE, OR OPERATE WITHOUT INTERRUPTION.
+
+LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, PUNITIVE, OR CONSEQUENTIAL DAMAGES, OR FOR ANY LOSS OF DATA, PROFITS,
+REVENUE, BUSINESS, OR GOODWILL, ARISING FROM OR IN CONNECTION WITH THE SOFTWARE
+OR ITS USE, WHETHER IN CONTRACT, TORT (INCLUDING NEGLIGENCE), STRICT LIABILITY,
+OR OTHERWISE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. THE COPYRIGHT
+HOLDER'S TOTAL AGGREGATE LIABILITY FOR ALL CLAIMS SHALL NOT EXCEED THE AMOUNT
+YOU PAID FOR THE SOFTWARE. SOME JURISDICTIONS DO NOT ALLOW CERTAIN OF THESE
+EXCLUSIONS OR LIMITATIONS, SO SOME MAY NOT APPLY TO YOU.
+
+INDEMNIFICATION
+You agree to indemnify, defend, and hold harmless the copyright holder from and
+against any claims, liabilities, damages, losses, and expenses (including
+reasonable legal fees) arising out of or in any way connected with your use of
+the software or your violation of this license.
+
+THIRD-PARTY SERVICES
+The software interoperates with third-party AI providers and services that you
+choose to connect, each governed by its own terms. The copyright holder is not
+responsible for third-party services, their availability, their output, or any
+fees or charges you incur through them.
+
+By installing or using the software, you agree to this license and the
+accompanying DISCLAIMER.md. If you do not agree, do not install or use it.

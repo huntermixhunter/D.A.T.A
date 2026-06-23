@@ -17,6 +17,18 @@ Everything runs on your machine. No accounts, no telemetry, no cloud.
 
 ---
 
+> ## ⚠️ Experimental software — use at your own risk
+>
+> DATA is an autonomous AI agent that can **run commands, create/modify/delete files,
+> install software, control your mouse/keyboard/screen, and act in connected accounts.**
+> AI is non-deterministic and can take **unintended, irreversible, or destructive**
+> actions, including **loss of data.** Keep backups, run it only on systems you control,
+> and review actions before authorizing them. It is provided **"AS IS," with no warranty**,
+> and its output is **not professional advice.** By using it you accept full responsibility.
+> See **[DISCLAIMER.md](DISCLAIMER.md)** and the **[LICENSE](LICENSE)**.
+
+---
+
 ## The Crew
 
 | Agent | Role |

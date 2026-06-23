@@ -6,6 +6,19 @@
 Thank you for your purchase! DATA runs entirely on your own computer.
 No accounts with us, no cloud, no data leaves your machine.
 
+------------------------------------------------------------------------
+  !! IMPORTANT - EXPERIMENTAL SOFTWARE, USE AT YOUR OWN RISK !!
+------------------------------------------------------------------------
+DATA is an autonomous AI agent that can run commands, create / modify /
+DELETE files, install software, control your mouse, keyboard, and screen,
+and act in accounts you connect. AI is non-deterministic and can take
+unintended, irreversible, or destructive actions, including LOSS OF DATA.
+Keep backups, run it only on a system you control, and review actions
+before authorizing them. It is provided "AS IS" with NO WARRANTY, and its
+output is NOT professional advice. By installing or using DATA you accept
+full responsibility. See DISCLAIMER.md and LICENSE before you continue.
+------------------------------------------------------------------------
+
 You will need TWO things:
   1. Python 3.10 or newer        (free - python.org)
   2. One AI provider you log in to (your own Claude, ChatGPT,
