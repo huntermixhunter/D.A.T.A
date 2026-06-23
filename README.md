@@ -202,7 +202,7 @@ DATA/
 ```
 
 All state — memory, conversation history, standing orders, caches — is created at
-runtime inside this folder and stays on your machine. A fresh clone starts with a
+runtime inside this folder and stays on your machine. A fresh install starts with a
 completely blank memory.
 
 ## Features

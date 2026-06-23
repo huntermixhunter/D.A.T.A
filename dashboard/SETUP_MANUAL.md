@@ -92,7 +92,7 @@ locked-down `lcars` user, copies in the dashboard, turns on the firewall,
 restarts itself on reboot.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_REPO/main/lcars-dashboard/deploy/setup_vps.sh -o setup_vps.sh
+curl -fsSL https://raw.githubusercontent.com/YOUR_REPO/main/dashboard/deploy/setup_vps.sh -o setup_vps.sh
 bash setup_vps.sh
 ```
 
@@ -163,7 +163,7 @@ cloudflared tunnel create lcars-bridge            # prints a tunnel ID + a creds
 cloudflared tunnel route dns lcars-bridge bridge.yourdomain.com
 
 mkdir -p /etc/cloudflared
-cp /home/lcars/DATA/lcars-dashboard/deploy/cloudflared-config.yml /etc/cloudflared/config.yml
+cp /home/lcars/DATA/dashboard/deploy/cloudflared-config.yml /etc/cloudflared/config.yml
 nano /etc/cloudflared/config.yml                  # paste the tunnel ID + your hostname
 
 cloudflared service install                       # run the tunnel on boot
@@ -339,7 +339,7 @@ so your options track your machine instead of freezing in time.
 |---|---|
 | Restart the dashboard | `systemctl restart lcars-bridge` |
 | See live logs | `journalctl -u lcars-bridge -f` |
-| Update to the latest version | `sudo -u lcars git -C /home/lcars/DATA pull && systemctl restart lcars-bridge` |
+| Update to the latest version | upload the new release `.zip`, extract it over `/home/lcars/DATA` (see Appendix A), then `systemctl restart lcars-bridge` |
 | Restart the tunnel | `systemctl restart cloudflared` |
 | Change/rotate your token | edit `/etc/lcars/bridge.env`, then `systemctl restart lcars-bridge`, then re-share |
 | Add or remove an AI model | use the **AI Connectors** page — no commands needed |
@@ -362,17 +362,18 @@ reboot brings everything back on its own.
 
 ---
 
-## Appendix A — Copy method (no GitHub access on the server)
+## Appendix A — Copy method (push from your computer)
 
-If you'd rather push the dashboard straight from your computer instead of
-cloning it from GitHub, copy the folder up with `scp`, then run the setup script
-and skip its clone step:
+Extract the DATA release `.zip` on your own computer, then copy the folder up to
+the server with `scp`:
 
 ```bash
-scp -r ./lcars-dashboard lcars@YOUR_SERVER_IP:/home/lcars/DATA/
+scp -r ./DATA/dashboard lcars@YOUR_SERVER_IP:/home/lcars/DATA/
 ```
 
-Everything else in Phases 2–6 is identical.
+Run the setup script on the server afterward. To update later, repeat this copy
+with the new release and restart the bridge. Everything else in Phases 2–6 is
+identical.
 
 ---
 

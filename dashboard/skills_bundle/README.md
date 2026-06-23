@@ -28,7 +28,7 @@ skills_bundle/
   install.log            <- last install output (gitignored)
 ```
 
-## The two scripts (in `lcars-dashboard/`)
+## The two scripts (in `dashboard/`)
 
 | Script | Side | Direction | When to run |
 |--------|------|-----------|-------------|
