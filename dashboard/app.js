@@ -1464,7 +1464,10 @@ function _inlineMd(text) {
     stash(`<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`));
 
   // 2. Bare http(s) URLs — but only when not already inside a stashed link
-  text = text.replace(/(^|[^"=>])(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]'])/g,
+  //     Exclude '*' from the URL so a bold/italic wrapper (**url** / *url*)
+  //     is not swallowed into the href — the trailing markers stay outside and
+  //     the bold/italic pass below wraps a working link instead of breaking it.
+  text = text.replace(/(^|[^"=>])(https?:\/\/[^\s<>"*]+[^\s<>".,;:!?)\]'*])/g,
     (_m, lead, url) => `${lead}${stash(`<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)}`);
 
   // 3. Inline code — and if the code is an absolute path, make it clickable.
@@ -6584,10 +6587,22 @@ function _updateChatGrid() {
     wrapper.style.gridTemplateColumns = `${c}fr ${1 - c}fr`;
     wrapper.style.gridTemplateRows    = `${r}fr ${1 - r}fr`;
     if (panes[2]) panes[2].style.gridColumn = '1 / -1';
-  } else {
-    // 4 panes (2×2) — and any beyond just flow into more rows of 2
+  } else if (count === 4) {
+    // 4 panes (2×2) — both ratios drive the split
     wrapper.style.gridTemplateColumns = `${c}fr ${1 - c}fr`;
     wrapper.style.gridTemplateRows    = `${r}fr ${1 - r}fr`;
+  } else {
+    // 5+ panes: 2 columns, ceil(count/2) UNIFORM rows. Declaring the exact
+    // number of row tracks stops overflow panes from falling into implicit
+    // auto-rows (the old bug that left the grid ragged past 4). The vertical
+    // splitter still drives the column ratio across every row; the horizontal
+    // splitter is dropped for this case (a single handle can't address one
+    // boundary among many — see _renderChatSplitters).
+    const rows = Math.ceil(count / 2);
+    wrapper.style.gridTemplateColumns = `${c}fr ${1 - c}fr`;
+    wrapper.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
+    // Odd count → last pane spans both columns so there is no empty cell.
+    if (count % 2 === 1 && panes[count - 1]) panes[count - 1].style.gridColumn = '1 / -1';
   }
 
   _renderChatSplitters(wrapper, count, isMobile);
@@ -6625,8 +6640,12 @@ function _renderChatSplitters(wrapper, count, isMobile) {
   wrapper.appendChild(v);
   _setupSplitterDrag(v, 'vertical');
 
-  // Horizontal splitter — only when there's a second row of panes (3+ panes)
-  if (count >= 3) {
+  // Horizontal splitter — only when the grid is exactly two rows (3–4 panes).
+  // For 5+ panes the rows are uniform (repeat(ceil(N/2), 1fr)); a single
+  // horizontal splitter can't meaningfully resize one boundary among many,
+  // so we omit it and keep the vertical (column) splitter, which still
+  // applies uniformly across every row.
+  if (count === 3 || count === 4) {
     const h = document.createElement('div');
     h.className = 'chat-splitter horizontal';
     h.style.top = rowPct;
