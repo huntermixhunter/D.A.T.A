@@ -159,10 +159,21 @@ def main():
     else:
         _log("Bridge already listening on :7777 — not spawning a duplicate")
 
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        _log("Supervisor shutting down (KeyboardInterrupt)")
+    # serve_forever() can raise on resume-from-sleep when the listening socket
+    # is briefly invalid. Re-enter it so the reboot service stays available
+    # after the machine wakes (capped so a truly dead socket can't tight-loop).
+    consecutive = 0
+    while consecutive < 5:
+        try:
+            server.serve_forever()
+            break
+        except KeyboardInterrupt:
+            _log("Supervisor shutting down (KeyboardInterrupt)")
+            break
+        except Exception as e:
+            consecutive += 1
+            _log(f"serve_forever error ({e}) — restarting listener {consecutive}/5 in 1s")
+            time.sleep(1)
 
 
 if __name__ == "__main__":

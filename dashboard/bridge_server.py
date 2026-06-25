@@ -89,15 +89,21 @@ _LIFECYCLE_GRACE_SECS = 180      # normal grace — generous to survive tab thro
 _LIFECYCLE_LEAVING_GRACE_SECS = 5  # tighter grace after beforeunload
 _LIFECYCLE_MODE = os.environ.get("DATA_LIFECYCLE_MODE", "auto").strip().lower()  # auto | daemon
 
-def _do_shutdown():
+def _do_shutdown(preserve_supervisor: bool = False):
     """Kill every DATA-related process then exit. Covers all launchers:
       - watchdog.py / bridge_server.py / dashboard_server.py (silent pythonw)
       - python -m http.server (legacy launcher quirk)
       - cloudflared (tunnel)
       - the named CMD/VBS windows that started us
-    Matches by command-line so silent pythonw.exe sessions get killed too."""
+    Matches by command-line so silent pythonw.exe sessions get killed too.
+
+    When preserve_supervisor is True (the browser-coupled / sleep auto-shutdown
+    path), the always-on supervisor on :7766 is spared so the dashboard's REBOOT
+    button can relaunch the bridge on its own after the machine wakes from sleep —
+    no desktop-icon relaunch needed. The deliberate SYSTEM OFFLINE button calls
+    this with preserve_supervisor=False for a full shutdown."""
     time.sleep(0.6)
-    log.info("[SHUTDOWN] System offline requested")
+    log.info(f"[SHUTDOWN] System offline requested (preserve_supervisor={preserve_supervisor})")
 
     # Non-Windows: the launcher execs the bridge as a single foreground
     # process — exiting cleanly is all that's needed.
@@ -105,7 +111,9 @@ def _do_shutdown():
         os._exit(0)
 
     # Kill by command-line via PowerShell — catches pythonw.exe (no window)
+    _preserve_ps = "$true" if preserve_supervisor else "$false"
     ps_script = r"""
+$preserveSupervisor = __PRESERVE__
 $patterns = @(
     'watchdog\.py',
     'supervisor\.py',
@@ -117,6 +125,7 @@ $patterns = @(
 Get-CimInstance Win32_Process | Where-Object {
     $cmd = $_.CommandLine
     if (-not $cmd) { return $false }
+    if ($preserveSupervisor -and ($cmd -match 'supervisor\.py')) { return $false }
     foreach ($p in $patterns) { if ($cmd -match $p) { return $true } }
     $false
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -134,6 +143,7 @@ foreach ($p in 7777, 8888) {
         ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
 }
 """
+    ps_script = ps_script.replace("__PRESERVE__", _preserve_ps)
     subprocess.run(
         ['powershell', '-NoProfile', '-WindowStyle', 'Hidden', '-Command', ps_script],
         timeout=8, capture_output=True
@@ -9549,8 +9559,8 @@ if __name__ == "__main__":
                 gap = (datetime.datetime.now() - _last_heartbeat).total_seconds()
                 threshold = _LIFECYCLE_LEAVING_GRACE_SECS if _lifecycle_leaving else _LIFECYCLE_GRACE_SECS
                 if gap > threshold:
-                    log.info(f"[LIFECYCLE] No heartbeat for {gap:.0f}s (leaving={_lifecycle_leaving}) — shutting down")
-                    threading.Thread(target=_do_shutdown, daemon=True).start()
+                    log.info(f"[LIFECYCLE] No heartbeat for {gap:.0f}s (leaving={_lifecycle_leaving}) — shutting down (supervisor preserved for one-click reboot)")
+                    threading.Thread(target=lambda: _do_shutdown(preserve_supervisor=True), daemon=True).start()
                     return
         threading.Thread(target=_lifecycle_watcher, daemon=True).start()
         print(f"Lifecycle: auto-shutdown when browser disconnects (grace {_LIFECYCLE_GRACE_SECS}s)")
