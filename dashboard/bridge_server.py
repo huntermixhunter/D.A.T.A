@@ -9485,10 +9485,14 @@ def _warmup_voice_models():
 
 
 if __name__ == "__main__":
-    # 0.0.0.0 so the dashboard is reachable from phone via Cloudflare Tunnel,
-    # Tailscale, or just same-LAN. Auth (X-Data-Token header, if configured)
-    # gates the API. Static files / dashboard HTML are served by `/` route.
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    # Bind to loopback only by default (security hardening 2026-06-27). Binding
+    # to 0.0.0.0 exposed the bridge — which runs commands and writes files — to
+    # everyone on the local network. The dashboard runs on the same machine, so
+    # 127.0.0.1 is all that is needed. To intentionally expose to LAN/tunnel
+    # (e.g. phone access), set LCARS_BIND_HOST=0.0.0.0 and confirm the
+    # X-Data-Token auth gate is configured.
+    BIND_HOST = os.environ.get("LCARS_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    server = ThreadingHTTPServer((BIND_HOST, PORT), Handler)
     print(f"DATA Bridge Server online at http://localhost:{PORT}")
     print(f"Hermes directory: {HERMES_DIR}")
     print(f"Memory file: {MEMORY_FILE}")
