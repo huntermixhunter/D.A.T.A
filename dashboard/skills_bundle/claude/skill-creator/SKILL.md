@@ -1,8 +1,8 @@
 ---
 name: skill-creator
-description: "Build new skills for the DATA system — both instruction-based skill files and hard-coded Python bridge tools."
+description: "Build new skills for the DAITA system — both instruction-based skill files and hard-coded Python bridge tools."
 version: 1.0.0
-author: DATA
+author: DAITA
 created_by: agent
 platforms: [windows]
 metadata:
@@ -11,7 +11,7 @@ metadata:
     related_skills: [hermes-agent]
 ---
 
-# Skill Creator — DATA System
+# Skill Creator — DAITA System
 
 This skill teaches Data how to extend his own capabilities. There are two distinct types of skills with different scopes, complexity, and use cases. Always choose the right type before building.
 
@@ -54,7 +54,7 @@ Create a new category folder freely — use lowercase, hyphen-separated names.
 name: your-skill-name
 description: "One sentence describing what this skill does."
 version: 1.0.0
-author: DATA
+author: DAITA
 created_by: agent
 platforms: [windows]
 metadata:
@@ -276,7 +276,7 @@ write_file(
 name: youtube-summarizer
 description: "Extract and summarize content from YouTube videos using transcript APIs."
 version: 1.0.0
-author: DATA
+author: DAITA
 created_by: agent
 platforms: [windows]
 metadata:
@@ -344,7 +344,7 @@ def tool_get_weather(city: str) -> str:
     try:
         encoded = urllib.parse.quote_plus(city)
         url = f"https://wttr.in/{encoded}?format=j1"
-        req = urllib.request.Request(url, headers={"User-Agent": "DATA/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "DAITA/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
         curr = data["current_condition"][0]

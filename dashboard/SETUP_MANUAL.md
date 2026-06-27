@@ -99,7 +99,7 @@ bash setup_vps.sh
 When it finishes it prints a line like:
 
 ```
-DATA_BRIDGE_TOKEN = a1b2c3d4e5f6...   ← SAVE THIS
+DAITA_BRIDGE_TOKEN = a1b2c3d4e5f6...   ← SAVE THIS
 ```
 
 **Copy that token somewhere safe.** It is the password to your dashboard. You'll
@@ -163,7 +163,7 @@ cloudflared tunnel create lcars-bridge            # prints a tunnel ID + a creds
 cloudflared tunnel route dns lcars-bridge bridge.yourdomain.com
 
 mkdir -p /etc/cloudflared
-cp /home/lcars/DATA/dashboard/deploy/cloudflared-config.yml /etc/cloudflared/config.yml
+cp /home/lcars/DAITA/dashboard/deploy/cloudflared-config.yml /etc/cloudflared/config.yml
 nano /etc/cloudflared/config.yml                  # paste the tunnel ID + your hostname
 
 cloudflared service install                       # run the tunnel on boot
@@ -202,7 +202,7 @@ curl -s https://bridge.yourdomain.com/health -H "X-Data-Token: YOUR_TOKEN"
 A healthy reply looks like:
 
 ```json
-{"status":"online","agent":"DATA","mode":"cli"}
+{"status":"online","agent":"DAITA","mode":"cli"}
 ```
 
 Now open the dashboard in your browser, go to **Settings**, paste in
@@ -339,7 +339,7 @@ so your options track your machine instead of freezing in time.
 |---|---|
 | Restart the dashboard | `systemctl restart lcars-bridge` |
 | See live logs | `journalctl -u lcars-bridge -f` |
-| Update to the latest version | upload the new release `.zip`, extract it over `/home/lcars/DATA` (see Appendix A), then `systemctl restart lcars-bridge` |
+| Update to the latest version | upload the new release `.zip`, extract it over `/home/lcars/DAITA` (see Appendix A), then `systemctl restart lcars-bridge` |
 | Restart the tunnel | `systemctl restart cloudflared` |
 | Change/rotate your token | edit `/etc/lcars/bridge.env`, then `systemctl restart lcars-bridge`, then re-share |
 | Add or remove an AI model | use the **AI Connectors** page — no commands needed |
@@ -364,11 +364,11 @@ reboot brings everything back on its own.
 
 ## Appendix A — Copy method (push from your computer)
 
-Extract the DATA release `.zip` on your own computer, then copy the folder up to
+Extract the DAITA release `.zip` on your own computer, then copy the folder up to
 the server with `scp`:
 
 ```bash
-scp -r ./DATA/dashboard lcars@YOUR_SERVER_IP:/home/lcars/DATA/
+scp -r ./DAITA/dashboard lcars@YOUR_SERVER_IP:/home/lcars/DAITA/
 ```
 
 Run the setup script on the server afterward. To update later, repeat this copy

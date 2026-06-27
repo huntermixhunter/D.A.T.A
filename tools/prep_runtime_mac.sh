@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# DATA — bundled-Python runtime builder (macOS)
+# DAITA — bundled-Python runtime builder (macOS)
 # ----------------------------------------------------------------------------
-# Produces a self-contained, RELOCATABLE CPython that DATA's bridge runs on, so
+# Produces a self-contained, RELOCATABLE CPython that DAITA's bridge runs on, so
 # a buyer needs ZERO pre-installed Python. macOS has no official "embeddable"
 # package like Windows does, so we use the standalone, relocatable CPython
 # builds from astral-sh/python-build-standalone (the same ones uv/Rye ship).
@@ -11,9 +11,9 @@
 # Output:  <OutDir>/python/  (bin/python3, lib/python3.x/, Lib site-packages w/ psutil)
 #
 # Usage:
-#   ./tools/prep_runtime_mac.sh --out build/staging/DATA/runtime
-#   ./tools/prep_runtime_mac.sh --out build/staging/DATA/runtime --arch x86_64
-#   ./tools/prep_runtime_mac.sh --out build/staging/DATA/runtime --py 3.12.8 --force
+#   ./tools/prep_runtime_mac.sh --out build/staging/DAITA/runtime
+#   ./tools/prep_runtime_mac.sh --out build/staging/DAITA/runtime --arch x86_64
+#   ./tools/prep_runtime_mac.sh --out build/staging/DAITA/runtime --py 3.12.8 --force
 #
 # Idempotent-ish: pass --force to rebuild from scratch (deletes an existing python/).
 # MUST run on macOS (uses the macOS standalone tarball + tar). The build_dmg.sh
@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$OUTDIR" ]; then
-    echo "  [X] --out <dir> is required (e.g. --out build/staging/DATA/runtime)" >&2
+    echo "  [X] --out <dir> is required (e.g. --out build/staging/DAITA/runtime)" >&2
     exit 2
 fi
 if [ "$(uname -s)" != "Darwin" ]; then
@@ -67,7 +67,7 @@ TARBALL_NAME="cpython-${PYVER}+${PBS_RELEASE}-${ARCH}-apple-darwin-install_only.
 URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/${TARBALL_NAME}"
 
 echo ""
-echo "  DATA bundled-runtime builder (macOS)"
+echo "  DAITA bundled-runtime builder (macOS)"
 echo "  CPython ${PYVER} (${ARCH}-apple-darwin) -> ${PYTHON_DIR}"
 echo ""
 

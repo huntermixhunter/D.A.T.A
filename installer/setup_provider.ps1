@@ -1,6 +1,6 @@
-# DATA - AI provider bootstrap (runs during the installer, optional step)
+# DAITA - AI provider bootstrap (runs during the installer, optional step)
 # ----------------------------------------------------------------------------
-# DATA's dashboard loads on its own, but chat needs an AI provider CLI. The
+# DAITA's dashboard loads on its own, but chat needs an AI provider CLI. The
 # recommended one is Anthropic's Claude Code, which installs via npm and so
 # needs Node.js first. This script makes that one-click:
 #
@@ -10,7 +10,7 @@
 #   4. Report status. The ONE thing it can't do is sign you in -- you run
 #      `claude` once and type /login (an interactive browser auth).
 #
-# Never hard-fails the install: if a step errors, DATA is still fully installed
+# Never hard-fails the install: if a step errors, DAITA is still fully installed
 # and the user can add a provider later. Exit code is always 0 so the wizard
 # completes; real status is written to the log and echoed to the console.
 $ErrorActionPreference = "Continue"
@@ -42,7 +42,7 @@ function Find-Npm {
 }
 
 Write-Host ""
-Write-Host "  DATA - AI provider setup" -ForegroundColor Cyan
+Write-Host "  DAITA - AI provider setup" -ForegroundColor Cyan
 Write-Host "  ---------------------------------------------------------------"
 "" | Set-Content -Path $log -ErrorAction SilentlyContinue
 
@@ -91,7 +91,7 @@ if ($npm) {
         Say "Could not install Node.js automatically." "Red"
         Say "Install it yourself from https://nodejs.org (LTS), then run:" "Yellow"
         Say "  npm install -g @anthropic-ai/claude-code" "Yellow"
-        exit 0   # DATA itself is still fully installed
+        exit 0   # DAITA itself is still fully installed
     }
 }
 
@@ -118,6 +118,6 @@ if (Find-Cmd "claude") {
 Write-Host ""
 Say "ONE more step the installer can't do for you:" "Cyan"
 Say "Open a terminal, type 'claude', then '/login' to sign in once." "Cyan"
-Say "After that, DATA's chat is live." "Cyan"
+Say "After that, DAITA's chat is live." "Cyan"
 Write-Host ""
 exit 0

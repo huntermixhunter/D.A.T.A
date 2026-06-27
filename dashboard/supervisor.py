@@ -1,22 +1,22 @@
 """
-DATA Supervisor — the one process that stays alive when the bridge doesn't.
+DAITA Supervisor — the one process that stays alive when the bridge doesn't.
 
 The bridge (bridge_server.py, port 7777) serves the dashboard itself. When it
 dies — a crash, or the lifecycle watcher shutting it down after the browser
 stops sending heartbeats — the dashboard windows are still open, but every
 fetch to :7777 fails and the page reads OFFLINE. A browser can't relaunch an OS
-process, so DATA had to be restarted by hand.
+process, so DAITA had to be restarted by hand.
 
 The supervisor is a tiny, always-on HTTP control server on 127.0.0.1:7766 whose
 only job is to (re)launch the bridge. The dashboard's REBOOT button hits THIS,
-not the dead bridge — so one click brings DATA back online without losing the
+not the dead bridge — so one click brings DAITA back online without losing the
 open windows.
 
 Endpoints (localhost-only, CORS-open so the :7777 page can call across ports):
   GET  /ping    -> {"ok": true, "bridge_up": <bool>}
   POST /reboot  -> kills whatever holds :7777, relaunches the bridge
 
-Launched by start_data.bat (which the installer writes); on startup it spawns
+Launched by start_daita.bat (which the installer writes); on startup it spawns
 the bridge once, then idles. Portable: uses the same interpreter that launched
 it, and the bridge sitting next to this file.
 """
@@ -36,7 +36,7 @@ SUPERVISOR_PORT = 7766
 BRIDGE_PORT     = 7777
 
 # Reuse the interpreter that launched us — portable across installs (no
-# hardcoded paths). On Windows this is whatever start_data.bat invoked.
+# hardcoded paths). On Windows this is whatever start_daita.bat invoked.
 PYTHON    = Path(sys.executable)
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 IS_WIN    = os.name == "nt"

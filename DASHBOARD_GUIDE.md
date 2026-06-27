@@ -1,15 +1,15 @@
-# Using DATA — The Full Guide
+# Using DAITA — The Full Guide
 
 This guide picks up where the [README](README.md) leaves off. The README tells you
-what DATA *is* and how to install it. This one tells you how to *drive* it — how to
+what DAITA *is* and how to install it. This one tells you how to *drive* it — how to
 talk to the dashboard, customize it by conversation, and have it rewrite its own
 source so the tool reshapes itself around the way you work.
 
-The core idea: **you don't configure DATA through menus. You talk to it.** The main
+The core idea: **you don't configure DAITA through menus. You talk to it.** The main
 channel can read and edit every file the dashboard is built from, so almost anything
 you can describe, it can change about itself.
 
-DATA ships **fully functional as-is** — install it and it works, no further setup
+DAITA ships **fully functional as-is** — install it and it works, no further setup
 required. But it's also a **baseplate**: every screen, control, and capability is
 plain source the agent can rewrite, so you can grow it into whatever you need. Use it
 out of the box, or build on top of it. Both are first-class.
@@ -57,7 +57,7 @@ invoices into a spreadsheet sorted by due date" beats "open the invoice folder."
 
 ## 3. Customizing the dashboard by conversation
 
-You change how DATA looks and behaves by **asking for it in plain language**. The
+You change how DAITA looks and behaves by **asking for it in plain language**. The
 agent edits the underlying files and the change shows up on the next reload (UI) or
 the next bridge restart (server behavior). Examples that work today:
 
@@ -82,13 +82,13 @@ make the edit, and tell you what to reload or restart.
 
 ---
 
-## 4. Self-reprogramming — DATA editing its own source
+## 4. Self-reprogramming — DAITA editing its own source
 
-This is the part that makes DATA different from a normal app: **it is built from
+This is the part that makes DAITA different from a normal app: **it is built from
 files it can read and write.** The whole dashboard lives here:
 
 ```
-DATA/dashboard/
+DAITA/dashboard/
 ├── bridge_server.py   # the brain — HTTP server, AI dispatch, every tool & endpoint
 ├── index.html         # the dashboard markup / structure
 ├── app.js             # dashboard logic — views, controls, rendering, shortcuts
@@ -112,7 +112,7 @@ standing_orders.json     # the scheduled tasks
    - Front-end changes (`index.html`, `app.js`, `theme.css`) — just **refresh the
      browser tab**.
    - Back-end changes (`bridge_server.py`, new tools, new endpoints, new crew
-     wiring) — **restart the bridge** (relaunch DATA, or restart the bridge process).
+     wiring) — **restart the bridge** (relaunch DAITA, or restart the bridge process).
 4. **You verify**, and iterate. "Almost — make the border one shade lighter."
 
 ### Asking well — three tiers
@@ -140,7 +140,7 @@ standing_orders.json     # the scheduled tasks
 
 ---
 
-## 5. Power commands — driving DATA, not just chatting
+## 5. Power commands — driving DAITA, not just chatting
 
 Some phrasings trigger structured actions rather than a normal reply. You don't need
 to memorize syntax — natural language triggers them — but knowing they exist helps
@@ -157,9 +157,9 @@ you ask for the right thing.
 
 ---
 
-## 6. Memory — teaching DATA who you are
+## 6. Memory — teaching DAITA who you are
 
-DATA has two kinds of memory, and you control both by talking to it.
+DAITA has two kinds of memory, and you control both by talking to it.
 
 - **Persistent memory** (`users/<you>/…`) — facts, preferences, project context the
   agent loads on *every* request. This is how it knows your projects, your folders,
@@ -188,14 +188,14 @@ X"), and decisions you don't want re-litigated.
   design tools, deploy platforms). Ask the agent to wire one up; it knows how to
   register them.
 
-If something you want doesn't exist yet, that's a §4 conversation: ask DATA to build
+If something you want doesn't exist yet, that's a §4 conversation: ask DAITA to build
 itself the capability.
 
 ---
 
 ## 8. The AI Connectors page — choosing your brains
 
-DATA needs at least one AI "brain" to talk to. The **AI Connectors** page (left
+DAITA needs at least one AI "brain" to talk to. The **AI Connectors** page (left
 navigation → **AI CONNECTORS**) is where you connect them. Whatever you connect here
 is exactly what the **model menu** on the main channel offers — connect a model and it
 appears; remove it and it's gone. No config files, no restart.
@@ -246,10 +246,10 @@ Customize the look
   "The chat font is too small — bump it one step and tighten line height."
 
 Change behavior
-  "Always start on the Claude provider and the Main channel when DATA loads."
+  "Always start on the Claude provider and the Main channel when DAITA loads."
   "Add a header button that exports the current conversation to a Markdown file."
 
-Give DATA a new ability
+Give DAITA a new ability
   "Build yourself a tool to read and search my Obsidian vault at <path>."
   "Add an endpoint that returns today's standing-order run log."
 
@@ -268,6 +268,6 @@ Stay safe while self-editing
 
 ### The one rule worth keeping
 
-When in doubt, **describe the outcome you want and ask DATA to make it so.** It can
+When in doubt, **describe the outcome you want and ask DAITA to make it so.** It can
 read its own code, change it, and tell you how to reload. The dashboard is meant to
 be reshaped by conversation — that's the whole point.

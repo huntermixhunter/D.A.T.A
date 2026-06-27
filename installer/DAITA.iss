@@ -1,6 +1,6 @@
-; DATA - Windows installer wizard (Inno Setup 6)
+; DAITA - Windows installer wizard (Inno Setup 6)
 ; ----------------------------------------------------------------------------
-; Produces DATA-Setup-v<ver>.exe: a click-through wizard that installs DATA with
+; Produces DAITA-Setup-v<ver>.exe: a click-through wizard that installs DAITA with
 ; a bundled embedded Python (no system Python required) and optionally installs
 ; the AI provider (Node.js + Claude Code). Per-user install, no admin needed.
 ;
@@ -11,7 +11,7 @@
 ;   AppVersion  - e.g. 1.0.21
 ;   StagingDir  - the staged product tree (contains dashboard\, runtime\, etc.)
 ;
-; Example: ISCC.exe /DAppVersion=1.0.21 /DStagingDir=...\build\staging\DATA installer\DATA.iss
+; Example: ISCC.exe /DAppVersion=1.0.21 /DStagingDir=...\build\staging\DAITA installer\DAITA.iss
 
 #ifndef AppVersion
   #error You must pass /DAppVersion=x.y.z   (the build script does this)
@@ -20,10 +20,10 @@
   #error You must pass /DStagingDir=<staged product tree>   (the build script does this)
 #endif
 
-#define AppName       "DATA"
+#define AppName       "DAITA"
 #define AppPublisher  "Magimatix"
 #define AppURL        "https://magimatix.com"
-#define AppExeVbs     "start_data.vbs"
+#define AppExeVbs     "start_daita.vbs"
 
 [Setup]
 ; A stable AppId ties upgrades + uninstall together across versions. Do not change.
@@ -37,14 +37,14 @@ AppSupportURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-; Per-user install: no UAC prompt, and DATA can freely write its own state
+; Per-user install: no UAC prompt, and DAITA can freely write its own state
 ; (.env, logs, users\, conversation files) inside its folder.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#StagingDir}\..\..\..\dist
-OutputBaseFilename=DATA-Setup-v{#AppVersion}
+OutputBaseFilename=DAITA-Setup-v{#AppVersion}
 SetupIconFile={#StagingDir}\dashboard\favicon.ico
 UninstallDisplayIcon={app}\dashboard\favicon.ico
 UninstallDisplayName={#AppName} {#AppVersion}
@@ -65,37 +65,37 @@ Name: "provider"; Description: "Install the AI provider so chat works (Claude Co
 ; The staged product tree (clean tracked files + the embedded runtime).
 Source: "{#StagingDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; Launchers (location-independent via %~dp0; point at the bundled runtime).
-Source: "launchers\start_data.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "launchers\start_data.vbs"; DestDir: "{app}"; Flags: ignoreversion
-Source: "launchers\stop_data.bat";  DestDir: "{app}"; Flags: ignoreversion
+Source: "launchers\start_daita.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "launchers\start_daita.vbs"; DestDir: "{app}"; Flags: ignoreversion
+Source: "launchers\stop_daita.bat";  DestDir: "{app}"; Flags: ignoreversion
 ; Provider bootstrap — extracted to {tmp} only during install, not shipped.
 Source: "setup_provider.ps1"; Flags: dontcopy
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeVbs}"; WorkingDir: "{app}"; IconFilename: "{app}\dashboard\favicon.ico"; Comment: "Start DATA (runs in the background)"
-Name: "{group}\Stop DATA"; Filename: "{app}\stop_data.bat"; WorkingDir: "{app}"; IconFilename: "{app}\dashboard\favicon.ico"; Comment: "Stop DATA"
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeVbs}"; WorkingDir: "{app}"; IconFilename: "{app}\dashboard\favicon.ico"; Comment: "Start DAITA (runs in the background)"
+Name: "{group}\Stop DAITA"; Filename: "{app}\stop_daita.bat"; WorkingDir: "{app}"; IconFilename: "{app}\dashboard\favicon.ico"; Comment: "Stop DAITA"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeVbs}"; WorkingDir: "{app}"; IconFilename: "{app}\dashboard\favicon.ico"; Comment: "Start DATA (runs in the background)"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeVbs}"; WorkingDir: "{app}"; IconFilename: "{app}\dashboard\favicon.ico"; Comment: "Start DAITA (runs in the background)"; Tasks: desktopicon
 
 [Run]
-; Install the bundled DATA-core skills using the embedded runtime (idempotent).
-Filename: "{app}\runtime\python\python.exe"; Parameters: """{app}\dashboard\install_skills.py"""; WorkingDir: "{app}"; StatusMsg: "Installing DATA-core skills..."; Flags: runhidden skipifdoesntexist
+; Install the bundled DAITA-core skills using the embedded runtime (idempotent).
+Filename: "{app}\runtime\python\python.exe"; Parameters: """{app}\dashboard\install_skills.py"""; WorkingDir: "{app}"; StatusMsg: "Installing DAITA-core skills..."; Flags: runhidden skipifdoesntexist
 ; Optional: install the AI provider (Node.js + Claude Code). Shown only if ticked.
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\setup_provider.ps1"""; StatusMsg: "Installing the AI provider (Claude Code + Node.js)... this can take a minute."; Flags: waituntilterminated; Tasks: provider
-; Offer to launch DATA at the end.
+; Offer to launch DAITA at the end.
 Filename: "{app}\{#AppExeVbs}"; Description: "Launch {#AppName} now"; Flags: postinstall nowait skipifsilent shellexec
 
 [UninstallRun]
-; Make sure DATA isn't running (frees its ports) before files are removed.
-Filename: "{app}\stop_data.bat"; Flags: runhidden; RunOnceId: "StopData"
+; Make sure DAITA isn't running (frees its ports) before files are removed.
+Filename: "{app}\stop_daita.bat"; Flags: runhidden; RunOnceId: "StopData"
 
 [UninstallDelete]
 ; Remove runtime state the app created at runtime (not tracked by [Files]).
 Type: filesandordirs; Name: "{app}\runtime\python\Lib\site-packages\__pycache__"
 Type: files; Name: "{app}\bridge.log"
-Type: files; Name: "{app}\start_data.bat"
-Type: files; Name: "{app}\start_data.vbs"
-Type: files; Name: "{app}\stop_data.bat"
+Type: files; Name: "{app}\start_daita.bat"
+Type: files; Name: "{app}\start_daita.vbs"
+Type: files; Name: "{app}\stop_daita.bat"
 
 [Code]
 { Seed .env from .env.example on first install only — never clobber an existing one. }

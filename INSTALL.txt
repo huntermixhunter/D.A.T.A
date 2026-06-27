@@ -1,21 +1,21 @@
 ========================================================================
-  DATA - Dashboard for Analytical Thought and Action
+  DAITA - Dashboard for Artificial Intelligence Thought and Action
   Quick Install Guide
 ========================================================================
 
-Thank you for your purchase! DATA runs entirely on your own computer.
+Thank you for your purchase! DAITA runs entirely on your own computer.
 No accounts with us, no cloud, no data leaves your machine.
 
 ------------------------------------------------------------------------
   !! IMPORTANT - EXPERIMENTAL SOFTWARE, USE AT YOUR OWN RISK !!
 ------------------------------------------------------------------------
-DATA is an autonomous AI agent that can run commands, create / modify /
+DAITA is an autonomous AI agent that can run commands, create / modify /
 DELETE files, install software, control your mouse, keyboard, and screen,
 and act in accounts you connect. AI is non-deterministic and can take
 unintended, irreversible, or destructive actions, including LOSS OF DATA.
 Keep backups, run it only on a system you control, and review actions
 before authorizing them. It is provided "AS IS" with NO WARRANTY, and its
-output is NOT professional advice. By installing or using DATA you accept
+output is NOT professional advice. By installing or using DAITA you accept
 full responsibility. See DISCLAIMER.md and LICENSE before you continue.
 ------------------------------------------------------------------------
 
@@ -28,20 +28,20 @@ You will need TWO things:
   WINDOWS
 ------------------------------------------------------------------------
 1. Unzip this folder somewhere you like (e.g. Documents\DATA).
-2. Open the DATA folder, then double-click:  install\install.bat
+2. Open the DAITA folder, then double-click:  install\install.bat
    - This is the only file you need to run on Windows. It handles the
      execution-policy block automatically and stays open so you can read
      the output.
    - Don't have Python? Get it from https://python.org/downloads
      and check "Add Python to PATH" during setup, then run the
      installer again.
-3. Near the end it asks: "Add a DATA icon to your desktop? [Y/n]"
-   Just press ENTER for yes. You'll get a DATA icon on your desktop.
-4. DOUBLE-CLICK THE DATA ICON to launch (or double-click start_data.bat
+3. Near the end it asks: "Add a DAITA icon to your desktop? [Y/n]"
+   Just press ENTER for yes. You'll get a DAITA icon on your desktop.
+4. DOUBLE-CLICK THE DAITA ICON to launch (or double-click start_daita.bat
    in the folder). Your browser opens to http://localhost:7777
-   - The DATA icon is a small blue ship-arrow on a black tile - the same
+   - The DAITA icon is a small blue ship-arrow on a black tile - the same
      mark you'll see on the browser tab while it's running.
-   - From now on, starting DATA is just: double-click the desktop icon.
+   - From now on, starting DAITA is just: double-click the desktop icon.
 
 ------------------------------------------------------------------------
   MAC / LINUX / CHROMEBOOK
@@ -53,14 +53,14 @@ You will need TWO things:
 2. In a terminal, go into the folder and run:
        bash install/install.sh
 3. Then launch it:
-       ./start_data.sh
+       ./start_daita.sh
    Open http://localhost:7777 in your browser (use Chrome for voice
    dictation).
 
 ------------------------------------------------------------------------
   CONNECT YOUR AI  (this is what powers the chat)
 ------------------------------------------------------------------------
-DATA needs no API keys. It uses whichever AI command-line tool you
+DAITA needs no API keys. It uses whichever AI command-line tool you
 have installed and log in to with YOUR OWN account. Pick one:
 
   * Claude  (recommended)  - your Claude Pro/Max subscription
@@ -69,7 +69,7 @@ have installed and log in to with YOUR OWN account. Pick one:
         LOG IN ONCE BY HAND: open a normal terminal (PowerShell on
         Windows, Terminal on Mac/Linux), type "claude" and press Enter.
         When it opens, type "/login" and finish signing in through the
-        browser window it opens. Do this ONE time before using DATA.
+        browser window it opens. Do this ONE time before using DAITA.
 
         WINDOWS ONLY - if typing "claude" gives a red error about
         "running scripts is disabled on this system", Windows is
@@ -78,18 +78,18 @@ have installed and log in to with YOUR OWN account. Pick one:
             Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
         It only affects your own user account and is safe.
 
-        Why: DATA runs Claude in the background and cannot show you the
-        login screen, so until you've logged in by hand once, DATA's chat
+        Why: DAITA runs Claude in the background and cannot show you the
+        login screen, so until you've logged in by hand once, DAITA's chat
         will error with a message telling you to run "/login". After you
-        log in this once, the credentials are saved and DATA just works.
+        log in this once, the credentials are saved and DAITA just works.
 
         IMPORTANT: this is the Claude Code COMMAND-LINE tool, NOT the
         Claude Desktop app. They are different programs. The Desktop app
         is the GUI chat window you click on - it has no command line and
-        DATA cannot drive it. If chat keeps popping open the Claude
+        DAITA cannot drive it. If chat keeps popping open the Claude
         Desktop window every time you send a message, you have the wrong
         one: install Claude Code with the link above, open a terminal,
-        type "claude" and log in, then restart DATA. Quick check - run
+        type "claude" and log in, then restart DAITA. Quick check - run
         "claude --version" in a terminal; if it prints a version number,
         you have the right tool.
 
@@ -121,7 +121,7 @@ them from the dropdown at the top of the chat panel.
     folder:
         Windows:            install\uninstall.bat
         macOS / Linux:      bash install/uninstall.sh
-    It stops DATA, removes the desktop shortcut, and (if you say yes)
+    It stops DAITA, removes the desktop shortcut, and (if you say yes)
     the bundled skills it added. Your settings (.env) are kept unless
     you ask to remove them. If you just delete the folder without
     running it, the desktop shortcut and the skills are all that linger.
@@ -135,14 +135,14 @@ them from the dropdown at the top of the chat panel.
     log in, then refresh the page.
   * Chat error says to "run /login" - your Claude CLI isn't logged in
     yet. Open a normal terminal, type "claude", then type "/login" and
-    sign in through the browser. Do this once, then restart DATA. (DATA
+    sign in through the browser. Do this once, then restart DAITA. (DAITA
     cannot show the login screen itself - it must be done by hand.)
   * "running scripts is disabled on this system" (Windows) - the
     default Windows policy blocks the "claude" command. Run this once
     in PowerShell, then try again:
         Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
-  * A log of what happened is written to "bridge.log" in the DATA
+  * A log of what happened is written to "bridge.log" in the DAITA
     folder - handy if you need to ask for help.
 
-Enjoy DATA.
+Enjoy DAITA.
 ========================================================================

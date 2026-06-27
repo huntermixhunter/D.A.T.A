@@ -3,7 +3,7 @@
 bundle_skills.py  —  MAINTAINER side (run on the dev machine, not on a fresh install)
 
 Reads skills_bundle/manifest.json and copies each listed skill FROM your live
-discovery dirs INTO skills_bundle/ so the curated DATA-core set physically travels
+discovery dirs INTO skills_bundle/ so the curated DAITA-core set physically travels
 with the repo (and therefore with any zip or git clone).
 
     Live dirs  ──copy──>  repo bundle

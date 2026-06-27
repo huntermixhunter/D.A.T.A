@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-DATA — brand icon generator
+DAITA — brand icon generator
 ----------------------------
-Draws the DATA launcher/favicon icon from scratch with PIL: a dark rounded
-tile with an electric-blue dart (the DATA-Class silhouette motif) and
+Draws the DAITA launcher/favicon icon from scratch with PIL: a dark rounded
+tile with an electric-blue dart (the DAITA-Class silhouette motif) and
 thruster trail. Original geometry, no sourced artwork.
 
 Run:  python tools/make_icon.py
@@ -36,7 +36,7 @@ def main():
     rounded(d, (m + 26, m + 26, S - m - 26, S - m - 26), r=176,
             outline=(32, 38, 46, 255), width=4)
 
-    # ── Dart motif (stylised DATA-Class silhouette, pointing right) ──
+    # ── Dart motif (stylised DAITA-Class silhouette, pointing right) ──
     cx, cy = S * 0.56, S * 0.5
     dart = [
         (cx - 230, cy - 180),   # top-left wing tip

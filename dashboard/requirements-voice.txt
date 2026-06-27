@@ -1,0 +1,21 @@
+# Optional voice stack for DATA Conversation Mode (hands-free voice loop).
+#
+# Fully local, fully offline after a one-time model download, CPU-only —
+# no PyTorch, no CUDA, no GPU required. Works on Windows, macOS, and Linux.
+#
+# Install:
+#     pip install -r requirements-voice.txt
+#
+# Then open Conversation Mode (the ◉ CONVERSATION button). On first use it
+# downloads the Kokoro voice model (~340MB) and a small speech-to-text model
+# (~75MB) into dashboard/voice_models/ and the HuggingFace cache. After that
+# it runs entirely offline.
+#
+# TTS — Kokoro-82M, an Apache-2.0 open-weights text-to-speech model (ONNX).
+kokoro-onnx>=0.4.7
+soundfile>=0.12
+numpy>=1.24
+
+# STT — faster-whisper (CTranslate2), CPU int8. Tiny/base models are plenty
+# for conversational English and keep latency near 1 second per utterance.
+faster-whisper>=1.0

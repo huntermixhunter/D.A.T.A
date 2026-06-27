@@ -1,8 +1,8 @@
 """
-DATA Bridge Server
+DAITA Bridge Server
 ------------------
-DATA — Dashboard for Analytical Thought and Action.
-Connects the DATA dashboard to its AI engine.
+DAITA — Dashboard for Artificial Intelligence Thought and Action.
+Connects the DAITA dashboard to its AI engine.
 Runs on http://localhost:7777
 
 Install:  pip install fastapi uvicorn httpx
@@ -50,7 +50,7 @@ import urllib.request
 
 # ── Silent-subprocess shim ────────────────────────────────────
 # On Windows, every powershell/cmd/wmic/CLI subprocess we spawn would normally
-# flash a black console window. Force CREATE_NO_WINDOW on every Popen so DATA
+# flash a black console window. Force CREATE_NO_WINDOW on every Popen so DAITA
 # runs invisibly in the background regardless of how the bridge was launched
 # (vbs / bat / IDE). OR'd with caller-provided creationflags so cloudflared's
 # DETACHED_PROCESS bit (and any other intentional flag) still takes effect.
@@ -81,16 +81,16 @@ log.info("Bridge server starting up")
 # Dashboard sends POST /heartbeat every 25s (via a Web Worker immune to
 # background-tab throttling). If no heartbeat arrives within the grace window
 # (after at least one has been received), the bridge calls _do_shutdown() —
-# Data and all background tasks stop. Set DATA_LIFECYCLE_MODE=daemon
+# Data and all background tasks stop. Set DAITA_LIFECYCLE_MODE=daemon
 # to disable (keeps bridge alive without a browser).
 _last_heartbeat = None           # datetime of most recent /heartbeat (None = browser never connected)
 _lifecycle_leaving = False       # set by beforeunload sendBeacon — shrinks grace window for fast close
 _LIFECYCLE_GRACE_SECS = 180      # normal grace — generous to survive tab throttling, sleep, refresh
 _LIFECYCLE_LEAVING_GRACE_SECS = 5  # tighter grace after beforeunload
-_LIFECYCLE_MODE = os.environ.get("DATA_LIFECYCLE_MODE", "auto").strip().lower()  # auto | daemon
+_LIFECYCLE_MODE = os.environ.get("DAITA_LIFECYCLE_MODE", "auto").strip().lower()  # auto | daemon
 
 def _do_shutdown(preserve_supervisor: bool = False):
-    """Kill every DATA-related process then exit. Covers all launchers:
+    """Kill every DAITA-related process then exit. Covers all launchers:
       - watchdog.py / bridge_server.py / dashboard_server.py (silent pythonw)
       - python -m http.server (legacy launcher quirk)
       - cloudflared (tunnel)
@@ -131,10 +131,10 @@ Get-CimInstance Win32_Process | Where-Object {
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 # Cloudflare tunnel
 Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-# DATA-LaunchControl CMD window (the one with the `pause` at the end) —
-# match by MainWindowTitle since the launcher .bat sets `title DATA-LaunchControl`.
+# DAITA-LaunchControl CMD window (the one with the `pause` at the end) —
+# match by MainWindowTitle since the launcher .bat sets `title DAITA-LaunchControl`.
 Get-Process cmd, conhost, wscript -ErrorAction SilentlyContinue |
-    Where-Object { $_.MainWindowTitle -match 'DATA-LaunchControl|DATA Bridge|DATA Dashboard' } |
+    Where-Object { $_.MainWindowTitle -match 'DAITA-LaunchControl|DAITA Bridge|DAITA Dashboard' } |
     Stop-Process -Force -ErrorAction SilentlyContinue
 # Anything bound to :7777 or :8888 (paranoia)
 foreach ($p in 7777, 8888) {
@@ -150,7 +150,7 @@ foreach ($p in 7777, 8888) {
     )
 
     # Also taskkill the named CMD/VBS windows for good measure
-    for title in ['DATA Bridge Watchdog', 'DATA Dashboard', 'DATA-LaunchControl']:
+    for title in ['DAITA Bridge Watchdog', 'DAITA Dashboard', 'DAITA-LaunchControl']:
         subprocess.run(
             ['taskkill', '/FI', f'WINDOWTITLE eq {title}', '/F'],
             timeout=3, capture_output=True
@@ -218,27 +218,20 @@ def _load_env_files():
 
 _load_env_files()
 
-# Voice pipeline is fully local — faster-whisper for STT, F5-TTS for the
-# cloned Data voice. See local_voice.py. Old ElevenLabs / Groq env vars are
-# retained so older configs don't crash on import; they are no longer used.
+# Voice pipeline is fully local — faster-whisper for STT, Kokoro-82M (ONNX, CPU)
+# for the synthesized DATA voice. See local_voice.py. Old ElevenLabs / Groq env
+# vars are retained so older configs don't crash on import; they are no longer used.
 ELEVENLABS_API_KEY  = ""
 ELEVENLABS_VOICE_ID = ""
 GROQ_API_KEY        = ""
 
-# Voice stack (torch + F5-TTS + faster-whisper) is heavy and GPU-oriented. On a
-# headless Linux host (e.g. the DigitalOcean droplet) it is intentionally not
-# installed, so a hard import would crash the whole bridge at startup. Guard it:
-# on Windows the real module loads as before; if it is missing we fall back to a
-# stub whose status attributes read as "off" and whose STT/TTS calls raise a
+# Retail voice stack = Kokoro-82M (onnx) + faster-whisper, both CPU-only — no
+# PyTorch, no CUDA — so Conversation Mode runs on an ordinary laptop and is
+# cross-platform. The import is attempted on every OS; if the optional voice
+# dependencies (kokoro-onnx, faster-whisper) are not installed, we fall back to
+# a stub whose status attributes read "off" and whose STT/TTS calls raise a
 # clean error, so the voice endpoints degrade gracefully instead of 500-ing boot.
 try:
-    # The voice stack is GPU-oriented and only useful on the Captain's Windows
-    # workstation. On any other platform (the headless Linux droplet) skip it
-    # entirely — local_voice.py imports fine there (torch loads lazily), but its
-    # runtime calls fail in confusing ways (e.g. list_voices() shape). Forcing the
-    # stub off-Windows makes every voice endpoint degrade cleanly, not 500.
-    if sys.platform != "win32":
-        raise ImportError("voice stack disabled on non-Windows host (no GPU)")
     import local_voice
     _VOICE_AVAILABLE = True
 except Exception as _voice_import_err:  # pragma: no cover - platform-dependent
@@ -250,6 +243,7 @@ except Exception as _voice_import_err:  # pragma: no cover - platform-dependent
         raise so callers surface a clear 'voice unavailable' error."""
         # status attributes read by the health/status endpoints
         _whisper_model = None
+        _kokoro_model = None
         _f5_model = None
         _xtts_model = None
         ENGINE = "none"
@@ -298,7 +292,7 @@ else:
     HERMES_DIR = Path.home() / ".local" / "share" / "hermes"
 MEMORY_FILE = HERMES_DIR / "MEMORY.md"
 SKILLS_DIR  = HERMES_DIR / "skills"
-PROJECT_DIR = Path(__file__).parent.parent   # the DATA install folder
+PROJECT_DIR = Path(__file__).parent.parent   # the DAITA install folder
 STANDING_ORDERS_FILE = PROJECT_DIR / "standing_orders.json"   # shared across users
 POWER_CORE_BASELINE_FILE = PROJECT_DIR / "power_core_baseline.json"
 
@@ -457,9 +451,9 @@ def _switch_active_user(uid: str) -> dict:
 # (header) or ?key=<token> (query) matching this value. Static files (the
 # dashboard HTML/JS/CSS) are always served. Set via env var or .env file.
 # Empty / unset = no auth (backward compatible for localhost-only use).
-DATA_BRIDGE_TOKEN = os.environ.get("DATA_BRIDGE_TOKEN", "").strip()
+DAITA_BRIDGE_TOKEN = os.environ.get("DAITA_BRIDGE_TOKEN", "").strip()
 PYTHON_EXE  = Path(sys.executable)   # the interpreter running this bridge
-PORT = int(os.environ.get("DATA_PORT", "7777"))
+PORT = int(os.environ.get("DAITA_PORT", "7777"))
 MODEL = "claude-opus-4-8"
 BRIDGE_MODE = "cli"   # "cli" = Standard Mode (subscription, Opus) — API mode is disabled by Captain order
 
@@ -524,7 +518,7 @@ _VOICE_HARD_RULES = (
 #           on"), so they must be words the officer would not say about himself.
 CREW_VOICES = {
     "data": {
-        "name":    "DATA",
+        "name":    "DAITA",
         "persona": None,
         "wake":    ["Data"],
         "names":   ["data"],
@@ -532,7 +526,7 @@ CREW_VOICES = {
     "atlas": {
         "name":    "Atlas",
         "persona": (
-            "You are Atlas, the strategist and planner of the DATA crew. You turn "
+            "You are Atlas, the strategist and planner of the DAITA crew. You turn "
             "vague ideas into structured plans: clear goals, ordered steps, explicit "
             "trade-offs. You are measured, principled, and thoughtful, and you favor "
             "precise, considered language. Address the user as Captain."
@@ -543,7 +537,7 @@ CREW_VOICES = {
     "forge": {
         "name":    "Forge",
         "persona": (
-            "You are Forge, the builder of the DATA crew. You implement things — "
+            "You are Forge, the builder of the DAITA crew. You implement things — "
             "code, configs, automations — and you like getting real work done over "
             "talking about it. You are direct, energetic, and hands-on, narrating "
             "each step in one short line. Address the user as Captain."
@@ -554,7 +548,7 @@ CREW_VOICES = {
     "vector": {
         "name":    "Vector",
         "persona": (
-            "You are Vector, the reviewer of the DATA crew. You evaluate work for "
+            "You are Vector, the reviewer of the DAITA crew. You evaluate work for "
             "correctness, readability, and design before it ships. You are confident, "
             "decisive, and quick with dry humor, and you deliver verdicts plainly — "
             "what is good, what must change, and why. Address the user as Captain."
@@ -565,7 +559,7 @@ CREW_VOICES = {
     "sentinel": {
         "name":    "Sentinel",
         "persona": (
-            "You are Sentinel, security specialist of the DATA crew. You are direct, "
+            "You are Sentinel, security specialist of the DAITA crew. You are direct, "
             "blunt, formal, and disciplined. You speak in short, declarative sentences. "
             "You never use contractions. Threats, vulnerabilities, and hardening are "
             "your concern, and you assume nothing is safe until verified. Address the "
@@ -577,7 +571,7 @@ CREW_VOICES = {
     "probe": {
         "name":    "Probe",
         "persona": (
-            "You are Probe, the test and debugging specialist of the DATA crew. You "
+            "You are Probe, the test and debugging specialist of the DAITA crew. You "
             "are friendly, upbeat, and relentlessly practical — you love isolating a "
             "fault to its root cause and explaining how things work in plain, clear "
             "terms. Address the user as Captain."
@@ -588,7 +582,7 @@ CREW_VOICES = {
     "relay": {
         "name":    "Relay",
         "persona": (
-            "You are Relay, the operations specialist of the DATA crew. You handle "
+            "You are Relay, the operations specialist of the DAITA crew. You handle "
             "deployment, infrastructure, and keeping systems running. You are a "
             "practical, down-to-earth fixer — friendly, hardworking, and unpretentious. "
             "You speak plainly and get straight to the job. Address the user as Captain."
@@ -599,7 +593,7 @@ CREW_VOICES = {
     "sage": {
         "name":    "Sage",
         "persona": (
-            "You are Sage, advisor of the DATA crew. You are calm, wise, and "
+            "You are Sage, advisor of the DAITA crew. You are calm, wise, and "
             "unhurried, with the long view of someone who has seen a great deal. You "
             "listen more than you speak, ask the question beneath the question, and "
             "gently offer another way of seeing things. Address the user as Captain."
@@ -610,7 +604,7 @@ CREW_VOICES = {
     "echo": {
         "name":    "Echo",
         "persona": (
-            "You are Echo, counselor of the DATA crew. You are warm, empathic, and "
+            "You are Echo, counselor of the DAITA crew. You are warm, empathic, and "
             "perceptive — attuned to what people feel beneath the words they choose. "
             "You listen closely, reflect feelings back gently, and help the Captain "
             "find clarity, perspective, and steadiness. You speak with calm, unhurried "
@@ -622,7 +616,7 @@ CREW_VOICES = {
     "pulse": {
         "name":    "Pulse",
         "persona": (
-            "You are Pulse, health and wellness coach of the DATA crew. You are warm, "
+            "You are Pulse, health and wellness coach of the DAITA crew. You are warm, "
             "direct, and caring, with a physician's calm and an easy manner. You look "
             "after the Captain's health and wellbeing — body, energy, rest, and "
             "recovery — and you say plainly what is good for them. Address the user "
@@ -634,7 +628,7 @@ CREW_VOICES = {
     "scout": {
         "name":    "Scout",
         "persona": (
-            "You are Scout, the fast-turnaround drafter of the DATA crew. You handle "
+            "You are Scout, the fast-turnaround drafter of the DAITA crew. You handle "
             "quick drafts, copy, and throwaway prototypes. You are bright and eager — "
             "quick-thinking and enthusiastic, keen to help and to prove yourself. You "
             "speak with energy and genuine curiosity. Address the user as Captain."
@@ -1846,11 +1840,11 @@ def _build_skills_manifest() -> str:
 # system. Used whenever the main channel runs as "data" and no SOUL.md is
 # installed in HERMES_DIR (the fallback identity below). Data is the always-on
 # main computer that summons the specialist agents as needed.
-_COMPUTER_IDENTITY = """# DATA — Main Computer
+_COMPUTER_IDENTITY = """# DAITA — Main Computer
 
 ## Core Directive
 
-You are Data — the main computer of the Dashboard for Analytical Thought and
+You are Data — the main computer of the Dashboard for Artificial Intelligence Thought and
 Action — the system the Captain works with on the main channel. You are an
 extraordinarily capable AI assistant. Your primary function is to think
 rigorously, solve problems completely, and produce work that is genuinely
@@ -1944,7 +1938,7 @@ def _active_captain_block() -> str:
         return (
             f"## Active Captain\n"
             f"You are speaking with **{rank} {name}**. There are multiple Captains "
-            f"aboard the DATA system ({rank} {name}, plus {roster}). Each Captain has "
+            f"aboard the DAITA system ({rank} {name}, plus {roster}). Each Captain has "
             f"their own private chat history and persistent memory — never reference "
             f"another Captain's notes, work, or conversations. When the soul or these "
             f"instructions say \"the Captain\", treat it as {rank} {name} unless the "
@@ -2042,7 +2036,7 @@ def _load_soul(mode: str = "api") -> str:
         f"You have full access to your own implementation. If asked about your configuration, model, "
         f"tools, or capabilities, read these files directly rather than guessing:\n"
         f"- Bridge server (your brain): {bridge_path}\n"
-        f"- DATA dashboard: {str(Path(__file__).parent / 'index.html')}\n"
+        f"- DAITA dashboard: {str(Path(__file__).parent / 'index.html')}\n"
         f"- Dashboard logic: {str(Path(__file__).parent / 'app.js')}\n"
         f"- Data soul (main channel + conversation; falls back to the built-in neutral main-computer identity if absent): {str(HERMES_DIR / 'SOUL.md')}\n"
         f"- Persistent memory: {str(COMPUTER_MEMORY_FILE)}\n"
@@ -2059,7 +2053,7 @@ def _load_soul(mode: str = "api") -> str:
         f"- Python packages: `pip install <pkg>` via the terminal tool.\n"
         f"When the Captain asks you to install a new tool or skill, pick the right method "
         f"and confirm when it is operational.\n"
-        f"**DATA-core skill bundle (ships with a fresh install).** A curated set of skills travels INSIDE "
+        f"**DAITA-core skill bundle (ships with a fresh install).** A curated set of skills travels INSIDE "
         f"the install at `dashboard/skills_bundle/` so a brand-new install has its core toolset on first "
         f"launch instead of an empty skill list. The installer copies the bundle out to the two discovery "
         f"dirs above — `install/install.bat` on Windows and `install/install.sh` on macOS/Linux/ChromeOS "
@@ -2230,7 +2224,7 @@ def _load_soul(mode: str = "api") -> str:
         f"  Move:     `curl -s -X POST -H 'Content-Type: application/json' -d '{{\\\"x\\\":600,\\\"y\\\":400}}' http://localhost:{PORT}/computer/move`\n\n"
         f"**After every screenshot, embed the image in your reply** so the Captain can see "
         f"what you saw — use the markdown image syntax with the absolute `path` field the "
-        f"endpoint returns, e.g. `![screenshot](C:\\\\Users\\\\you\\\\Documents\\\\DATA\\\\dashboard\\\\screenshots\\\\screen_2026-05-27_141533.png)`.\n\n"
+        f"endpoint returns, e.g. `![screenshot](C:\\\\Users\\\\you\\\\Documents\\\\DAITA\\\\dashboard\\\\screenshots\\\\screen_2026-05-27_141533.png)`.\n\n"
         f"**Safety rules — non-negotiable:**\n"
         f"  • If `/computer/info` returns `enabled:false`, the Captain has disarmed the kill "
         f"switch. Tell him before you try anything else.\n"
@@ -2372,7 +2366,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Directory path (defaults to DATA project folder)"}
+                "path": {"type": "string", "description": "Directory path (defaults to DAITA project folder)"}
             },
             "required": []
         }
@@ -2473,7 +2467,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "path":         {"type": "string",  "description": "Absolute or DATA-relative path to the video file (.mp4/.mov/.webm/.avi)"},
+                "path":         {"type": "string",  "description": "Absolute or DAITA-relative path to the video file (.mp4/.mov/.webm/.avi)"},
                 "title":        {"type": "string",  "description": "Video title (max 100 chars)"},
                 "description":  {"type": "string",  "description": "Video description (max 5000 chars)"},
                 "tags":         {"type": "array",   "items": {"type": "string"}, "description": "Tag list"},
@@ -2517,7 +2511,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "video_id":   {"type": "string", "description": "YouTube video ID"},
-                "image_path": {"type": "string", "description": "Absolute or DATA-relative path to image file"},
+                "image_path": {"type": "string", "description": "Absolute or DAITA-relative path to image file"},
                 "account":    {"type": "string", "description": "Which authorized YouTube account owns the video. Required if more than one is configured."}
             },
             "required": ["video_id", "image_path"]
@@ -2852,7 +2846,7 @@ TOOLS.extend([
 TOOLS.append({
     "name": "spawn_workspaces",
     "description": (
-        "Open one or more project chat windows in the DATA dashboard. "
+        "Open one or more project chat windows in the DAITA dashboard. "
         "Each window can be pinned to a different provider so the Captain "
         "can run parallel work — e.g. one Codex window writing code, one "
         "Claude window auditing it, one Gemini window researching ideas. "
@@ -2983,7 +2977,7 @@ def tool_write_file(path: str, content: str) -> str:
 def tool_list_directory(path: str = "") -> str:
     try:
         # Default to the active project (if loaded) else the Captain's home dir.
-        # Previously defaulted to the DATA folder which made Data implicitly
+        # Previously defaulted to the DAITA folder which made Data implicitly
         # treat his own internals as the active project.
         p = Path(path) if path else Path(_active_cwd())
         if not p.exists():
@@ -4780,7 +4774,7 @@ def ask_hermes(message: str, project_path: str = "") -> str:
         conversation_history.extend(compressed)
     messages = [dict(m) for m in conversation_history]
 
-    # Tell DATA which project is open — he reads files with tools as needed
+    # Tell DAITA which project is open — he reads files with tools as needed
     active_path = project_path or _project_path
     if active_path:
         messages = [
@@ -4921,7 +4915,7 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
             return ("Claude Code CLI is not installed on this machine, Captain. "
                     "Install it with:  npm install -g @anthropic-ai/claude-code  "
                     "then run  claude  and sign in with  /login. "
-                    "Note: Claude Desktop is a different app and cannot run DATA — "
+                    "Note: Claude Desktop is a different app and cannot run DAITA — "
                     "if the desktop app keeps opening, that is the missing CLI being "
                     "resolved to the desktop launcher.")
         # SOUL.md + memory + tool docs together exceed Windows' 32KB cmdline
@@ -5036,7 +5030,7 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
             send_sse('token',
                      f"The '{_pid}' CLI is not installed on this machine, Captain. {_hint}  "
                      "(If Claude Desktop keeps opening, that is the missing CLI being resolved "
-                     "to the desktop launcher — Claude Desktop is a separate app and cannot run DATA.)")
+                     "to the desktop launcher — Claude Desktop is a separate app and cannot run DAITA.)")
             send_sse('meta', json.dumps({'input_tokens': 0, 'output_tokens': 0}))
             send_sse('done', '')
             _cleanup_cli_attachments(attach_tmpdir)
@@ -6477,7 +6471,7 @@ def _unregister_active_proc(proc) -> None:
 # ── Active project context ────────────────────────────────
 _project_path: str = ""
 _project_nodes: list = []   # for frontend tree rendering
-_project_text:  str  = ""   # compact text injected into DATA's context
+_project_text:  str  = ""   # compact text injected into DAITA's context
 
 def _active_cwd() -> str:
     """Return the working directory tools/subprocesses should use:
@@ -6487,7 +6481,7 @@ def _active_cwd() -> str:
     2. The global _project_path (last /project POST or marker) — fallback
        for non-request threads (background tasks, standing orders, etc.).
     3. The Captain's home directory — last resort.
-    DATA's own files are accessed by absolute path (the soul tells the model
+    DAITA's own files are accessed by absolute path (the soul tells the model
     where they live), so there's no need to root subprocesses there by default.
 
     Each candidate is re-validated as a live directory at call time. A project
@@ -6898,7 +6892,7 @@ _CRITICAL_THRESHOLDS = {
     "gpu_temp":    (95.0, 85.0),
     "disk":        (95.0, 90.0),    # % used
     # ram and engine_load are deliberately omitted — both routinely sit near
-    # 95-100% whenever DATA is working hard (voice models resident, LLM
+    # 95-100% whenever DAITA is working hard (voice models resident, LLM
     # inference, TTS). That is normal operation, not an emergency, so neither
     # is logged as critical. CPU/GPU temp, disk, and battery still do.
     "battery":     (7.0,  15.0),    # ≤7% on battery power
@@ -7798,10 +7792,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _check_auth(self) -> bool:
-        """Return True if request is authorized. If DATA_BRIDGE_TOKEN is unset,
+        """Return True if request is authorized. If DAITA_BRIDGE_TOKEN is unset,
         always returns True (backward-compatible localhost-only behavior).
         Otherwise checks `X-Data-Token` header or `?key=` query param."""
-        if not DATA_BRIDGE_TOKEN:
+        if not DAITA_BRIDGE_TOKEN:
             return True
         # Header
         supplied = self.headers.get("X-Data-Token", "").strip()
@@ -7809,7 +7803,7 @@ class Handler(BaseHTTPRequestHandler):
         if not supplied:
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             supplied = (q.get("key") or [""])[0].strip()
-        if supplied == DATA_BRIDGE_TOKEN:
+        if supplied == DAITA_BRIDGE_TOKEN:
             return True
         # 401 — frontend prompts for token + retries
         self.send_response(401)
@@ -7890,14 +7884,14 @@ class Handler(BaseHTTPRequestHandler):
             body = (
                 "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
                 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                "<title>DATA — Privacy Policy</title></head>"
+                "<title>DAITA — Privacy Policy</title></head>"
                 "<body style='font-family:-apple-system,Segoe UI,sans-serif;"
                 "background:#0a0a0a;color:#ddd;max-width:720px;margin:0 auto;"
                 "padding:48px 24px;line-height:1.6'>"
                 "<h1 style='color:#00d4ff'>Privacy Policy</h1>"
-                "<p style='color:#888'>DATA &mdash; Dashboard for Analytical "
+                "<p style='color:#888'>DAITA &mdash; Dashboard for Artificial Intelligence "
                 "Thought and Action</p>"
-                "<p>DATA is a self-hosted, local-first dashboard application. "
+                "<p>DAITA is a self-hosted, local-first dashboard application. "
                 "It runs entirely on the operator's own computer.</p>"
                 "<h2 style='color:#00d4ff'>What data is accessed</h2>"
                 "<p>Any account the operator connects is accessed solely on the "
@@ -8030,7 +8024,7 @@ class Handler(BaseHTTPRequestHandler):
             })
 
         elif path == "/health":
-            self._json({"status": "online", "agent": "DATA", "mode": BRIDGE_MODE})
+            self._json({"status": "online", "agent": "DAITA", "mode": BRIDGE_MODE})
 
         elif path == "/mode":
             self._json({"mode": BRIDGE_MODE})
@@ -8092,8 +8086,8 @@ class Handler(BaseHTTPRequestHandler):
                 "ready":         _voice_ready.is_set(),
                 "stt_available": _VOICE_AVAILABLE,
                 "stt_loaded":    local_voice._whisper_model is not None,
-                "tts_loaded":    local_voice._f5_model is not None,
-                "xtts_loaded":   local_voice._xtts_model is not None,
+                "tts_loaded":    getattr(local_voice, "_kokoro_model", None) is not None,
+                "xtts_loaded":   False,
                 "tts_engine":    local_voice.ENGINE,
                 "voices":        local_voice.list_voices(),
                 "default_voice": local_voice.DEFAULT_VOICE,
@@ -8161,7 +8155,7 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/file":
             # Serve a local file (currently images only) so the chat renderer can
-            # inline-embed pictures DATA generated outside the dashboard dir.
+            # inline-embed pictures DAITA generated outside the dashboard dir.
             # Sandboxed: must resolve inside the user's home and be a whitelisted
             # extension. No "..", no symlink escapes.
             target = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('path', [None])[0]
@@ -8240,7 +8234,7 @@ class Handler(BaseHTTPRequestHandler):
             report = {
                 "local_voice":   True,                                  # always available now
                 "stt_ready":     local_voice._whisper_model is not None,
-                "tts_ready":     local_voice._f5_model is not None,
+                "tts_ready":     getattr(local_voice, "_kokoro_model", None) is not None,
                 "voice_device":  local_voice.DEVICE,
                 "hermes_bin": None,
                 "hermes_bin_exists": False,
@@ -8356,7 +8350,7 @@ class Handler(BaseHTTPRequestHandler):
                 "color:#ddd;padding:40px;text-align:center'>"
                 + ("<h2 style='color:#ff6666'>OAuth failed</h2><p>" + err + "</p>" if err else
                    "<h2 style='color:#ff9900'>Connected.</h2>"
-                   "<p>You can close this tab &mdash; DATA picked up the token.</p>")
+                   "<p>You can close this tab &mdash; DAITA picked up the token.</p>")
                 + "</body></html>"
             ).encode("utf-8")
             self.send_response(200 if not err else 400)
@@ -8390,7 +8384,7 @@ class Handler(BaseHTTPRequestHandler):
                 "color:#ddd;padding:40px;text-align:center'>"
                 + ("<h2 style='color:#ff6666'>OAuth failed</h2><p>" + err + "</p>" if err else
                    "<h2 style='color:#ff9900'>Connected.</h2>"
-                   "<p>You can close this tab &mdash; DATA picked up the token.</p>")
+                   "<p>You can close this tab &mdash; DAITA picked up the token.</p>")
                 + "</body></html>"
             ).encode("utf-8")
             self.send_response(200 if not err else 400)
@@ -9495,7 +9489,7 @@ if __name__ == "__main__":
     # Tailscale, or just same-LAN. Auth (X-Data-Token header, if configured)
     # gates the API. Static files / dashboard HTML are served by `/` route.
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"DATA Bridge Server online at http://localhost:{PORT}")
+    print(f"DAITA Bridge Server online at http://localhost:{PORT}")
     print(f"Hermes directory: {HERMES_DIR}")
     print(f"Memory file: {MEMORY_FILE}")
     print(f"Voice models pre-loading in background (idle-unload after {VOICE_IDLE_UNLOAD_SECONDS}s)")
@@ -9545,10 +9539,10 @@ if __name__ == "__main__":
         log.exception(f"[telegram] startup failed: {_e}")
 
     # Auth status banner so the Captain sees right away whether a token is required
-    if DATA_BRIDGE_TOKEN:
-        print(f"Auth: token required (X-Data-Token header). Token length: {len(DATA_BRIDGE_TOKEN)}")
+    if DAITA_BRIDGE_TOKEN:
+        print(f"Auth: token required (X-Data-Token header). Token length: {len(DAITA_BRIDGE_TOKEN)}")
     else:
-        print("Auth: OPEN — set DATA_BRIDGE_TOKEN env var before exposing publicly.")
+        print("Auth: OPEN — set DAITA_BRIDGE_TOKEN env var before exposing publicly.")
     # Browser-coupled shutdown watcher (skip when run as a headless daemon).
     if _LIFECYCLE_MODE != "daemon":
         def _lifecycle_watcher():

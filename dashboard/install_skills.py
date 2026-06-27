@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-install_skills.py  —  INSTALL side (run once on a fresh DATA install)
+install_skills.py  —  INSTALL side (run once on a fresh DAITA install)
 
-Copies the curated DATA-core skill set that ships in skills_bundle/ OUT to the two
+Copies the curated DAITA-core skill set that ships in skills_bundle/ OUT to the two
 directories the bridge discovers skills from, so a fresh machine has the full
-DATA-core toolset on first launch — no manual downloading.
+DAITA-core toolset on first launch — no manual downloading.
 
     repo bundle  ──copy──>  live dirs
     skills_bundle/claude/<name>/        ->  ~/.claude/skills/<name>/
@@ -127,7 +127,7 @@ def main() -> int:
         print("\nFailed to install (left for the user to add manually):")
         for m in stats["failed"]:
             print(f"  - {m}")
-    print("\nDone. New skills appear on DATA's next message - no restart needed.")
+    print("\nDone. New skills appear on DAITA's next message - no restart needed.")
     return 0
 
 

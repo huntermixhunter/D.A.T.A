@@ -1,5 +1,5 @@
 {
-  "_comment": "DATA-core curated skill set. This is the source of truth for which skills ship with a fresh DATA install. bundle_skills.py reads this to copy skills from your live dirs INTO this bundle (maintainer side). install_skills.py reads this to copy the bundle OUT to the two discovery dirs on a fresh machine (install side). Edit the lists below to add/remove a skill, then re-run bundle_skills.py to refresh the physical files.",
+  "_comment": "DAITA-core curated skill set. This is the source of truth for which skills ship with a fresh DAITA install. bundle_skills.py reads this to copy skills from your live dirs INTO this bundle (maintainer side). install_skills.py reads this to copy the bundle OUT to the two discovery dirs on a fresh machine (install side). Edit the lists below to add/remove a skill, then re-run bundle_skills.py to refresh the physical files.",
   "version": 1,
   "updated": "2026-06-19",
   "claude": [

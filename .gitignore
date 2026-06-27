@@ -11,6 +11,10 @@ dashboard/cloudflared.log
 dashboard/tunnel_url.txt
 dashboard/retail_bridge.out.log
 dashboard/retail_bridge.err.log
+dashboard/retail_preview.log
+
+# Voice smoke-test artifacts
+dashboard/test_output_*.wav
 
 # Secrets
 .env
@@ -19,6 +23,9 @@ dashboard/retail_bridge.err.log
 dist/
 preview_*/
 build/
+
+# Voice models — lazy-downloaded on first use, never committed (~340MB)
+dashboard/voice_models/
 
 # Python
 __pycache__/
