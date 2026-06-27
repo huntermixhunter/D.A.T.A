@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   DAITA INTERFACE — Dashboard for Artificial Intelligence Thought and Action
+   DATA INTERFACE — Dashboard for Analytical Thought and Action
    CYBER theme — dark, minimal, high-contrast
    ═══════════════════════════════════════════════════════════ */
 
@@ -276,7 +276,7 @@ html, body {
   border-radius: 0 var(--radius-lg) 0 0;
 }
 
-/* ── DAITA Buttons ──────────────────────────────────────── */
+/* ── DATA Buttons ──────────────────────────────────────── */
 /* REBOOT button calls for attention when the bridge goes OFFLINE — a blue
    pulse so the user sees the one-click recovery path. */
 @keyframes pulse-reboot {
@@ -714,7 +714,7 @@ html, body {
   color: var(--data-teal);
 }
 
-/* Markdown URL — DAITA-orange underlined link, opens in a new tab. */
+/* Markdown URL — DATA-orange underlined link, opens in a new tab. */
 .md-link {
   color: var(--data-orange, #FF9900);
   text-decoration: underline;
@@ -1474,7 +1474,7 @@ html, body {
 }
 
 /* Footer pills — host the CONVERSATION + WAKE buttons next to the theme cap.
-   Same DAITA pill look as the top-bar version they used to live in. */
+   Same DATA pill look as the top-bar version they used to live in. */
 .footer-pill {
   height: 28px;
   padding: 0 14px;
@@ -1665,7 +1665,7 @@ html, body {
   flex-shrink: 0;
 }
 
-/* Theme toggle lives inside the footer-left-cap so the DAITA plate doubles
+/* Theme toggle lives inside the footer-left-cap so the DATA plate doubles
    as the actual switch — no floating overlay. */
 .theme-toggle-cap {
   border: none;
@@ -2120,7 +2120,7 @@ html, body {
 
 /* Drag-to-resize handles overlaid on the grid gutters. JS adds/removes
    these and positions them based on pane count + current ratios. Subtle
-   DAITA-orange tint by default so the Captain can SEE the gutter, then
+   DATA-orange tint by default so the Captain can SEE the gutter, then
    brightens on hover/drag for clear affordance. */
 .chat-splitter {
   position: absolute;
@@ -2325,7 +2325,7 @@ html, body {
 }
 .fullscreen-btn:hover { border-color: var(--data-blue); color: var(--data-blue); }
 
-/* Fullscreen state — covers the DAITA header + footer + sidebars and
+/* Fullscreen state — covers the DATA header + footer + sidebars and
    collapses the panel-header bar itself so the chat panes get every
    available pixel. The fullscreen button floats in the top-right
    corner as the only way back out. */
@@ -2913,7 +2913,7 @@ html, body {
 /* ═══════════════════════════════════════════════════════════
    CYBERPUNK THEME — body.theme-cyberpunk overrides
    Activated via the bottom-left toggle. Swaps every --data-*
-   token, kills the rounded DAITA elbows in favour of chamfered
+   token, kills the rounded DATA elbows in favour of chamfered
    cuts, turns on subtle scanlines + light glow atmospherics.
    References: Blade Runner / Cyberpunk 2077 / Ghost in the Shell.
    ═══════════════════════════════════════════════════════════ */
@@ -2937,7 +2937,7 @@ body.theme-cyberpunk {
   --data-text:      #E6FBFF;
   --data-text-dim:  #4B6A78;
 
-  /* Sharp angular geometry — no rounded DAITA elbows */
+  /* Sharp angular geometry — no rounded DATA elbows */
   --radius-lg:       0px;
   --radius-sm:       2px;
 
@@ -3000,9 +3000,9 @@ body.theme-cyberpunk .pill.green {
 /* Pills get sharp corners */
 body.theme-cyberpunk .pill { border-radius: 2px; padding: 3px 12px; }
 
-/* DAITA elbows → chamfered cyberpunk cuts.
+/* DATA elbows → chamfered cyberpunk cuts.
    The original ::after pseudos punched a rounded inner cutout to fake the
-   DAITA "L" shape. We disable those and clip the outer block instead so we
+   DATA "L" shape. We disable those and clip the outer block instead so we
    get an angular bevel reminiscent of HUD plating. */
 body.theme-cyberpunk .header-left-elbow,
 body.theme-cyberpunk .header-right-cap,
@@ -3544,7 +3544,7 @@ body.theme-cyberpunk .captain-caret {
   .mobile-theme-toggle  { order: 2; }
   .mobile-vitals-toggle { order: 3; margin-right: 6px; }
 
-  /* Slim down the DAITA elbow accents so they don't dominate the slide-in
+  /* Slim down the DATA elbow accents so they don't dominate the slide-in
      sidebar on a small screen. Desktop keeps the dramatic original size. */
   .sidebar-elbow-top {
     height: 28px;
@@ -3973,7 +3973,7 @@ body.shields-down .ship-shield-dash { display: none; }
   position: fixed; inset: 0; z-index: 9999;
   background: #000;
   display: none; align-items: stretch; justify-content: stretch;
-  /* Default accent (DAITA amber). Cyberpunk theme overrides below. */
+  /* Default accent (DATA amber). Cyberpunk theme overrides below. */
   --msd-accent-rgb: 255, 153, 0;
 }
 .msd.open { display: flex; }

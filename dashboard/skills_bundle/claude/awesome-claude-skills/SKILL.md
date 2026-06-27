@@ -9,7 +9,7 @@ Use this skill when the user asks to find, inspect, or install a skill from Comp
 
 ## Source & local clone
 
-The catalog is a public GitHub repo. It is **not bundled** with DAITA — clone it on first use.
+The catalog is a public GitHub repo. It is **not bundled** with DATA — clone it on first use.
 
 - Repository: `https://github.com/ComposioHQ/awesome-claude-skills`
 - Local clone (created on first use): `%USERPROFILE%\src\awesome-claude-skills`

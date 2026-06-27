@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# DAITA — macOS / Linux / ChromeOS installer
-# Checks Python, installs optional deps, creates the start_daita.sh launcher.
+# DATA — macOS / Linux / ChromeOS installer
+# Checks Python, installs optional deps, creates the start_data.sh launcher.
 set -e
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo ""
-echo "  DAITA — Dashboard for Artificial Intelligence Thought and Action"
+echo "  DATA — Dashboard for Analytical Thought and Action"
 echo "  macOS / Linux / ChromeOS installer"
 echo ""
 
@@ -55,7 +55,7 @@ else
     echo "      Node.js first: https://nodejs.org (LTS). Then run:"
     echo "        npm install -g @anthropic-ai/claude-code"
     echo "      After installing, run 'claude' in a terminal and type"
-    echo "      '/login' once to sign in (DAITA can't show the login"
+    echo "      '/login' once to sign in (DATA can't show the login"
     echo "      prompt itself; if chat says 'run /login', that's why)."
     echo "      Verify with 'claude --version'."
 fi
@@ -66,18 +66,18 @@ if [ ! -f "$ROOT/.env" ]; then
     echo "  [OK] Created .env (edit it to set weather coords, port, etc.)"
 fi
 
-# 4b. Install the bundled DAITA-core skills (idempotent; never clobbers your own copies)
+# 4b. Install the bundled DATA-core skills (idempotent; never clobbers your own copies)
 if [ -f "$ROOT/dashboard/install_skills.py" ]; then
-    echo "  [..] Installing bundled DAITA-core skills..."
+    echo "  [..] Installing bundled DATA-core skills..."
     if "$PYTHON" "$ROOT/dashboard/install_skills.py" >/dev/null 2>&1; then
-        echo "  [OK] DAITA-core skills installed"
+        echo "  [OK] DATA-core skills installed"
     else
-        echo "  [!!] Skill install hit an issue — DAITA still runs. Re-run later: python dashboard/install_skills.py"
+        echo "  [!!] Skill install hit an issue — DATA still runs. Re-run later: python dashboard/install_skills.py"
     fi
 fi
 
 # 5. Write the launcher
-cat > "$ROOT/start_daita.sh" <<EOF
+cat > "$ROOT/start_data.sh" <<EOF
 #!/usr/bin/env bash
 cd "\$(dirname "\$0")/dashboard"
 ( sleep 2
@@ -86,26 +86,26 @@ cd "\$(dirname "\$0")/dashboard"
   fi ) &
 exec $PYTHON bridge_server.py
 EOF
-chmod +x "$ROOT/start_daita.sh"
-echo "  [OK] Launcher written: start_daita.sh"
+chmod +x "$ROOT/start_data.sh"
+echo "  [OK] Launcher written: start_data.sh"
 
-# 6. App-menu launcher with the DAITA icon (Linux / ChromeOS)
+# 6. App-menu launcher with the DATA icon (Linux / ChromeOS)
 if [ "$(uname -s)" = "Linux" ]; then
     mkdir -p "$HOME/.local/share/applications"
     cat > "$HOME/.local/share/applications/data-dashboard.desktop" <<DESK
 [Desktop Entry]
 Type=Application
-Name=DAITA
-Comment=Dashboard for Artificial Intelligence Thought and Action
-Exec=$ROOT/start_daita.sh
+Name=DATA
+Comment=Dashboard for Analytical Thought and Action
+Exec=$ROOT/start_data.sh
 Icon=$ROOT/dashboard/assets/icon-256.png
 Terminal=false
 Categories=Utility;Development;
 DESK
-    echo "  [OK] App launcher installed - find DAITA in your application menu"
+    echo "  [OK] App launcher installed - find DATA in your application menu"
 fi
 
 echo ""
-echo "  Done. Run ./start_daita.sh to launch DAITA."
+echo "  Done. Run ./start_data.sh to launch DATA."
 echo "  Dashboard: http://localhost:7777"
 echo ""

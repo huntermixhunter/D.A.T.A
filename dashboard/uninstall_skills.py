@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-uninstall_skills.py  —  UNINSTALL side (run when removing DAITA)
+uninstall_skills.py  —  UNINSTALL side (run when removing DATA)
 
-Reverses install_skills.py: removes the curated DAITA-core skills that DAITA
+Reverses install_skills.py: removes the curated DATA-core skills that DATA
 copied into the two skill-discovery directories on install.
 
     live dirs                                   ──remove──>  gone
-    ~/.claude/skills/<name>/                          (if DAITA put it there)
-    <hermes>/skills/<cat>/<name>/                      (if DAITA put it there)
+    ~/.claude/skills/<name>/                          (if DATA put it there)
+    <hermes>/skills/<cat>/<name>/                      (if DATA put it there)
 
 SAFETY — never delete a skill you actually use.
 install_skills.py "never clobbers your own copies": on install it SKIPS any
 skill already present, so a skill you authored or installed yourself was left
 untouched. The uninstaller honors the same contract in reverse: a live skill is
 removed ONLY when it is byte-for-byte identical to the copy that ships in
-skills_bundle/ — i.e. DAITA placed it and you have not modified it. If the live
+skills_bundle/ — i.e. DATA placed it and you have not modified it. If the live
 copy differs in any file (you edited it, or it was your own pre-existing copy),
 it is KEPT and reported, never deleted. Skills not listed in the manifest are
 never touched at all.
 
     --force     remove a bundled skill even if it differs from the bundle
-                (use only if you are sure you want every DAITA-core skill gone)
+                (use only if you are sure you want every DATA-core skill gone)
     --dry-run   show what would be removed, change nothing
 
 Discovery dirs are resolved EXACTLY the way bridge_server.py / install_skills.py
@@ -89,7 +89,7 @@ def _remove(name: str, bundle: Path, live: Path, label: str, stats: dict) -> Non
 def main() -> int:
     if not MANIFEST.exists():
         print(f"ERROR: manifest not found: {MANIFEST}")
-        print("Cannot tell which skills DAITA installed. Nothing removed.")
+        print("Cannot tell which skills DATA installed. Nothing removed.")
         return 1
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
 

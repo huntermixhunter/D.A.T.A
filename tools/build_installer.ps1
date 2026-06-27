@@ -1,14 +1,14 @@
-# DAITA - one-click installer (.exe) builder
+# DATA - one-click installer (.exe) builder
 # ----------------------------------------------------------------------------
-# Produces dist\DAITA-Setup-v<version>.exe : a click-through wizard that installs
-# DAITA with a bundled embedded Python (buyer needs ZERO preinstalled Python) and
+# Produces dist\DATA-Setup-v<version>.exe : a click-through wizard that installs
+# DATA with a bundled embedded Python (buyer needs ZERO preinstalled Python) and
 # optionally installs the AI provider (Node.js + Claude Code).
 #
 # Pipeline:
 #   1. Stage a clean product tree from the repo (git archive HEAD = tracked files
 #      only -> no .env, no secrets, no dev tools, exactly like the buyer zip).
 #   2. Drop in the embedded Python runtime (cached between builds).
-#   3. Compile installer\DAITA.iss with Inno Setup -> dist\DAITA-Setup-v<ver>.exe.
+#   3. Compile installer\DATA.iss with Inno Setup -> dist\DATA-Setup-v<ver>.exe.
 #
 # Usage:
 #   .\tools\build_installer.ps1 1.0.21
@@ -45,12 +45,12 @@ if (-not $iscc) {
 }
 
 $build       = Join-Path $root "build"
-$staging     = Join-Path $build "staging\DAITA"
+$staging     = Join-Path $build "staging\DATA"
 $runtimeCache= Join-Path $build "runtime_cache"
 $archiveZip  = Join-Path $build "_archive.zip"
 
 Write-Host ""
-Write-Host "  DAITA installer builder  -  v$Version" -ForegroundColor Cyan
+Write-Host "  DATA installer builder  -  v$Version" -ForegroundColor Cyan
 Write-Host "  ---------------------------------------------------------------"
 
 # --- 1. stage a clean product tree from HEAD ---
@@ -58,7 +58,7 @@ Write-Host "  [..] Staging clean product tree (git archive HEAD)..."
 if (Test-Path (Join-Path $build "staging")) { Remove-Item -Recurse -Force (Join-Path $build "staging") }
 New-Item -ItemType Directory -Force (Join-Path $build "staging") | Out-Null
 if (Test-Path $archiveZip) { Remove-Item -Force $archiveZip }
-git archive --format=zip --prefix="DAITA/" -o $archiveZip HEAD
+git archive --format=zip --prefix="DATA/" -o $archiveZip HEAD
 if ($LASTEXITCODE -ne 0) { Write-Host "  git archive failed" -ForegroundColor Red; exit 1 }
 Expand-Archive -Path $archiveZip -DestinationPath (Join-Path $build "staging") -Force
 Remove-Item -Force $archiveZip
@@ -83,10 +83,10 @@ Write-Host "  [OK] Runtime in place -> $stageRuntime"
 # --- 3. compile the wizard ---
 New-Item -ItemType Directory -Force (Join-Path $root "dist") | Out-Null
 Write-Host "  [..] Compiling installer with Inno Setup..."
-& $iscc "/DAppVersion=$Version" "/DStagingDir=$staging" (Join-Path $root "installer\DAITA.iss")
+& $iscc "/DAppVersion=$Version" "/DStagingDir=$staging" (Join-Path $root "installer\DATA.iss")
 if ($LASTEXITCODE -ne 0) { Write-Host "  ISCC compile failed" -ForegroundColor Red; exit 1 }
 
-$exe = Join-Path $root "dist\DAITA-Setup-v$Version.exe"
+$exe = Join-Path $root "dist\DATA-Setup-v$Version.exe"
 if (-not (Test-Path $exe)) { Write-Host "  Expected output missing: $exe" -ForegroundColor Red; exit 1 }
 
 $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
@@ -98,5 +98,5 @@ Write-Host "    File:   $exe  ($size)"
 Write-Host "    SHA256: $hash"
 Write-Host ""
 Write-Host "  This is the primary buyer download (one-click, bundled Python)."
-Write-Host "  The DAITA-v$Version.zip (tools\release.ps1) stays as the Mac/Linux/advanced path."
+Write-Host "  The DATA-v$Version.zip (tools\release.ps1) stays as the Mac/Linux/advanced path."
 Write-Host ""

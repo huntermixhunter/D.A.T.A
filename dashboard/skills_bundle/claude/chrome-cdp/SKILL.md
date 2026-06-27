@@ -6,9 +6,9 @@ license: MIT
 
 # Chrome CDP Attach — drive the Captain's real Chrome
 
-This is one of three browser control surfaces in DAITA. Pick this one when you need a **logged-in session**. For public scraping or testing your own dev server, use `webapp-testing` (clean Playwright Chromium) instead.
+This is one of three browser control surfaces in DATA. Pick this one when you need a **logged-in session**. For public scraping or testing your own dev server, use `webapp-testing` (clean Playwright Chromium) instead.
 
-> **Setup required (one-time).** This skill drives Chrome through two small helpers — a launcher batch file and a Python CDP helper. If they are not present in your install, create them first (the launcher just starts Chrome with `--remote-debugging-port=9222 --disable-features=AutomationControlled` against an isolated profile dir; the helper is a thin Playwright `connect_over_cdp` wrapper). Paths below assume they live under your DAITA install.
+> **Setup required (one-time).** This skill drives Chrome through two small helpers — a launcher batch file and a Python CDP helper. If they are not present in your install, create them first (the launcher just starts Chrome with `--remote-debugging-port=9222 --disable-features=AutomationControlled` against an isolated profile dir; the helper is a thin Playwright `connect_over_cdp` wrapper). Paths below assume they live under your DATA install.
 
 ## When to use this skill
 

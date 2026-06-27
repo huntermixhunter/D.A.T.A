@@ -1,6 +1,6 @@
-# DAITA — Dashboard for Artificial Intelligence Thought and Action
+# DATA Daemon — Dashboard for Analytical Thought and Action
 
-A self-hosted, local-first AI operations dashboard. DAITA gives you a mission-control
+A self-hosted, local-first AI operations dashboard. DATA gives you a mission-control
 interface for working with AI: a main chat channel wired to your AI provider, a crew
 of ten specialist agents, persistent per-user memory, project workspaces, standing
 orders (cron-scheduled AI tasks), and live system vitals.
@@ -19,7 +19,7 @@ Everything runs on your machine. No accounts, no telemetry, no cloud.
 
 > ## ⚠️ Experimental software — use at your own risk
 >
-> DAITA is an autonomous AI agent that can **run commands, create/modify/delete files,
+> DATA is an autonomous AI agent that can **run commands, create/modify/delete files,
 > install software, control your mouse/keyboard/screen, and act in connected accounts.**
 > AI is non-deterministic and can take **unintended, irreversible, or destructive**
 > actions, including **loss of data.** Keep backups, run it only on systems you control,
@@ -33,7 +33,7 @@ Everything runs on your machine. No accounts, no telemetry, no cloud.
 
 | Agent | Role |
 |-------|------|
-| **DAITA** | The main computer — your primary working channel |
+| **DATA** | The main computer — your primary working channel |
 | **Atlas** | Strategy & planning — turns vague ideas into structured plans |
 | **Forge** | Builder — implements code, configs, automations |
 | **Vector** | Reviewer — evaluates work before it ships |
@@ -65,9 +65,9 @@ Linux container — see below).
 
 ### Windows
 
-1. **Download** the DAITA `.zip` from your purchase link, then **extract it** to a
+1. **Download** the DATA `.zip` from your purchase link, then **extract it** to a
    folder you'll remember (for example, your `Documents` folder).
-2. Open the extracted `DAITA` folder and run the installer:
+2. Open the extracted `DATA` folder and run the installer:
 
 ```powershell
 .\install\install.bat
@@ -78,30 +78,30 @@ you need to launch on Windows. It bypasses Windows' unsigned-script block and pa
 exit so you can always read the output. (Prerequisite: install **Python 3.10+** from
 python.org first, checking **"Add python.exe to PATH"**.)
 
-The installer asks **"Add a DAITA icon to your desktop? [Y/n]"** — press **Enter**
-for yes. Then just **double-click the DAITA icon** to launch (it runs
-`start_daita.bat` and opens the dashboard for you).
+The installer asks **"Add a DATA icon to your desktop? [Y/n]"** — press **Enter**
+for yes. Then just **double-click the DATA icon** to launch (it runs
+`start_data.bat` and opens the dashboard for you).
 
-### After install — your DAITA icon
+### After install — your DATA icon
 
-When the installer finishes, you'll have a **DAITA** icon on your desktop:
+When the installer finishes, you'll have a **DATA** icon on your desktop:
 
-![DAITA desktop icon](dashboard/assets/icon-256.png)
+![DATA desktop icon](dashboard/assets/icon-256.png)
 
-**Double-click it** to start DAITA — it launches the bridge and opens the dashboard
+**Double-click it** to start DATA — it launches the bridge and opens the dashboard
 at **http://localhost:7777** automatically. The same mark appears on your browser
-tab and in the taskbar while DAITA is running. (Said *no* to the shortcut, or on
-Mac/Linux? Launch with `start_daita.bat` / `./start_daita.sh` from the DAITA folder
+tab and in the taskbar while DATA is running. (Said *no* to the shortcut, or on
+Mac/Linux? Launch with `start_data.bat` / `./start_data.sh` from the DATA folder
 anytime — you can drag it to your dock or taskbar to pin it.)
 
 ### macOS / Linux
 
-**Download** the DAITA `.zip` from your purchase link and **extract it**, then from
-the extracted `DAITA` folder run:
+**Download** the DATA `.zip` from your purchase link and **extract it**, then from
+the extracted `DATA` folder run:
 
 ```bash
 bash install/install.sh
-./start_daita.sh
+./start_data.sh
 ```
 
 ### Chromebook
@@ -114,26 +114,26 @@ The dashboard opens at **http://localhost:7777**. (Not technical? See
 
 Once it's running, the [Dashboard Guide](DASHBOARD_GUIDE.md) covers how to actually
 drive it — talking to the main channel, customizing the UI by conversation, and
-having DAITA rewrite its own source to add features and capabilities.
+having DATA rewrite its own source to add features and capabilities.
 
 ### Uninstall
 
-DAITA is almost entirely self-contained, but the installer does place a desktop
+DATA is almost entirely self-contained, but the installer does place a desktop
 shortcut and a set of bundled skills **outside** the folder. To remove everything
 cleanly, run the uninstaller, then delete the folder:
 
 - **Windows:** double-click `install\uninstall.bat`
 - **macOS / Linux / ChromeOS:** `bash install/uninstall.sh`
 
-It stops DAITA, removes the desktop shortcut and the generated launchers, and — if
+It stops DATA, removes the desktop shortcut and the generated launchers, and — if
 you confirm — removes the bundled skills it added (only the untouched copies; any
 skill you edited or already had is left alone). Your settings in `.env` are kept
 unless you ask to remove them. The shared `psutil` package and your AI provider CLI
-are never touched. After it finishes, delete the DAITA folder and you're done.
+are never touched. After it finishes, delete the DATA folder and you're done.
 
 ## Connect your AI
 
-DAITA doesn't need API keys. You manage every brain from the **AI Connectors** page in
+DATA doesn't need API keys. You manage every brain from the **AI Connectors** page in
 the dashboard, which **scans your hardware**, **recommends and installs a local model**
 that fits your machine, and **connects cloud providers** through subscriptions you
 already pay for. Whatever you connect there is exactly what the model menu on the main
@@ -143,21 +143,21 @@ channel offers — no config files, no restart.
 |----------|---------------|---------|
 | **Claude** (Opus / Sonnet / Haiku) | Install [Claude Code](https://docs.claude.com/en/docs/claude-code), then in a terminal run `claude` and type `/login` once to sign in | Your Claude subscription (Pro/Max) |
 
-> **Claude Code CLI vs. Claude Desktop — don't confuse them.** DAITA drives the
+> **Claude Code CLI vs. Claude Desktop — don't confuse them.** DATA drives the
 > **Claude Code command-line tool** (`claude` in a terminal), which you install
 > from the link above. The **Claude Desktop app** is a separate GUI program and
-> DAITA cannot use it. Symptom of having the wrong one: the Claude Desktop window
-> opens every time you send a message in DAITA. Fix: install [Node.js](https://nodejs.org)
+> DATA cannot use it. Symptom of having the wrong one: the Claude Desktop window
+> opens every time you send a message in DATA. Fix: install [Node.js](https://nodejs.org)
 > (the CLI installs via npm — `npm install -g @anthropic-ai/claude-code`), run
-> `claude` in a terminal and log in, then restart DAITA. Verify with
+> `claude` in a terminal and log in, then restart DATA. Verify with
 > `claude --version` — a version number means you have the right tool.
 >
 > **Log in once by hand.** After installing, open a normal terminal, run
-> `claude`, and type `/login` to sign in through the browser. DAITA runs
+> `claude`, and type `/login` to sign in through the browser. DATA runs
 > Claude in the background and cannot display the login prompt, so until
-> you've authenticated this once, DAITA's chat will error asking you to
+> you've authenticated this once, DATA's chat will error asking you to
 > run `/login`. Once you log in by hand, the credentials are cached and
-> DAITA inherits them automatically — you won't need to do it again.
+> DATA inherits them automatically — you won't need to do it again.
 >
 > **Windows: if `claude` errors with "running scripts is disabled on this
 > system",** Windows is blocking the command under its default policy. Run
@@ -170,7 +170,7 @@ channel offers — no config files, no restart.
 | **Gemini 2.5** | `npm i -g @google/gemini-cli`, then log in on first run | Google free tier / account |
 | **Ollama** (local models) | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5-coder:7b` | Free — runs on your hardware |
 
-Each person who installs DAITA logs in with **their own** accounts on **their own
+Each person who installs DATA logs in with **their own** accounts on **their own
 machine** — nothing is shared through the repo, and no keys ever live in the
 project folder. Install any one of the four and chat works; install several and
 you can switch per-conversation (project workspaces can even run different
@@ -182,14 +182,14 @@ Copy `.env.example` to `.env` and edit as needed:
 
 | Variable | Purpose |
 |----------|---------|
-| `DAITA_BRIDGE_TOKEN` | Optional shared secret for the bridge API (leave empty for localhost) |
-| `DAITA_LIFECYCLE_MODE` | `auto` (default — bridge exits when the tab closes) or `daemon` |
-| `DAITA_PORT` | Port for the bridge server (default `7777`) |
+| `DATA_BRIDGE_TOKEN` | Optional shared secret for the bridge API (leave empty for localhost) |
+| `DATA_LIFECYCLE_MODE` | `auto` (default — bridge exits when the tab closes) or `daemon` |
+| `DATA_PORT` | Port for the bridge server (default `7777`) |
 
 ## What's inside
 
 ```
-DAITA/
+DATA/
 ├── dashboard/
 │   ├── bridge_server.py    # the bridge — HTTP server + AI provider dispatch
 │   ├── index.html          # the dashboard UI

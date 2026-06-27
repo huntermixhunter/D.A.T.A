@@ -1,10 +1,10 @@
 @echo off
-REM DAITA - Windows installer launcher (double-clickable, self-pausing).
+REM DATA - Windows installer launcher (double-clickable, self-pausing).
 REM Runs _install.ps1 with the execution policy bypassed for THIS process only,
 REM then pauses so any output - success or error - stays on screen.
-title DAITA-Install
+title DATA-Install
 echo.
-echo   Launching DAITA installer...
+echo   Launching DATA installer...
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_install.ps1"
 echo.

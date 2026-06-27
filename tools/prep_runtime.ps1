@@ -1,14 +1,14 @@
-# DAITA - embedded-Python runtime builder
+# DATA - embedded-Python runtime builder
 # ----------------------------------------------------------------------------
-# Produces a self-contained CPython that DAITA's bridge runs on, so a buyer needs
+# Produces a self-contained CPython that DATA's bridge runs on, so a buyer needs
 # ZERO pre-installed Python. Downloads the official Windows "embeddable" package,
 # enables site-packages + pip, and pre-installs psutil (the bridge's one optional
 # third-party dep). Everything else the bridge needs is in the standard library.
 #
 # Output:  <OutDir>\python\  (python.exe, pythonw.exe, stdlib zip, Lib\site-packages\psutil)
 #
-# Usage:   .\tools\prep_runtime.ps1 -OutDir build\staging\DAITA\runtime
-#          .\tools\prep_runtime.ps1 -OutDir build\staging\DAITA\runtime -PyVersion 3.12.8
+# Usage:   .\tools\prep_runtime.ps1 -OutDir build\staging\DATA\runtime
+#          .\tools\prep_runtime.ps1 -OutDir build\staging\DATA\runtime -PyVersion 3.12.8
 #
 # Idempotent-ish: pass -Force to rebuild from scratch (deletes an existing python\).
 param(
@@ -28,7 +28,7 @@ $pythonDir  = Join-Path $OutDir "python"
 $work       = Join-Path ([IO.Path]::GetTempPath()) ("data_runtime_" + [IO.Path]::GetRandomFileName())
 
 Write-Host ""
-Write-Host "  DAITA embedded-runtime builder" -ForegroundColor Cyan
+Write-Host "  DATA embedded-runtime builder" -ForegroundColor Cyan
 Write-Host "  CPython $PyVersion ($arch) -> $pythonDir"
 Write-Host ""
 

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   DAITA DAITA Dashboard — Main Application Logic
+   DATA DATA Dashboard — Main Application Logic
    ═══════════════════════════════════════════════════════════ */
 
 // ── Config ────────────────────────────────────────────────
@@ -72,7 +72,7 @@ function copyPhoneLink() {
 }
 
 // ── Auth token (X-Data-Token header) ─────────────────────────────────────
-// If the bridge has DAITA_BRIDGE_TOKEN set, every API request needs this
+// If the bridge has DATA_BRIDGE_TOKEN set, every API request needs this
 // header. Stored in localStorage so it survives reloads. First visit on a
 // tunneled URL: bridge returns 401 → we prompt for the token and retry.
 function _getAuthToken() {
@@ -102,7 +102,7 @@ window.fetch = async function(input, init) {
   init.headers = headers;
   let res = await _rawFetch(input, init);
   if (res.status === 401) {
-    const tok = prompt('This bridge requires a token. Paste DAITA_BRIDGE_TOKEN:');
+    const tok = prompt('This bridge requires a token. Paste DATA_BRIDGE_TOKEN:');
     if (tok) {
       _authToken = tok.trim();
       localStorage.setItem('data-bridge-token', _authToken);
@@ -133,7 +133,7 @@ window.fetch = async function(input, init) {
 const _SESSION_TAG = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 function _paneId(base) { return `${_SESSION_TAG}-${base}`; }
 
-// DAITA sound palette — original synthesized UI tones, generated from pure
+// DATA sound palette — original synthesized UI tones, generated from pure
 // math by tools/make_sounds.py (no sampled or licensed audio anywhere).
 const DATA_SOUNDS = {
   transmit:   { src: 'sounds/transmit.wav',   volume: 0.44, cooldown: 120 },
@@ -1407,7 +1407,7 @@ function _finalizeStreamBubble(streamMsg) {
 function offlineResponse(text) {
   const responses = [
     "I am processing your inquiry, Captain. However, my connection to the primary computer core appears to be experiencing intermittent disruptions. I recommend ensuring the bridge server is online on port 7777.",
-    "Fascinating query, Captain. My neural matrix is functioning within normal parameters, however the main computer interface is currently unavailable. Please verify the DAITA bridge server is running.",
+    "Fascinating query, Captain. My neural matrix is functioning within normal parameters, however the main computer interface is currently unavailable. Please verify the DATA bridge server is running.",
     "Captain, I must inform you that my sub-processor subroutines are unable to reach the primary inference core at this time. The bridge server on port 7777 does not appear to be responding.",
     "I am unable to provide a full analysis at this moment, Sir. The communication link between this interface and my primary neural net appears to be offline. Please start the bridge server.",
   ];
@@ -1573,7 +1573,7 @@ const SEED_NODES = [
   { id: 'tts-module',      label: 'VOICE TTS',         type: 'system',    r: 10 },
   { id: 'stt-module',      label: 'VOICE STT',         type: 'system',    r: 10 },
   { id: 'wake-word',       label: '"COMPUTER"',        type: 'system',    r: 8  },
-  { id: 'data-ui',        label: 'DAITA INTERFACE',   type: 'system',    r: 8  },
+  { id: 'data-ui',        label: 'DATA INTERFACE',   type: 'system',    r: 8  },
 
   // ── Logic / Knowledge cluster ──────────────────────────
   { id: 'language-matrix', label: 'LANGUAGE',          type: 'knowledge', r: 10 },
@@ -2619,7 +2619,7 @@ const MEMORY_DATA = [
   {
     section: 'IDENTITY',
     entries: [
-      'Designation: DAITA — Dashboard for Artificial Intelligence Thought and Action',
+      'Designation: DATA — Dashboard for Analytical Thought and Action',
       'Role: self-hosted AI operations dashboard',
       'Primary directive: Assist the Captain with rigorous, complete work',
     ]
@@ -2735,7 +2735,7 @@ function switchMatrixTab(tab) {
 // Lists the project folders under the Captain's Documents directory as
 // clickable cards. Selecting one opens a fresh workspace tab rooted in
 // that folder plus a new com window — via openProjectWorkspace().
-// Empty = let the bridge fall back to its project dir (the DAITA install folder).
+// Empty = let the bridge fall back to its project dir (the DATA install folder).
 const DOCS_ROOT = '';
 let docsLoaded = false;
 
@@ -3183,7 +3183,7 @@ const BRAIN = {
     } catch { return null; }
   },
 
-  // Read the active theme's primary + secondary tokens. In DAITA those resolve
+  // Read the active theme's primary + secondary tokens. In DATA those resolve
   // to orange + yellow; in cyberpunk they resolve to cyan + magenta. Either way
   // the sphere automatically matches the theme without any branching here.
   themePalette() {
@@ -3411,7 +3411,7 @@ const BRAIN = {
       // Front-facing edges brighter; loud edges brighter still.
       const alpha = (0.10 + 0.45 * d) * (0.6 + 0.8 * amp + audio * 0.4);
       // Crossfade primary→secondary based on amplitude so loud parts shift
-      // toward the secondary color (DAITA yellow / cyberpunk magenta).
+      // toward the secondary color (DATA yellow / cyberpunk magenta).
       const mix = Math.min(1, amp * 1.6);
       const r = cP.r * (1 - mix) + cS.r * mix;
       const g = cP.g * (1 - mix) + cS.g * mix;
@@ -3580,7 +3580,7 @@ function _wakeWordRegex() {
 }
 
 // ── Voice shutdown command — "Computer, shut down" ─────────────────────────
-// Heard by the wake listener; powers DAITA down entirely (bridge, voice,
+// Heard by the wake listener; powers DATA down entirely (bridge, voice,
 // tunnel, and dashboard) after a short cancellable countdown.
 let _shutdownPending = false;
 
@@ -3606,7 +3606,7 @@ function initiateDataShutdown() {
     'background:rgba(10,0,0,0.95);font-family:inherit;';
   overlay.innerHTML =
     '<div style="color:#ff5544;font-size:40px;font-weight:bold;letter-spacing:3px;">' +
-      '⚠ DAITA SHUTDOWN INITIATED</div>' +
+      '⚠ DATA SHUTDOWN INITIATED</div>' +
     '<div style="color:#ffb08a;font-size:17px;max-width:560px;">' +
       'Powering down all systems — bridge, voice, tunnel, and dashboard.</div>' +
     '<div id="data-shutdown-count" style="color:#ff5544;font-size:104px;' +
@@ -3651,7 +3651,7 @@ async function _performDataShutdown(overlay) {
   }
   overlay.innerHTML =
     '<div style="color:#ff5544;font-size:46px;font-weight:bold;letter-spacing:4px;">' +
-      'DAITA OFFLINE</div>' +
+      'DATA OFFLINE</div>' +
     '<div style="color:#ffb08a;font-size:16px;max-width:560px;">' +
       'All systems powered down. You may close this window — ' +
       'relaunch any time with launch_data.bat.</div>';
@@ -6057,7 +6057,7 @@ async function _refreshMsd() {
 // Calibrated against the actual visible features in the source PNG so the
 // leader-line dots land on real structures, not empty hull/black space.
 // Leader-line anatomy anchors — normalized (0..1) coords on the rendered
-// ship-image rect, calibrated to the DAITA-Class Starfighter schematic.
+// ship-image rect, calibrated to the DATA-Class Starfighter schematic.
 const SHIP_ZONES = {
   'saucer':            { x: 0.60, y: 0.43 },
   'engineering':       { x: 0.45, y: 0.50 },
@@ -6143,7 +6143,7 @@ window.addEventListener('resize', () => {
 });
 
 // ── MSD card placement ─────────────────────────────────────────
-// Each corner cluster holds two metric cards, tuned to the DAITA-Class
+// Each corner cluster holds two metric cards, tuned to the DATA-Class
 // Starfighter anchors. Cards are moved between clusters by data-zone,
 // so this stays correct if the markup changes.
 const MSD_LAYOUT = {
@@ -6314,7 +6314,7 @@ async function compactMemory() {
 // Browser pulses /heartbeat every 25s. Bridge shuts itself down after 180s
 // without a beat (5s after a beforeunload "leaving" signal). Refresh
 // recovers within the grace window so it doesn't trip the watcher.
-// Set DAITA_LIFECYCLE_MODE=daemon on the bridge to disable this entirely.
+// Set DATA_LIFECYCLE_MODE=daemon on the bridge to disable this entirely.
 //
 // IMPORTANT: Uses a Web Worker for the timer so Chrome/Edge don't throttle
 // the interval when the tab is in the background (browsers reduce setInterval
@@ -6350,7 +6350,7 @@ startLifecycleHeartbeat();
 // ── System Shutdown ───────────────────────────────────────
 async function systemShutdown() {
   const btn = document.getElementById('shutdown-btn');
-  if (!confirm('Take DAITA offline and close all windows?')) return;
+  if (!confirm('Take DATA offline and close all windows?')) return;
   btn.textContent = 'SHUTTING DOWN...';
   btn.disabled = true;
   try {
@@ -6378,7 +6378,7 @@ async function systemReboot() {
   const btn = document.getElementById('reboot-btn');
 
   const looksOnline = document.getElementById('vitals-status')?.textContent === 'ONLINE';
-  if (looksOnline && !confirm('Restart the DAITA bridge now? This relaunches the server and ends any in-flight reply. Your open windows stay open.')) {
+  if (looksOnline && !confirm('Restart the DATA bridge now? This relaunches the server and ends any in-flight reply. Your open windows stay open.')) {
     return;
   }
 
@@ -6411,7 +6411,7 @@ async function systemReboot() {
     appendMessage('data',
       'I could not reach a reboot service, Captain. On the desktop the supervisor runs ' +
       'on `127.0.0.1:7766` and starts with the bridge — if this session predates it, ' +
-      'relaunch via **start_data.bat** (or the DAITA desktop shortcut) to enable one-click ' +
+      'relaunch via **start_data.bat** (or the DATA desktop shortcut) to enable one-click ' +
       'reboot. If the bridge process is fully stopped, it must be started from outside the browser.');
     return;
   }
@@ -7753,7 +7753,7 @@ async function installBriefingItem(id) {
 
 // ── Init ──────────────────────────────────────────────────
 addLog('Dashboard initialized');
-addLog('DAITA interface online');
+addLog('DATA interface online');
 fetchMode();
 fetchVitals();
 setInterval(fetchVitals, 30000);

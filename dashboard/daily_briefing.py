@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-DAITA — Potential Upgrades scanner
+DATA — Potential Upgrades scanner
 ---------------------------------
 Scans curated public sources for new AI tools, MCP servers, Claude Code
 skills, and Anthropic releases. Filters by relevance, ranks the top 5-8,
-and writes `daily_briefing.json` in the DAITA install folder.
+and writes `daily_briefing.json` in the DATA install folder.
 
 Runs from the dashboard's POTENTIAL UPGRADES panel (POST /briefing/refresh)
 or on a standing-order schedule. Can also be invoked manually:
@@ -22,7 +22,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-PROJECT_DIR   = Path(__file__).parent.parent.resolve()   # the DAITA install folder
+PROJECT_DIR   = Path(__file__).parent.parent.resolve()   # the DATA install folder
 BRIEFING_FILE = PROJECT_DIR / "daily_briefing.json"
 
 # ── Curated sources ──────────────────────────────────────────
@@ -72,7 +72,7 @@ SOURCES = [
     },
 ]
 
-USER_AGENT = "Mozilla/5.0 (compatible; DAITA-Briefing/1.0)"
+USER_AGENT = "Mozilla/5.0 (compatible; DATA-Briefing/1.0)"
 
 
 # ── Load API key (optional — CLI subscription is the normal path) ──
@@ -141,9 +141,9 @@ def load_existing() -> dict:
 def _captain_context() -> str:
     """Short context block so the model can rank by relevance."""
     return (
-        "The Captain runs DAITA — the Dashboard for Artificial Intelligence Thought and Action: "
+        "The Captain runs DATA — the Dashboard for Analytical Thought and Action: "
         "a self-hosted, local-first AI operations dashboard driven by AI provider "
-        "CLIs (Claude Code by default). DAITA has tools for web search, file I/O, "
+        "CLIs (Claude Code by default). DATA has tools for web search, file I/O, "
         "terminal, screenshots, persistent memory, and can dynamically load "
         "skills. The Captain likes: Claude Code skills, MCP servers, agentic "
         "patterns, dashboard UX, automation, and anything that makes the system "

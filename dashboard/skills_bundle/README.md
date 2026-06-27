@@ -1,6 +1,6 @@
-# DAITA-core skill bundle
+# DATA-core skill bundle
 
-A curated set of skills that **ships inside the repo** so a fresh DAITA install
+A curated set of skills that **ships inside the repo** so a fresh DATA install
 has its core toolset on first launch — instead of "whatever skills happen to be
 on the machine already."
 
