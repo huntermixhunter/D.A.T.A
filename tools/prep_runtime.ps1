@@ -19,6 +19,22 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# Scrub an out-of-range PYTHONHASHSEED inherited from the build shell. A prior
+# session on this box exported PYTHONHASHSEED=<huge> (outside CPython's legal
+# [0, 4294967295]); inherited into the python.exe children we spawn below it
+# aborts every interpreter with "Fatal Python error: config_init_hash_seed".
+# The bridge scrubs this at runtime too; do the same here so the build box's
+# dirty env cannot break the runtime build.
+$phs = $env:PYTHONHASHSEED
+if ($phs -and $phs -ne 'random') {
+    $v = 0L
+    $ok = [long]::TryParse($phs, [ref]$v) -and $v -ge 0 -and $v -le 4294967295
+    if (-not $ok) {
+        Remove-Item Env:\PYTHONHASHSEED -ErrorAction SilentlyContinue
+        Write-Host "  [OK] Scrubbed invalid PYTHONHASHSEED from build env" -ForegroundColor DarkGray
+    }
+}
+
 # Voice stack (Conversation Mode STT/TTS) is baked into the runtime by default so
 # a fresh .exe install has a working voice loop on first launch - no runtime pip,
 # no bridge reboot, no flashing PowerShell window, no first-use lag. Pass
