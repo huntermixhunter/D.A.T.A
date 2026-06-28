@@ -3468,12 +3468,6 @@ const BRAIN = {
   },
 };
 
-// Retail: a fresh machine may have the voice wheels installed but unimportable
-// (missing C++ runtime). Remember a failed install so we surface the reason
-// instead of silently re-running the useless install on every convo open.
-let _voiceInstallFailed = false;
-let _voiceInstallError  = '';
-
 async function enterConvoMode() {
   // Conversation Mode runs on the local Kokoro voice engine (CPU, offline).
   // If the optional voice dependencies are not installed, /voice/status reports
@@ -3506,30 +3500,26 @@ async function enterConvoMode() {
   CONVO.state  = 'idle';
   CONVO.active = true;
 
-  // Retail: the voice stack (STT/TTS) may not be installed on a fresh machine.
-  // Detect it and auto-install before warmup, otherwise the first utterance
-  // would silently fail and loop back to listening.
+  // The voice stack (STT/TTS) is baked into the runtime at install time, so a
+  // fresh machine already has the wheels. If they still report unavailable, the
+  // baked-in deps failed to import (e.g. a missing C++ runtime) — surface the
+  // reason and bail rather than looping on a silent failure.
   setConvoBrainState('thinking', 'CHECKING VOICE COMPONENTS...');
-  let freshInstall = false;
   try {
     const vstat = await (await fetch(`${API_BASE}/voice/status`)).json();
     if (!BRAIN.active) return;
     if (vstat && vstat.stt_available === false) {
-      if (_voiceInstallFailed) {
-        setConvoBrainState('idle', `VOICE UNAVAILABLE - ${(_voiceInstallError || vstat.voice_error || 'see bridge log').slice(0, 90)}`);
-        return;
-      }
-      const ok = await convoInstallVoice();
-      if (!BRAIN.active) return;
-      if (!ok) return;          // a clear message is already on the band
-      freshInstall = true;       // bridge just rebooted — models download next
+      setConvoBrainState('idle', `VOICE UNAVAILABLE - ${(vstat.voice_error || 'see bridge log').slice(0, 90)}`);
+      return;
     }
   } catch (_) { /* status fetch failed — fall through to warmup */ }
 
   // Block the mic until the voice models are loaded — otherwise STT contends
-  // with the in-progress TTS load and a 3s transcription balloons to ~50s.
+  // with the in-progress TTS load and a 3s transcription balloons to ~50s. The
+  // ceiling is generous because the first run still lazy-downloads the model
+  // assets (Kokoro ~340MB + Whisper) even though the wheels are baked in.
   setConvoBrainState('thinking', 'WARMING UP VOICE MODELS...');
-  const ready = await _waitForVoiceReady(freshInstall ? 360 : 180);
+  const ready = await _waitForVoiceReady(360);
   if (!BRAIN.active) return;  // Captain closed the overlay during warmup
   if (!ready) {
     setConvoBrainState('idle', 'WARMUP FAILED — CHECK BRIDGE LOG');
@@ -3562,89 +3552,6 @@ async function _waitForVoiceReady(maxSeconds = 180) {
     await new Promise(res => setTimeout(res, 1000));
   }
   return false;
-}
-
-// Poll /health (same-origin) until a freshly-rebooted bridge answers again.
-async function _waitForBridgeBack(maxSeconds = 90) {
-  const deadline = Date.now() + maxSeconds * 1000;
-  while (Date.now() < deadline) {
-    if (!BRAIN.active) return false;
-    await new Promise(r => setTimeout(r, 1500));
-    try {
-      const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
-      if (res.ok) return true;
-    } catch (_) { /* still down — keep polling */ }
-  }
-  return false;
-}
-
-// Retail: install the optional voice stack into the embedded Python on first
-// use, stream progress into the status band, then reboot the bridge so the
-// native modules import cleanly. Returns true if voice is ready to warm up.
-async function convoInstallVoice() {
-  setConvoBrainState('thinking', 'INSTALLING VOICE COMPONENTS — ONE-TIME, ~1–3 MIN…');
-  try {
-    await fetch(`${API_BASE}/voice/install`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-    });
-  } catch (e) {
-    setConvoBrainState('idle', 'VOICE INSTALL COULD NOT START — CHECK BRIDGE LOG');
-    return false;
-  }
-
-  const deadline = Date.now() + 15 * 60 * 1000;   // hard ceiling for the pip step
-  while (Date.now() < deadline) {
-    if (!BRAIN.active) return false;
-    await new Promise(r => setTimeout(r, 2000));
-    let d = null;
-    try { d = await (await fetch(`${API_BASE}/voice/install/status`)).json(); }
-    catch (_) { continue; }
-    if (d.state === 'done' || d.available) break;
-    if (d.state === 'failed') {
-      setConvoBrainState('idle', `VOICE INSTALL FAILED — ${(d.error || 'see bridge log').slice(0, 60)}`);
-      return false;
-    }
-    const tail = (d.log && d.log.length) ? d.log[d.log.length - 1] : '';
-    setConvoBrainState('thinking', `INSTALLING VOICE… ${tail ? tail.slice(0, 52) : ''}`);
-  }
-
-  // Reboot so the just-installed wheels load (native modules can't hot-swap
-  // into the running process). Supervisor first, bridge /reboot as fallback.
-  setConvoBrainState('thinking', 'RESTARTING DATA TO LOAD VOICE…');
-  let issued = false;
-  try { await fetch(`${SUPERVISOR_BASE}/reboot`, { method: 'POST' }); issued = true; }
-  catch (e) {
-    try {
-      await fetch(`${API_BASE}/reboot`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-      });
-      issued = true;
-    } catch (e2) { /* both unreachable */ }
-  }
-  if (!issued) {
-    setConvoBrainState('idle', 'INSTALLED — RESTART DATA MANUALLY TO ENABLE VOICE');
-    return false;
-  }
-  const back = await _waitForBridgeBack(90);
-  if (!BRAIN.active) return false;
-  if (!back) {
-    setConvoBrainState('idle', 'RESTART TIMED OUT — REOPEN CONVERSATION MODE');
-    return false;
-  }
-  // Verify voice actually came up after the reboot. A reboot that boots back
-  // into the stub (deps installed but not importable, e.g. missing C++ runtime)
-  // must NOT count as success or we loop back to listening with no reply.
-  try {
-    const v = await (await fetch(`${API_BASE}/voice/status`)).json();
-    if (!v || v.stt_available !== true) {
-      const why = (v && v.voice_error) ? v.voice_error : 'voice still unavailable after restart';
-      _voiceInstallFailed = true;
-      _voiceInstallError  = why;
-      setConvoBrainState('idle', `VOICE UNAVAILABLE - ${why.slice(0, 90)}`);
-      return false;
-    }
-  } catch (_) { /* status unreachable - let warmup decide */ }
-  return true;
 }
 
 function exitConvoMode() {
@@ -5174,13 +5081,12 @@ async function convoProcess(chunks, gen) {
   }
   if (!spoke && CONVO.gen === gen) addLog('No spoken reply received');
 
-  // Voice stack missing (e.g. fresh retail install) — install it now rather
-  // than looping forever on a silent failure.
-  if (convoVoiceErr && /unavailable/i.test(convoVoiceErr) && BRAIN.active && CONVO.gen === gen && !_voiceInstallFailed) {
-    const ok = await convoInstallVoice();
-    if (!BRAIN.active) return;
-    if (ok) { convoStartListening(); }
-    return;   // failed — leave the explanation on the band, do not loop
+  // Voice stack reported unavailable mid-conversation. The deps are baked into
+  // the runtime, so this means the baked-in wheels failed to import — surface
+  // the reason and stop looping rather than re-opening the mic on silence.
+  if (convoVoiceErr && /unavailable/i.test(convoVoiceErr) && BRAIN.active && CONVO.gen === gen) {
+    setConvoBrainState('idle', `VOICE UNAVAILABLE - ${convoVoiceErr.slice(0, 90)}`);
+    return;
   }
 
   // Loop — unless a barge-in (which bumps CONVO.gen) already moved us on.

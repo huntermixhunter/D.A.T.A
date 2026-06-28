@@ -8160,23 +8160,7 @@ class Handler(BaseHTTPRequestHandler):
                 "voices":        local_voice.list_voices(),
                 "default_voice": local_voice.DEFAULT_VOICE,
                 "active_crew":   VOICE_ACTIVE_CREW,
-                "voice_install": _voice_install_state["state"],
                 "voice_error":   _voice_import_error_text(),
-            })
-
-        elif path == "/voice/install/status":
-            # Progress of an in-flight (or finished) voice-stack install. The
-            # frontend polls this after POST /voice/install, then reboots the
-            # bridge once `state` is "done" so the native modules import.
-            st = _voice_install_state
-            _avail = _voice_deps_present()
-            self._json({
-                "state":      st["state"],
-                "available":  bool(_avail),
-                "error":      st["error"] or ("" if _avail else _voice_probe_cache.get("error", "")),
-                "import_error": _voice_import_error_text(),
-                "returncode": st["returncode"],
-                "log":        st["log"][-40:],
             })
 
         elif path == "/voice/tts_engine":
@@ -8864,14 +8848,6 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=_do_reboot, daemon=True).start()
             return
 
-        elif path == "/voice/install":
-            # Install the optional voice stack (kokoro-onnx + faster-whisper)
-            # into the embedded Python so Conversation Mode works on a fresh
-            # retail install. Runs in the background; poll /voice/install/status,
-            # then reboot the bridge once it reports "done".
-            self._json(start_voice_install())
-            return
-
         elif path == "/power_core/ack":
             # Client confirms it displayed the breach popup; stop pending it.
             power_core_ack()
@@ -9554,16 +9530,12 @@ def _start_cloudflared_if_configured() -> None:
 
 VOICE_IDLE_UNLOAD_SECONDS = 900  # release VRAM after 15 min of no voice activity
 
-# ── Voice-stack on-demand install (retail) ────────────────────────────────
-# The optional voice dependencies (kokoro-onnx, faster-whisper) are NOT shipped
-# in the installer to keep the download small. On a fresh install local_voice
-# imports as the inert stub (_VOICE_AVAILABLE False) and Conversation Mode would
-# silently fail the moment the buyer speaks. This subsystem lets the dashboard
-# pip-install requirements-voice.txt into the embedded Python on first use, then
-# the frontend reboots the bridge so the native modules import cleanly.
-_voice_install_lock  = threading.Lock()
-_voice_install_state = {"state": "idle", "log": [], "error": "", "returncode": None}
-
+# ── Voice-stack import probe (retail) ─────────────────────────────────────
+# The voice dependencies (kokoro-onnx, faster-whisper, CPU-only) are baked into
+# the embedded Python at install time by tools\prep_runtime.ps1, so a fresh
+# retail install already has them on disk. There is NO runtime install path —
+# this subsystem only PROBES whether the baked-in wheels actually import, so the
+# dashboard can report an accurate availability/error state.
 
 # Cached result of the real import probe. find_spec only proves the wheels are
 # ON DISK, not that they IMPORT — on a fresh Windows box they install fine but
@@ -9611,73 +9583,6 @@ def _voice_deps_present() -> bool:
     merely that they are installed on disk."""
     ok, _ = _probe_voice_import()
     return ok
-
-
-def _run_voice_install() -> None:
-    """Background worker: pip-install requirements-voice.txt into sys.executable,
-    streaming pip output into _voice_install_state['log'] so the UI can show
-    progress. A bridge restart is required afterwards to load the native
-    modules — the frontend triggers it."""
-    state = _voice_install_state
-    state["state"] = "installing"
-    state["log"] = []
-    state["error"] = ""
-    state["returncode"] = None
-    req = Path(__file__).parent / "requirements-voice.txt"
-    try:
-        if not req.exists():
-            raise FileNotFoundError(f"requirements-voice.txt not found at {req}")
-        cmd = [sys.executable, "-m", "pip", "install", "--no-warn-script-location",
-               "--disable-pip-version-check", "-r", str(req)]
-        log.info(f"[voice-install] {' '.join(cmd)}")
-        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, creationflags=flags,
-        )
-        for line in proc.stdout:
-            line = line.rstrip()
-            if line:
-                state["log"].append(line)
-                if len(state["log"]) > 400:
-                    del state["log"][:len(state["log"]) - 400]
-        proc.wait()
-        state["returncode"] = proc.returncode
-        # pip succeeding is NOT enough — the wheels must actually import. Re-probe
-        # (force) so a "pip OK but DLL load failed" case is reported as a failure
-        # with the real reason, instead of rebooting into a broken stub forever.
-        importable, imp_err = _probe_voice_import(force=True)
-        if proc.returncode == 0 and importable:
-            state["state"] = "done"
-            log.info("[voice-install] pip install succeeded and deps import — restart required to load voice")
-        elif proc.returncode == 0 and not importable:
-            state["state"] = "failed"
-            state["error"] = f"installed but failed to import: {imp_err or 'unknown'}"
-            log.warning(f"[voice-install] pip OK but import failed: {imp_err}")
-        else:
-            state["state"] = "failed"
-            state["error"] = f"pip exited with code {proc.returncode}"
-            log.warning(f"[voice-install] pip failed (rc={proc.returncode})")
-    except Exception as e:
-        log.exception(f"[voice-install] failed: {e}")
-        state["state"] = "failed"
-        state["error"] = str(e)
-
-
-def start_voice_install() -> dict:
-    """Kick off the background install if not already running. Returns the
-    current state for the HTTP response."""
-    with _voice_install_lock:
-        # Source of truth is real importability, not find_spec — otherwise an
-        # installed-but-broken stack reports "ready" and we never repair it.
-        if _voice_deps_present():
-            return {"started": False, "state": "ready",
-                    "message": "Voice components already installed."}
-        if _voice_install_state["state"] == "installing":
-            return {"started": False, "state": "installing"}
-        threading.Thread(target=_run_voice_install, daemon=True,
-                         name="voice-install").start()
-        return {"started": True, "state": "installing"}
 
 
 def _warmup_voice_models():
