@@ -47,6 +47,33 @@ try {
     Expand-Archive -Path $embedZip -DestinationPath $pythonDir -Force
     Write-Host "  [OK] Extracted to $pythonDir"
 
+    # 1b. Bundle the Microsoft Visual C++ runtime DLLs the embeddable does NOT
+    #     ship. The embeddable includes vcruntime140.dll (and 140_1) but NOT
+    #     msvcp140.dll — the C++ standard library. numpy / onnxruntime /
+    #     ctranslate2 are C++ and fail to import without it on a fresh Windows
+    #     box that has no VC++ 2015-2022 redistributable. psutil (pure C) works,
+    #     which is why the smoke test passed but Conversation Mode did not. These
+    #     DLLs are redistributable per Microsoft's redist list.
+    $vcDlls = @(
+        "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+        "msvcp140_codecvt_ids.dll", "concrt140.dll", "vcomp140.dll", "vccorlib140.dll"
+    )
+    $sys32 = Join-Path $env:WINDIR "System32"
+    $copied = 0
+    foreach ($dll in $vcDlls) {
+        $src = Join-Path $sys32 $dll
+        if (Test-Path $src) {
+            Copy-Item -Force $src (Join-Path $pythonDir $dll)
+            $copied++
+        } else {
+            Write-Host "  [!!] $dll not found in System32 (skipping)" -ForegroundColor Yellow
+        }
+    }
+    if (-not (Test-Path (Join-Path $pythonDir "msvcp140.dll"))) {
+        throw "msvcp140.dll could not be bundled — numpy/onnxruntime will not import on fresh machines. Install the VC++ 2015-2022 redistributable on this build box and retry."
+    }
+    Write-Host "  [OK] Bundled $copied VC++ runtime DLL(s) (msvcp140 et al.)"
+
     # 2. Enable site-packages + the `import site` machinery in the ._pth file.
     #    The embeddable ships with `import site` commented out and no site-packages
     #    entry; pip-installed packages are invisible until we fix both.

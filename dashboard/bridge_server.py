@@ -234,8 +234,13 @@ GROQ_API_KEY        = ""
 try:
     import local_voice
     _VOICE_AVAILABLE = True
+    _VOICE_IMPORT_ERROR = ""
 except Exception as _voice_import_err:  # pragma: no cover - platform-dependent
     _VOICE_AVAILABLE = False
+    # Keep the real reason so the dashboard can show WHY voice is off instead of
+    # silently looping. The classic fresh-Windows cause is a missing C++ runtime
+    # (msvcp140.dll) — numpy/onnxruntime are C++ and won't import without it.
+    _VOICE_IMPORT_ERROR = f"{type(_voice_import_err).__name__}: {_voice_import_err}"[:300]
 
     class _VoiceUnavailable:
         """Drop-in stand-in for the local_voice module when the TTS/STT stack
@@ -278,7 +283,7 @@ except Exception as _voice_import_err:  # pragma: no cover - platform-dependent
         synthesize_long = _unavailable
 
     local_voice = _VoiceUnavailable()
-    log.warning(f"[voice] local_voice unavailable — running without TTS/STT ({_voice_import_err})")
+    log.warning(f"[voice] local_voice unavailable — running without TTS/STT ({_VOICE_IMPORT_ERROR})")
 
 # Hermes data dir. On Windows it lives under AppData (unchanged). On other
 # platforms (the Linux droplet) honor a HERMES_DIR env override, else fall back
@@ -8094,6 +8099,7 @@ class Handler(BaseHTTPRequestHandler):
                 "default_voice": local_voice.DEFAULT_VOICE,
                 "active_crew":   VOICE_ACTIVE_CREW,
                 "voice_install": _voice_install_state["state"],
+                "voice_error":   _voice_import_error_text(),
             })
 
         elif path == "/voice/install/status":
@@ -8101,10 +8107,12 @@ class Handler(BaseHTTPRequestHandler):
             # frontend polls this after POST /voice/install, then reboots the
             # bridge once `state` is "done" so the native modules import.
             st = _voice_install_state
+            _avail = _voice_deps_present()
             self._json({
                 "state":      st["state"],
-                "available":  bool(_VOICE_AVAILABLE or _voice_deps_present()),
-                "error":      st["error"],
+                "available":  bool(_avail),
+                "error":      st["error"] or ("" if _avail else _voice_probe_cache.get("error", "")),
+                "import_error": _voice_import_error_text(),
                 "returncode": st["returncode"],
                 "log":        st["log"][-40:],
             })
@@ -9495,17 +9503,52 @@ _voice_install_lock  = threading.Lock()
 _voice_install_state = {"state": "idle", "log": [], "error": "", "returncode": None}
 
 
+# Cached result of the real import probe. find_spec only proves the wheels are
+# ON DISK, not that they IMPORT — on a fresh Windows box they install fine but
+# fail to load when the C++ runtime (msvcp140.dll) is absent. We must actually
+# import them to know the truth, so the install flow does not loop forever.
+_voice_probe_cache = {"checked": False, "ok": False, "error": ""}
+_voice_probe_lock  = threading.Lock()
+
+
+def _probe_voice_import(force: bool = False) -> tuple[bool, str]:
+    """Actually import the voice deps in a child interpreter and cache the
+    result. A child process is used so a hard DLL-load failure (which can abort
+    the whole process on Windows) cannot take the bridge down with it. Returns
+    (importable, error_message)."""
+    with _voice_probe_lock:
+        if _voice_probe_cache["checked"] and not force:
+            return _voice_probe_cache["ok"], _voice_probe_cache["error"]
+        ok, err = False, ""
+        try:
+            code = "import numpy, soundfile, kokoro_onnx, faster_whisper"
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+            p = subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True, text=True, timeout=90, creationflags=flags,
+            )
+            ok = (p.returncode == 0)
+            if not ok:
+                tail = (p.stderr or p.stdout or "import failed").strip().splitlines()
+                err = (tail[-1] if tail else "import failed")[:300]
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"[:300]
+        _voice_probe_cache.update({"checked": True, "ok": ok, "error": err})
+        return ok, err
+
+
+def _voice_import_error_text() -> str:
+    """Best available reason voice is unavailable, for the dashboard band."""
+    if _VOICE_AVAILABLE:
+        return ""
+    return _VOICE_IMPORT_ERROR or _voice_probe_cache.get("error", "")
+
+
 def _voice_deps_present() -> bool:
-    """True if the voice wheels are importable in this interpreter (whether or
-    not local_voice was imported as the real module this process)."""
-    import importlib.util
-    try:
-        return all(
-            importlib.util.find_spec(m) is not None
-            for m in ("kokoro_onnx", "faster_whisper", "soundfile")
-        )
-    except Exception:
-        return False
+    """True only if the voice wheels actually IMPORT in this interpreter — not
+    merely that they are installed on disk."""
+    ok, _ = _probe_voice_import()
+    return ok
 
 
 def _run_voice_install() -> None:
@@ -9538,9 +9581,17 @@ def _run_voice_install() -> None:
                     del state["log"][:len(state["log"]) - 400]
         proc.wait()
         state["returncode"] = proc.returncode
-        if proc.returncode == 0:
+        # pip succeeding is NOT enough — the wheels must actually import. Re-probe
+        # (force) so a "pip OK but DLL load failed" case is reported as a failure
+        # with the real reason, instead of rebooting into a broken stub forever.
+        importable, imp_err = _probe_voice_import(force=True)
+        if proc.returncode == 0 and importable:
             state["state"] = "done"
-            log.info("[voice-install] pip install succeeded — restart required to load voice")
+            log.info("[voice-install] pip install succeeded and deps import — restart required to load voice")
+        elif proc.returncode == 0 and not importable:
+            state["state"] = "failed"
+            state["error"] = f"installed but failed to import: {imp_err or 'unknown'}"
+            log.warning(f"[voice-install] pip OK but import failed: {imp_err}")
         else:
             state["state"] = "failed"
             state["error"] = f"pip exited with code {proc.returncode}"
@@ -9555,7 +9606,9 @@ def start_voice_install() -> dict:
     """Kick off the background install if not already running. Returns the
     current state for the HTTP response."""
     with _voice_install_lock:
-        if _VOICE_AVAILABLE or _voice_deps_present():
+        # Source of truth is real importability, not find_spec — otherwise an
+        # installed-but-broken stack reports "ready" and we never repair it.
+        if _voice_deps_present():
             return {"started": False, "state": "ready",
                     "message": "Voice components already installed."}
         if _voice_install_state["state"] == "installing":

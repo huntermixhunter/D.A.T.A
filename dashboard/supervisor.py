@@ -74,7 +74,7 @@ Get-NetTCPConnection -LocalPort 7777 -State Listen |
         try:
             subprocess.run(
                 ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script],
-                timeout=10, capture_output=True,
+                timeout=10, capture_output=True, creationflags=NO_WINDOW,
             )
         except Exception as e:
             _log(f"kill_bridge (win) error: {e}")

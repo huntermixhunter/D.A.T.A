@@ -3468,6 +3468,12 @@ const BRAIN = {
   },
 };
 
+// Retail: a fresh machine may have the voice wheels installed but unimportable
+// (missing C++ runtime). Remember a failed install so we surface the reason
+// instead of silently re-running the useless install on every convo open.
+let _voiceInstallFailed = false;
+let _voiceInstallError  = '';
+
 async function enterConvoMode() {
   // Conversation Mode runs on the local Kokoro voice engine (CPU, offline).
   // If the optional voice dependencies are not installed, /voice/status reports
@@ -3509,6 +3515,10 @@ async function enterConvoMode() {
     const vstat = await (await fetch(`${API_BASE}/voice/status`)).json();
     if (!BRAIN.active) return;
     if (vstat && vstat.stt_available === false) {
+      if (_voiceInstallFailed) {
+        setConvoBrainState('idle', `VOICE UNAVAILABLE - ${(_voiceInstallError || vstat.voice_error || 'see bridge log').slice(0, 90)}`);
+        return;
+      }
       const ok = await convoInstallVoice();
       if (!BRAIN.active) return;
       if (!ok) return;          // a clear message is already on the band
@@ -3621,6 +3631,19 @@ async function convoInstallVoice() {
     setConvoBrainState('idle', 'RESTART TIMED OUT — REOPEN CONVERSATION MODE');
     return false;
   }
+  // Verify voice actually came up after the reboot. A reboot that boots back
+  // into the stub (deps installed but not importable, e.g. missing C++ runtime)
+  // must NOT count as success or we loop back to listening with no reply.
+  try {
+    const v = await (await fetch(`${API_BASE}/voice/status`)).json();
+    if (!v || v.stt_available !== true) {
+      const why = (v && v.voice_error) ? v.voice_error : 'voice still unavailable after restart';
+      _voiceInstallFailed = true;
+      _voiceInstallError  = why;
+      setConvoBrainState('idle', `VOICE UNAVAILABLE - ${why.slice(0, 90)}`);
+      return false;
+    }
+  } catch (_) { /* status unreachable - let warmup decide */ }
   return true;
 }
 
@@ -5153,7 +5176,7 @@ async function convoProcess(chunks, gen) {
 
   // Voice stack missing (e.g. fresh retail install) — install it now rather
   // than looping forever on a silent failure.
-  if (convoVoiceErr && /unavailable/i.test(convoVoiceErr) && BRAIN.active && CONVO.gen === gen) {
+  if (convoVoiceErr && /unavailable/i.test(convoVoiceErr) && BRAIN.active && CONVO.gen === gen && !_voiceInstallFailed) {
     const ok = await convoInstallVoice();
     if (!BRAIN.active) return;
     if (ok) { convoStartListening(); }
