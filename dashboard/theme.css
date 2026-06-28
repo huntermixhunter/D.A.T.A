@@ -105,7 +105,7 @@ html, body {
    the smaller blue accent to its right. */
 .system-name { color: var(--data-orange); font-size: 21px; font-weight: 700; letter-spacing: 0.1em; white-space: nowrap; }
 .separator   { color: var(--data-orange2); font-size: 10px; }
-.ship-name   { color: var(--data-blue); font-size: 14px; font-weight: 400; letter-spacing: 0.1em; }
+.ship-name   { color: var(--data-blue); font-size: 11px; font-weight: 400; letter-spacing: 0.06em; white-space: nowrap; }
 
 .header-stardate {
   display: flex;
@@ -2745,7 +2745,12 @@ html, body {
   width: min(80vw, 1100px, calc(82vh * 16 / 9));
   aspect-ratio: 16 / 9;
   border-radius: 12px;
-  overflow: hidden;
+  /* NO overflow:hidden. A rounded-CLIPPED <video> is categorically excluded
+     from Chrome's hardware-overlay plane, forcing per-frame GPU raster
+     compositing on the main thread — the cause of the idle chop. Dropping the
+     clip lets the video ride the overlay plane and play smoothly; the bezel
+     glow (box-shadow ring below) still frames it. border-radius alone, without
+     overflow:hidden, rounds only the bezel box and does not clip the video. */
   z-index: 5;
   background: #04060a;
   --vs-c: var(--data-orange);   /* accent for themed bezel / speaking cue */
