@@ -7854,6 +7854,7 @@ class Handler(BaseHTTPRequestHandler):
             ".gif": "image/gif",    ".svg": "image/svg+xml", ".webp": "image/webp",
             ".woff": "font/woff",   ".woff2": "font/woff2", ".ttf": "font/ttf",
             ".otf":  "font/otf",    ".json": "application/json; charset=utf-8",
+            ".mp4":  "video/mp4",   ".webm": "video/webm", ".m4v": "video/mp4",
         }
         if path.startswith("/") and ".." not in path:
             ext = Path(path).suffix.lower()

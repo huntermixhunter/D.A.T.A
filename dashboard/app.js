@@ -4359,8 +4359,8 @@ function convoWakePhrase(id) {
 // On mobile we skip SpeechRecognition entirely (see _convoStartWakeListener),
 // so the prompt reflects tap-only interaction.
 function _convoIdlePrompt(id) {
-  if (_isMobileDevice()) return 'TAP THE SPHERE TO SPEAK';
-  return `SAY "${convoWakePhrase(id).toUpperCase()}" — OR TAP THE SPHERE`;
+  if (_isMobileDevice()) return 'TAP THE AVATAR TO SPEAK';
+  return `SAY "${convoWakePhrase(id).toUpperCase()}" — OR TAP THE AVATAR`;
 }
 
 function _convoEsc(s) {
@@ -4627,7 +4627,7 @@ async function convoStartListening() {
   if (!ok || !BRAIN.active || CONVO.gen !== gen) {
     if (!ok && BRAIN.active && CONVO.gen === gen) {
       convoState('idle');
-      _convoLabel('MIC ACCESS DENIED — ENABLE IT, THEN TAP THE SPHERE');
+      _convoLabel('MIC ACCESS DENIED — ENABLE IT, THEN TAP THE AVATAR');
     }
     return;
   }
@@ -4783,7 +4783,7 @@ function _convoStartWakeListener() {
     if (e.error === 'not-allowed') {
       _convoStopWakeListener();
       convoState('idle');
-      _convoLabel('MIC ACCESS DENIED — ENABLE IT, THEN TAP THE SPHERE');
+      _convoLabel('MIC ACCESS DENIED — ENABLE IT, THEN TAP THE AVATAR');
     }
   };
   rec.onend = () => {
