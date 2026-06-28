@@ -3500,10 +3500,26 @@ async function enterConvoMode() {
   CONVO.state  = 'idle';
   CONVO.active = true;
 
+  // Retail: the voice stack (STT/TTS) may not be installed on a fresh machine.
+  // Detect it and auto-install before warmup, otherwise the first utterance
+  // would silently fail and loop back to listening.
+  setConvoBrainState('thinking', 'CHECKING VOICE COMPONENTS...');
+  let freshInstall = false;
+  try {
+    const vstat = await (await fetch(`${API_BASE}/voice/status`)).json();
+    if (!BRAIN.active) return;
+    if (vstat && vstat.stt_available === false) {
+      const ok = await convoInstallVoice();
+      if (!BRAIN.active) return;
+      if (!ok) return;          // a clear message is already on the band
+      freshInstall = true;       // bridge just rebooted — models download next
+    }
+  } catch (_) { /* status fetch failed — fall through to warmup */ }
+
   // Block the mic until the voice models are loaded — otherwise STT contends
   // with the in-progress TTS load and a 3s transcription balloons to ~50s.
   setConvoBrainState('thinking', 'WARMING UP VOICE MODELS...');
-  const ready = await _waitForVoiceReady();
+  const ready = await _waitForVoiceReady(freshInstall ? 360 : 180);
   if (!BRAIN.active) return;  // Captain closed the overlay during warmup
   if (!ready) {
     setConvoBrainState('idle', 'WARMUP FAILED — CHECK BRIDGE LOG');
@@ -3536,6 +3552,76 @@ async function _waitForVoiceReady(maxSeconds = 180) {
     await new Promise(res => setTimeout(res, 1000));
   }
   return false;
+}
+
+// Poll /health (same-origin) until a freshly-rebooted bridge answers again.
+async function _waitForBridgeBack(maxSeconds = 90) {
+  const deadline = Date.now() + maxSeconds * 1000;
+  while (Date.now() < deadline) {
+    if (!BRAIN.active) return false;
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+      if (res.ok) return true;
+    } catch (_) { /* still down — keep polling */ }
+  }
+  return false;
+}
+
+// Retail: install the optional voice stack into the embedded Python on first
+// use, stream progress into the status band, then reboot the bridge so the
+// native modules import cleanly. Returns true if voice is ready to warm up.
+async function convoInstallVoice() {
+  setConvoBrainState('thinking', 'INSTALLING VOICE COMPONENTS — ONE-TIME, ~1–3 MIN…');
+  try {
+    await fetch(`${API_BASE}/voice/install`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+  } catch (e) {
+    setConvoBrainState('idle', 'VOICE INSTALL COULD NOT START — CHECK BRIDGE LOG');
+    return false;
+  }
+
+  const deadline = Date.now() + 15 * 60 * 1000;   // hard ceiling for the pip step
+  while (Date.now() < deadline) {
+    if (!BRAIN.active) return false;
+    await new Promise(r => setTimeout(r, 2000));
+    let d = null;
+    try { d = await (await fetch(`${API_BASE}/voice/install/status`)).json(); }
+    catch (_) { continue; }
+    if (d.state === 'done' || d.available) break;
+    if (d.state === 'failed') {
+      setConvoBrainState('idle', `VOICE INSTALL FAILED — ${(d.error || 'see bridge log').slice(0, 60)}`);
+      return false;
+    }
+    const tail = (d.log && d.log.length) ? d.log[d.log.length - 1] : '';
+    setConvoBrainState('thinking', `INSTALLING VOICE… ${tail ? tail.slice(0, 52) : ''}`);
+  }
+
+  // Reboot so the just-installed wheels load (native modules can't hot-swap
+  // into the running process). Supervisor first, bridge /reboot as fallback.
+  setConvoBrainState('thinking', 'RESTARTING DATA TO LOAD VOICE…');
+  let issued = false;
+  try { await fetch(`${SUPERVISOR_BASE}/reboot`, { method: 'POST' }); issued = true; }
+  catch (e) {
+    try {
+      await fetch(`${API_BASE}/reboot`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      issued = true;
+    } catch (e2) { /* both unreachable */ }
+  }
+  if (!issued) {
+    setConvoBrainState('idle', 'INSTALLED — RESTART DATA MANUALLY TO ENABLE VOICE');
+    return false;
+  }
+  const back = await _waitForBridgeBack(90);
+  if (!BRAIN.active) return false;
+  if (!back) {
+    setConvoBrainState('idle', 'RESTART TIMED OUT — REOPEN CONVERSATION MODE');
+    return false;
+  }
+  return true;
 }
 
 function exitConvoMode() {
@@ -4958,6 +5044,7 @@ async function convoProcess(chunks, gen) {
   // One growing assistant bubble — sentences stream in but render into it.
   let dataMsgEl = null, dataConvoTurn = null, fullResponse = '', spoke = false;
   let crewTurnName = crewName(CREW_VOICE);
+  let convoVoiceErr = '';
   CONVO.abort = new AbortController();
 
   try {
@@ -5032,9 +5119,22 @@ async function convoProcess(chunks, gen) {
         } else if (evt === 'done') {
           addLog(`${crewTurnName}: ${(payload.response_text || '').substring(0, 40)}…`);
         } else if (evt === 'error') {
-          if      (payload.error === 'no_speech')  addLog('No speech detected');
-          else if (payload.error === 'warming_up') addLog(payload.message || 'Voice models warming up');
-          else addLog(`Voice error: ${payload.error || 'unknown'}`);
+          const err = payload.error || 'unknown';
+          if (err === 'no_speech') {
+            addLog('No speech detected');
+          } else if (err === 'warming_up') {
+            addLog(payload.message || 'Voice models warming up');
+            if (BRAIN.active) _convoLabel('VOICE MODELS WARMING UP — ONE MOMENT…');
+          } else {
+            // Never silently loop on a hard error — surface why.
+            addLog(`Voice error: ${err}`);
+            convoVoiceErr = err;
+            if (BRAIN.active) {
+              _convoLabel(/unavailable/i.test(err)
+                ? 'VOICE COMPONENTS NOT INSTALLED'
+                : `VOICE ERROR — ${String(err).slice(0, 40)}`);
+            }
+          }
         }
       }
     }
@@ -5050,6 +5150,15 @@ async function convoProcess(chunks, gen) {
     await new Promise(r => setTimeout(r, 100));
   }
   if (!spoke && CONVO.gen === gen) addLog('No spoken reply received');
+
+  // Voice stack missing (e.g. fresh retail install) — install it now rather
+  // than looping forever on a silent failure.
+  if (convoVoiceErr && /unavailable/i.test(convoVoiceErr) && BRAIN.active && CONVO.gen === gen) {
+    const ok = await convoInstallVoice();
+    if (!BRAIN.active) return;
+    if (ok) { convoStartListening(); }
+    return;   // failed — leave the explanation on the band, do not loop
+  }
 
   // Loop — unless a barge-in (which bumps CONVO.gen) already moved us on.
   if (BRAIN.active && CONVO.gen === gen) convoStartListening();
