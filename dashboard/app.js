@@ -3269,7 +3269,11 @@ const BRAIN = {
   },
 
   _resize() {
-    const dpr = window.devicePixelRatio || 1;
+    // Cap internal render resolution. The brain repaints the full viewport with
+    // radial gradients every frame; at devicePixelRatio 2 that is ~4x the fill
+    // rate for a soft neon sphere no one reads pixel-sharp. Capping at 1.5 frees
+    // GPU budget so the face video stops dropping frames.
+    const dpr = Math.min(1.5, window.devicePixelRatio || 1);
     this.canvas.width  = this.canvas.clientWidth  * dpr;
     this.canvas.height = this.canvas.clientHeight * dpr;
   },
@@ -3490,6 +3494,7 @@ async function enterConvoMode() {
 
   BRAIN.init();
   BRAIN.start();
+  _convoFaceSync('idle');   // start ONLY the idle loop (autoplay removed from markup)
   document.addEventListener('keydown', _convoKeyHandler);
 
   CONVO.state  = 'idle';
@@ -3538,6 +3543,7 @@ function exitConvoMode() {
   document.getElementById('convo-overlay').classList.add('hidden');
   document.body.classList.remove('convo-mode-active');
   BRAIN.stop();
+  _convoFaceStop();   // stop both 720p face loops decoding while overlay hidden
   document.removeEventListener('keydown', _convoKeyHandler);
 
   convoTeardown();   // stop every recognizer, the recorder, playback + the mic
@@ -4288,6 +4294,7 @@ function convoState(state, label) {
                        thinking: 'thinking', speaking: 'speaking' };
     BRAIN.state = brainMap[state] || 'idle';
   }
+  _convoFaceSync(state);
   if (label) _convoLabel(label);
   const btn = document.getElementById('voice-toggle-btn');
   if (btn) {
@@ -4296,6 +4303,36 @@ function convoState(state, label) {
     btn.textContent = icons[state] || '🗣️';
     btn.className = 'voice-toggle-btn' + (state !== 'off' ? ` voice-${state}` : '');
   }
+}
+
+// ── DATA DAEMON face crossfade ─────────────────────────────────────────────
+// Two 720p loops (idle + speak) crossfade via opacity. Only the visible loop
+// decodes in steady state; the other is paused just after the crossfade ends.
+let _convoFacePauseT = null;
+function _convoFaceSync(state) {
+  const face = document.getElementById('convo-face');
+  if (!face) return;
+  const idle     = document.getElementById('convo-face-idle');
+  const speak    = document.getElementById('convo-face-speak');
+  const speaking = (state === 'speaking');
+  face.classList.toggle('speaking', speaking);
+
+  const incoming = speaking ? speak : idle;
+  const outgoing = speaking ? idle  : speak;
+  if (incoming) { try { if (speaking) incoming.currentTime = 0; incoming.play(); } catch (e) {} }
+  clearTimeout(_convoFacePauseT);
+  _convoFacePauseT = setTimeout(() => {
+    if (outgoing) { try { outgoing.pause(); } catch (e) {} }
+  }, 650);   // just past the .55s opacity transition
+}
+
+// Stop both face streams decoding when the overlay is not in use.
+function _convoFaceStop() {
+  clearTimeout(_convoFacePauseT);
+  ['convo-face-idle', 'convo-face-speak'].forEach(id => {
+    const v = document.getElementById(id);
+    if (v) { try { v.pause(); } catch (e) {} }
+  });
 }
 
 function _convoLabel(text) {

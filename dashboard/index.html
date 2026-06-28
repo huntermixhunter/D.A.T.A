@@ -533,6 +533,12 @@
          Powered by the local Kokoro voice engine (CPU, offline). -->
     <div class="convo-overlay hidden" id="convo-overlay" onclick="_convoOverlayClick(event)">
       <canvas class="convo-canvas" id="convo-canvas"></canvas>
+      <!-- DATA DAEMON face — calm idle loop holds when not speaking, crossfades to
+           the speak loop while DATA talks. Driven by BRAIN.state via _convoFaceSync(). -->
+      <div class="convo-face" id="convo-face" aria-hidden="true">
+        <video id="convo-face-idle"  class="convo-face-vid" src="assets/faces/daita_face_idle.opt.mp4" loop muted playsinline preload="auto"></video>
+        <video id="convo-face-speak" class="convo-face-vid" src="assets/faces/daita_face_loop.opt.mp4" loop muted playsinline preload="auto"></video>
+      </div>
       <div class="convo-status-band">
         <span class="convo-status-label" id="convo-status-label">INITIALIZING</span>
       </div>

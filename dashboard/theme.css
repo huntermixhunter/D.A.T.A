@@ -2731,6 +2731,60 @@ html, body {
   height: 100%;
   display: block;
 }
+/* DATA DAEMON face — calm idle loop holds, crossfades to the speak loop
+   while DATA talks. Driven by convoState() via _convoFaceSync(). */
+.convo-face {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* Centered 16:9 viewscreen panel. The source face video is only 1280×720,
+     so we cap the panel near native resolution (≤1100px wide) — that keeps it
+     crisp instead of pixelating from a fullscreen upscale. The panel also
+     never grows taller than 82vh. */
+  width: min(80vw, 1100px, calc(82vh * 16 / 9));
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  z-index: 5;
+  background: #04060a;
+  --vs-c: var(--data-orange);   /* accent for themed bezel / speaking cue */
+  /* Bezel hugs the video edge (box-shadow ring — no gap) + soft themed glow +
+     a drop shadow that lifts the panel off the black backdrop. */
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--vs-c) 60%, transparent),
+    0 0 42px -6px color-mix(in srgb, var(--vs-c) 45%, transparent),
+    0 26px 90px -24px rgba(0,0,0,0.92);
+  transition: box-shadow .6s cubic-bezier(.22,.61,.36,1);
+  pointer-events: none;
+}
+.convo-face.speaking {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--vs-c) 80%, transparent),
+    0 0 70px -8px color-mix(in srgb, var(--vs-c) 50%, transparent),
+    0 26px 90px -24px rgba(0,0,0,0.92);
+}
+.convo-face-vid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Opacity-only crossfade. A per-frame CSS `filter` on a *playing* video
+     that is clipped by the parent's border-radius + overflow:hidden forces
+     Chrome off its GPU compositing fast path and drops frames, so no filter
+     here. The "lights up while speaking" cue is carried by the container's
+     box-shadow (.convo-face.speaking) instead. */
+  transition: opacity .55s cubic-bezier(.22,.61,.36,1);
+  transform: translateZ(0);        /* keep each video on its own GPU layer */
+  backface-visibility: hidden;
+  will-change: opacity;
+}
+#convo-face-idle  { opacity: 1; }
+#convo-face-speak { opacity: 0; }
+.convo-face.speaking #convo-face-idle  { opacity: 0; }
+.convo-face.speaking #convo-face-speak { opacity: 1; }
 .convo-status-band {
   position: absolute;
   top: 24px;
@@ -2750,7 +2804,7 @@ html, body {
 }
 .convo-transcript {
   position: absolute;
-  bottom: 90px;
+  bottom: 132px;
   left: 50%;
   transform: translateX(-50%);
   width: min(720px, 80vw);
@@ -2774,6 +2828,27 @@ html, body {
   font-size: 11px;
 }
 .convo-transcript .convo-turn-data { color: var(--data-orange); }
+
+/* ── Conversation viewscreen — per-theme bezel/corner overrides ──────────────
+   The default look above is the orange LCARS bezel. Cyberpunk uses a tight
+   square neon bezel; Minimal uses hard square corners with a quiet steel
+   border (no glow) that lights to electric blue only while speaking. */
+body.theme-cyberpunk .convo-face {
+  --vs-c: var(--data-orange);   /* electric cyan in this theme */
+  border-radius: 2px;
+}
+body.theme-minimal .convo-face {
+  --vs-c: var(--data-blue, #8FA8C7);
+  border-radius: 0;             /* hard square corners — no rounding */
+  box-shadow:
+    0 0 0 1px var(--min-border, #20262E),   /* quiet steel border, no glow */
+    0 26px 90px -24px rgba(0,0,0,0.9);
+}
+body.theme-minimal .convo-face.speaking {
+  box-shadow:
+    0 0 0 1px var(--data-orange),           /* = electric blue when speaking */
+    0 26px 90px -24px rgba(0,0,0,0.9);
+}
 
 .convo-exit-btn {
   position: absolute;
