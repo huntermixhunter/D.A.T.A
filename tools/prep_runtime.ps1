@@ -14,9 +14,17 @@
 param(
     [Parameter(Mandatory = $true)][string]$OutDir,
     [string]$PyVersion = "3.12.8",
-    [switch]$Force
+    [switch]$Force,
+    [switch]$SkipVoice
 )
 $ErrorActionPreference = "Stop"
+
+# Voice stack (Conversation Mode STT/TTS) is baked into the runtime by default so
+# a fresh .exe install has a working voice loop on first launch - no runtime pip,
+# no bridge reboot, no flashing PowerShell window, no first-use lag. Pass
+# -SkipVoice to produce the old lean (chat-only) runtime.
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$voiceReq = Join-Path $repoRoot "dashboard\requirements-voice.txt"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $arch       = "amd64"
@@ -49,7 +57,7 @@ try {
 
     # 1b. Bundle the Microsoft Visual C++ runtime DLLs the embeddable does NOT
     #     ship. The embeddable includes vcruntime140.dll (and 140_1) but NOT
-    #     msvcp140.dll — the C++ standard library. numpy / onnxruntime /
+    #     msvcp140.dll - the C++ standard library. numpy / onnxruntime /
     #     ctranslate2 are C++ and fail to import without it on a fresh Windows
     #     box that has no VC++ 2015-2022 redistributable. psutil (pure C) works,
     #     which is why the smoke test passed but Conversation Mode did not. These
@@ -70,7 +78,7 @@ try {
         }
     }
     if (-not (Test-Path (Join-Path $pythonDir "msvcp140.dll"))) {
-        throw "msvcp140.dll could not be bundled — numpy/onnxruntime will not import on fresh machines. Install the VC++ 2015-2022 redistributable on this build box and retry."
+        throw "msvcp140.dll could not be bundled - numpy/onnxruntime will not import on fresh machines. Install the VC++ 2015-2022 redistributable on this build box and retry."
     }
     Write-Host "  [OK] Bundled $copied VC++ runtime DLL(s) (msvcp140 et al.)"
 
@@ -102,10 +110,37 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "psutil install failed (exit $LASTEXITCODE)" }
     Write-Host "  [OK] psutil baked in"
 
-    # 5. Smoke test: the bundled interpreter must run and import psutil
+    # 4b. Bake the voice stack (kokoro-onnx + faster-whisper, CPU-only) straight
+    #     into the runtime. This is the fix for the retail Conversation Mode
+    #     symptoms: with the wheels already present and importable, the bridge
+    #     reports stt_available=true on first launch, so the frontend NEVER runs
+    #     the on-demand pip install or the bridge reboot - which is what flashed
+    #     a PowerShell window and tanked the video framerate. Only the one-time
+    #     voice-MODEL download (~415MB) remains on first use, done in-process.
+    $voiceBaked = $false
+    if ($SkipVoice) {
+        Write-Host "  [--] -SkipVoice set: building lean chat-only runtime (no voice stack)" -ForegroundColor Yellow
+    } elseif (-not (Test-Path $voiceReq)) {
+        Write-Host "  [!!] requirements-voice.txt not found at $voiceReq - skipping voice bake" -ForegroundColor Yellow
+    } else {
+        Write-Host "  [..] Baking voice stack into the runtime (kokoro-onnx + faster-whisper, ~200MB download)..."
+        & "$pythonDir\python.exe" -m pip install --no-warn-script-location --disable-pip-version-check -r $voiceReq
+        if ($LASTEXITCODE -ne 0) { throw "voice stack install failed (exit $LASTEXITCODE) - Conversation Mode would not work on a fresh install" }
+        $voiceBaked = $true
+        Write-Host "  [OK] Voice stack baked in"
+    }
+
+    # 5. Smoke test: the bundled interpreter must run and import psutil - and the
+    #    voice wheels too when baked, since a C++-runtime miss (msvcp140) shows up
+    #    here as an ImportError rather than silently at the buyer's first launch.
     $check = & "$pythonDir\python.exe" -c "import sys, psutil; print(sys.version.split()[0])" 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Runtime smoke test failed: $check" }
     Write-Host "  [OK] Runtime verified: Python $check + psutil import OK"
+    if ($voiceBaked) {
+        $vcheck = & "$pythonDir\python.exe" -c "import numpy, soundfile, kokoro_onnx, faster_whisper; print('voice-ok')" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Voice smoke test failed (wheels installed but will not import - check msvcp140 bundling): $vcheck" }
+        Write-Host "  [OK] Voice stack verified: numpy + soundfile + kokoro_onnx + faster_whisper import OK"
+    }
 
     # 6. Trim build noise (pip cache, __pycache__) to keep the installer lean
     Get-ChildItem -Path $pythonDir -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |

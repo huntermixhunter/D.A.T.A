@@ -17,7 +17,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$PyVersion = "3.12.8",
-    [switch]$RebuildRuntime
+    [switch]$RebuildRuntime,
+    [switch]$SkipVoice
 )
 $ErrorActionPreference = "Stop"
 
@@ -66,10 +67,25 @@ $fileCount = (Get-ChildItem $staging -Recurse -File).Count
 Write-Host "  [OK] Staged $fileCount product files -> $staging"
 
 # --- 2. embedded Python runtime (cached) ---
-$cachedPy = Join-Path $runtimeCache "python"
-if ($RebuildRuntime -or -not (Test-Path (Join-Path $cachedPy "python.exe"))) {
+# The runtime bakes in the voice stack by default (Conversation Mode works on a
+# fresh install with no runtime pip / reboot). A cached runtime from an older,
+# voice-less build must be treated as a cache MISS, or the .exe would ship
+# without voice and the old install-on-first-use loop would return.
+$cachedPy   = Join-Path $runtimeCache "python"
+$voiceMark  = Join-Path $cachedPy "Lib\site-packages\faster_whisper"
+$hasPy      = Test-Path (Join-Path $cachedPy "python.exe")
+$hasVoice   = Test-Path $voiceMark
+$cacheStale = $hasPy -and (-not $SkipVoice) -and (-not $hasVoice)
+if ($cacheStale) {
+    Write-Host "  [!!] Cached runtime predates the voice bake - forcing rebuild" -ForegroundColor Yellow
+}
+if ($RebuildRuntime -or -not $hasPy -or $cacheStale) {
     Write-Host "  [..] Building embedded Python runtime (cache miss)..."
-    & "$root\tools\prep_runtime.ps1" -OutDir $runtimeCache -PyVersion $PyVersion -Force
+    if ($SkipVoice) {
+        & "$root\tools\prep_runtime.ps1" -OutDir $runtimeCache -PyVersion $PyVersion -Force -SkipVoice
+    } else {
+        & "$root\tools\prep_runtime.ps1" -OutDir $runtimeCache -PyVersion $PyVersion -Force
+    }
     if ($LASTEXITCODE -ne 0) { Write-Host "  runtime prep failed" -ForegroundColor Red; exit 1 }
 } else {
     Write-Host "  [OK] Reusing cached runtime ($cachedPy)  [-RebuildRuntime to refresh]"

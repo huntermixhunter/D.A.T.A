@@ -24,6 +24,21 @@ import time
 import collections
 from pathlib import Path
 
+# ── Make sibling modules importable (embeddable-Python fix) ──────────
+# The retail .exe ships the Windows "embeddable" Python, which uses a
+# `python._pth` file. When that file is present, CPython builds sys.path
+# ENTIRELY from it and does NOT add the running script's own directory the
+# way a normal install does. That means `import local_voice` (a sibling of
+# this file) fails with "ModuleNotFoundError: No module named 'local_voice'"
+# on a fresh .exe install even though local_voice.py sits right here — which
+# silently killed Conversation Mode. Prepend our own directory so every
+# sibling import resolves regardless of how the interpreter was launched
+# (embeddable ._pth, `-m`, frozen, or an odd cwd). No-op on a normal install
+# where the dir is already on the path.
+_HERE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HERE_DIR not in sys.path:
+    sys.path.insert(0, _HERE_DIR)
+
 # ── Scrub bad PYTHONHASHSEED ─────────────────────────────────
 # Some prior shell session exported PYTHONHASHSEED=5780483582248244759 — out
 # of CPython's legal range [0, 4294967295]. Inherited into the bridge process
