@@ -16,6 +16,9 @@ dashboard/retail_preview.log
 # Voice smoke-test artifacts
 dashboard/test_output_*.wav
 
+# Face-video swap backups — local only, the original lives elsewhere
+dashboard/assets/faces/*.backup_*
+
 # Secrets
 .env
 
