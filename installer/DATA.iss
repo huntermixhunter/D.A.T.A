@@ -60,7 +60,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
-Name: "provider"; Description: "Install the AI provider so chat works (Claude Code + Node.js, ~1-2 min, needs internet)"; GroupDescription: "AI provider:"
+; AI provider CLIs — all install via npm, so Node.js is installed once and
+; shared. Claude Code is the recommended default (ticked); the others are
+; optional. Pick any combination; each still needs a one-time sign-in.
+Name: "provider";        Description: "Claude Code — Anthropic (recommended)";  GroupDescription: "AI provider CLIs (installs Node.js once, ~1-2 min, needs internet):"
+Name: "provider_codex";  Description: "Codex CLI — OpenAI";                     GroupDescription: "AI provider CLIs (installs Node.js once, ~1-2 min, needs internet):"; Flags: unchecked
+Name: "provider_gemini"; Description: "Gemini CLI — Google";                    GroupDescription: "AI provider CLIs (installs Node.js once, ~1-2 min, needs internet):"; Flags: unchecked
 
 [Files]
 ; The staged product tree (clean tracked files + the embedded runtime).
@@ -81,8 +86,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeVbs}"; WorkingDir: "{
 [Run]
 ; Install the bundled DATA-core skills using the embedded runtime (idempotent).
 Filename: "{app}\runtime\python\python.exe"; Parameters: """{app}\dashboard\install_skills.py"""; WorkingDir: "{app}"; StatusMsg: "Installing DATA-core skills..."; Flags: runhidden skipifdoesntexist
-; Optional: install the AI provider (Node.js + Claude Code). Shown only if ticked.
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\setup_provider.ps1"""; StatusMsg: "Installing the AI provider (Claude Code + Node.js)... this can take a minute."; Flags: waituntilterminated; Tasks: provider
+; Optional: install the selected AI provider CLIs (Node.js + any of Claude Code
+; / Codex / Gemini). Runs once with the chosen set, only if at least one ticked.
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\setup_provider.ps1"" -Clis ""{code:GetSelectedClis}"""; StatusMsg: "Installing the selected AI provider CLIs (Node.js + CLIs)... this can take a minute."; Flags: waituntilterminated; Check: AnyProviderSelected
 ; Offer to launch DATA at the end.
 Filename: "{app}\{#AppExeVbs}"; Description: "Launch {#AppName} now"; Flags: postinstall nowait skipifsilent shellexec
 
@@ -111,6 +117,28 @@ begin
     if (not FileExists(EnvPath)) and FileExists(ExamplePath) then
       CopyFile(ExamplePath, EnvPath, False);
   end;
+end;
+
+{ Build the -Clis argument for setup_provider.ps1 from the ticked provider tasks.
+  Returns e.g. "claude,codex" — empty string if none (the [Run] Check gates that). }
+function GetSelectedClis(Param: string): string;
+var
+  s: string;
+begin
+  s := '';
+  if WizardIsTaskSelected('provider')        then s := s + 'claude,';
+  if WizardIsTaskSelected('provider_codex')  then s := s + 'codex,';
+  if WizardIsTaskSelected('provider_gemini') then s := s + 'gemini,';
+  if (Length(s) > 0) and (s[Length(s)] = ',') then s := Copy(s, 1, Length(s) - 1);
+  Result := s;
+end;
+
+{ True when at least one provider CLI task is ticked — gates the install [Run]. }
+function AnyProviderSelected(): Boolean;
+begin
+  Result := WizardIsTaskSelected('provider')
+         or WizardIsTaskSelected('provider_codex')
+         or WizardIsTaskSelected('provider_gemini');
 end;
 
 procedure InitializeWizard();

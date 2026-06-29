@@ -8100,6 +8100,39 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/providers":
             self._json({"active": ACTIVE_PROVIDER, "providers": _list_providers()})
 
+        elif path == "/agents":
+            # Editable per-officer personality files (~/.claude/agents/*.md),
+            # surfaced in Settings → Crew Personalities. Display names come from
+            # CREW_VOICES so they match the rest of the UI. Returns an empty
+            # roster (not an error) when the directory does not exist yet.
+            agents_dir = Path.home() / ".claude" / "agents"
+            roster = []
+            try:
+                if agents_dir.is_dir():
+                    for f in sorted(agents_dir.glob("*.md")):
+                        oid  = f.stem.lower()
+                        spec = CREW_VOICES.get(oid)
+                        name = spec["name"] if spec else oid.title()
+                        try:
+                            body = f.read_text(encoding="utf-8", errors="replace")
+                        except Exception as e:
+                            body = f"(could not read: {e})"
+                        roster.append({"id": oid, "name": name,
+                                       "path": str(f), "content": body})
+            except Exception as e:
+                self._json({"error": str(e), "agents": []}, 500); return
+            self._json({"agents": roster, "dir": str(agents_dir)})
+
+        elif path == "/crew-memory":
+            # The Captain's persistent memory file (COMPUTER_MEMORY.md) — the one
+            # injected into the system prompt — for the Settings memory editor.
+            try:
+                content = (COMPUTER_MEMORY_FILE.read_text(encoding="utf-8", errors="replace")
+                           if COMPUTER_MEMORY_FILE.exists() else "")
+            except Exception as e:
+                self._json({"error": str(e)}, 500); return
+            self._json({"content": content, "path": str(COMPUTER_MEMORY_FILE)})
+
         # ── AI Connectors page ────────────────────────────────
         elif path == "/hardware":
             _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -9096,6 +9129,36 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "kind must be 'ollama' or 'cli'"}, 400); return
             job = _start_install_job(kind, target)
             self._json(job)
+
+        elif path == "/agents":
+            # Save one officer's personality file. Body: {id, content}.
+            oid     = (data.get("id") or "").strip().lower()
+            content = data.get("content")
+            if not oid or not re.fullmatch(r"[a-z0-9_-]+", oid):
+                self._json({"error": "invalid agent id"}, 400); return
+            if not isinstance(content, str):
+                self._json({"error": "content must be a string"}, 400); return
+            target = Path.home() / ".claude" / "agents" / f"{oid}.md"
+            if not target.exists():
+                self._json({"error": f"unknown agent '{oid}'"}, 404); return
+            try:
+                target.write_text(content, encoding="utf-8")
+            except Exception as e:
+                self._json({"error": str(e)}, 500); return
+            log.info(f"[AGENTS] saved personality file {target.name} ({len(content)} chars)")
+            self._json({"saved": oid, "bytes": len(content.encode('utf-8'))})
+
+        elif path == "/crew-memory":
+            # Save the Captain's persistent memory file (COMPUTER_MEMORY.md).
+            content = data.get("content")
+            if not isinstance(content, str):
+                self._json({"error": "content must be a string"}, 400); return
+            try:
+                COMPUTER_MEMORY_FILE.write_text(content, encoding="utf-8")
+            except Exception as e:
+                self._json({"error": str(e)}, 500); return
+            log.info(f"[MEMORY] crew memory saved ({len(content)} chars)")
+            self._json({"saved": True, "bytes": len(content.encode('utf-8'))})
 
         elif path == "/voice/provider":
             global VOICE_PROVIDER

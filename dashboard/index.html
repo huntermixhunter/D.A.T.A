@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=ent26" />
+  <link rel="stylesheet" href="theme.css?v=ent27" />
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -499,10 +499,10 @@
 
     <!-- BOTTOM BAR -->
     <footer class="data-footer">
-      <button class="footer-left-cap theme-toggle-cap" id="theme-toggle-btn"
-              onclick="toggleTheme()"
-              title="Switch dashboard theme">
-        <span class="theme-toggle-label" id="theme-toggle-label">CYBER</span>
+      <button class="footer-left-cap settings-toggle-cap" id="settings-btn"
+              onclick="openSettings()"
+              title="Open Settings — themes, voice, model, crew personalities, memory">
+        <span class="settings-toggle-label" id="settings-toggle-label">⚙ SETTINGS</span>
       </button>
       <!-- CONVERSATION opens the hands-free voice loop (wake word → listen →
            reply → loop), powered by the local Kokoro voice engine. -->
@@ -533,11 +533,22 @@
          Powered by the local Kokoro voice engine (CPU, offline). -->
     <div class="convo-overlay hidden" id="convo-overlay" onclick="_convoOverlayClick(event)">
       <canvas class="convo-canvas" id="convo-canvas"></canvas>
-      <!-- DATA DAEMON face — calm idle loop holds when not speaking, crossfades to
-           the speak loop while DATA talks. Driven by BRAIN.state via _convoFaceSync(). -->
+      <!-- DATA DAEMON face — SINGLE LIGHT 720p VIDEO LOOP (crossfade retired
+           2026-06-28). The chop was never "video is too hard" — it was THREE
+           heavy things on one main thread: two 720p loops crossfading PLUS a
+           full-screen canvas brain. The second loop and the sphere are both
+           retired now, so one 720p faststart loop has all the headroom it needs.
+           It stays a plain rectangle (NO rounded clip) so it rides Chrome's
+           hardware-overlay plane; the rounded bezel + glow live on the parent
+           .convo-face and never clip the video. The poster jpg paints instantly
+           while the loop decodes. "Speaking" is just the cheap CSS glow on
+           .convo-face.speaking — no second stream. -->
       <div class="convo-face" id="convo-face" aria-hidden="true">
-        <video id="convo-face-idle"  class="convo-face-vid" src="assets/faces/daita_face_idle.opt.mp4" loop muted playsinline preload="auto"></video>
-        <video id="convo-face-speak" class="convo-face-vid" src="assets/faces/daita_face_loop.opt.mp4" loop muted playsinline preload="auto"></video>
+        <video id="convo-face-idle" class="convo-face-vid"
+               src="assets/faces/daita_face_idle.opt.mp4"
+               poster="assets/faces/daita_face_poster.jpg"
+               autoplay loop muted playsinline preload="auto"
+               disablepictureinpicture></video>
       </div>
       <div class="convo-status-band">
         <span class="convo-status-label" id="convo-status-label">INITIALIZING</span>
@@ -552,6 +563,89 @@
       </div>
       <div class="convo-transcript" id="convo-transcript"></div>
       <button class="convo-exit-btn" id="convo-exit-btn" onclick="exitConvoMode()" title="Exit Conversation Mode (Esc)">EXIT · ESC</button>
+    </div>
+
+    <!-- SETTINGS OVERLAY — full-screen control panel (themes, voice, model,
+         crew personalities, memory, conversation tuning). Opened from the
+         footer Settings button; built/driven by the settings* fns in app.js. -->
+    <div class="settings-overlay hidden" id="settings-overlay" onclick="_settingsBackdrop(event)">
+      <div class="settings-frame" onclick="event.stopPropagation()">
+        <header class="settings-head">
+          <span class="settings-title">⚙ SETTINGS</span>
+          <button class="settings-close" onclick="closeSettings()" title="Close (Esc)">✕</button>
+        </header>
+        <div class="settings-body">
+          <nav class="settings-nav" id="settings-nav">
+            <button class="settings-tab active" data-tab="appearance" onclick="settingsTab('appearance')">APPEARANCE</button>
+            <button class="settings-tab" data-tab="voice"  onclick="settingsTab('voice')">VOICE</button>
+            <button class="settings-tab" data-tab="model"  onclick="settingsTab('model')">MODEL</button>
+            <button class="settings-tab" data-tab="crew"   onclick="settingsTab('crew')">CREW PERSONALITIES</button>
+            <button class="settings-tab" data-tab="memory" onclick="settingsTab('memory')">MEMORY</button>
+            <button class="settings-tab" data-tab="convo"  onclick="settingsTab('convo')">CONVERSATION</button>
+          </nav>
+          <div class="settings-content">
+
+            <section class="settings-pane active" data-pane="appearance">
+              <h3 class="settings-h">Theme</h3>
+              <p class="settings-sub">Dashboard look. Applies instantly.</p>
+              <div class="settings-opt-row" id="settings-theme-row">
+                <button class="settings-opt" data-theme="minimal" onclick="settingsSetTheme('minimal')">MINIMAL</button>
+                <button class="settings-opt" data-theme="cyber"   onclick="settingsSetTheme('cyber')">CYBER</button>
+              </div>
+            </section>
+
+            <section class="settings-pane" data-pane="voice">
+              <h3 class="settings-h">Crew voice</h3>
+              <p class="settings-sub">Which officer answers in conversation mode.</p>
+              <div class="settings-opt-row" id="settings-voice-row"></div>
+            </section>
+
+            <section class="settings-pane" data-pane="model">
+              <h3 class="settings-h">Default LLM</h3>
+              <p class="settings-sub">Model the main channel uses for new messages.</p>
+              <div class="settings-opt-row" id="settings-model-row"></div>
+            </section>
+
+            <section class="settings-pane" data-pane="crew">
+              <h3 class="settings-h">Crew personalities</h3>
+              <p class="settings-sub">Edit each officer's personality file in ~/.claude/agents. Saved to disk.</p>
+              <div class="settings-opt-row" id="settings-crew-pick"></div>
+              <textarea class="settings-editor" id="settings-crew-editor" spellcheck="false" placeholder="Select an officer above to load their personality file…"></textarea>
+              <div class="settings-editor-bar">
+                <span class="settings-editor-path" id="settings-crew-path"></span>
+                <button class="settings-save" id="settings-crew-save" onclick="settingsSaveAgent()">SAVE</button>
+              </div>
+            </section>
+
+            <section class="settings-pane" data-pane="memory">
+              <h3 class="settings-h">Persistent memory</h3>
+              <p class="settings-sub">COMPUTER_MEMORY.md — injected into every request. Edit carefully.</p>
+              <textarea class="settings-editor tall" id="settings-memory-editor" spellcheck="false"></textarea>
+              <div class="settings-editor-bar">
+                <span class="settings-editor-path" id="settings-memory-path"></span>
+                <button class="settings-save" id="settings-memory-save" onclick="settingsSaveMemory()">SAVE</button>
+              </div>
+            </section>
+
+            <section class="settings-pane" data-pane="convo">
+              <h3 class="settings-h">Wake word</h3>
+              <p class="settings-sub">Listen for "computer" / "data" to start hands-free.</p>
+              <div class="settings-opt-row">
+                <button class="settings-opt" id="settings-wake-toggle" onclick="settingsToggleWake()">WAKE: OFF</button>
+              </div>
+              <h3 class="settings-h">Mic sensitivity</h3>
+              <p class="settings-sub">Lower = picks up quieter speech. Higher = needs louder speech.</p>
+              <input type="range" class="settings-range" id="settings-mic-threshold" min="0.005" max="0.06" step="0.001" oninput="settingsSetMic(this.value)">
+              <div class="settings-range-val" id="settings-mic-val"></div>
+              <h3 class="settings-h">Silence hold</h3>
+              <p class="settings-sub">How long a pause ends your turn (milliseconds).</p>
+              <input type="range" class="settings-range" id="settings-silence" min="600" max="3000" step="100" oninput="settingsSetSilence(this.value)">
+              <div class="settings-range-val" id="settings-silence-val"></div>
+            </section>
+
+          </div>
+        </div>
+      </div>
     </div>
 
   </div><!-- end app -->
@@ -850,6 +944,6 @@
     // MSD metric-card placement (defined in app.js).
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
   </script>
-  <script src="app.js?v=retail1"></script>
+  <script src="app.js?v=retail2"></script>
 </body>
 </html>

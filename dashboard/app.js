@@ -3207,7 +3207,15 @@ const BRAIN = {
   },
 
   init() {
+    // Sphere visualization retired (2026-06-28, full port from LCARS). BRAIN
+    // remains the conversation-mode state machine — its `active` flag and
+    // `state` are read all over the voice loop — but it no longer builds
+    // geometry or paints the canvas. The framed face video is the focal point
+    // now; the canvas competing for the main thread was part of the old chop.
+    // Everything below this guard is dead unless the sphere is re-enabled.
     this.canvas = document.getElementById('convo-canvas');
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!this.canvas) return;
     this.ctx = this.canvas.getContext('2d');
     this._resize();
@@ -3279,16 +3287,9 @@ const BRAIN = {
   },
 
   start() {
+    // Sphere render loop removed — just flip the state machine on. No RAF, no
+    // canvas painting (that competed with the face video for the main thread).
     this.active = true;
-    let last = performance.now();
-    const tick = (t) => {
-      if (!this.active) return;
-      const dt = Math.min(60, t - last) / 1000;
-      last = t;
-      this._frame(dt, t);
-      this.raf = requestAnimationFrame(tick);
-    };
-    this.raf = requestAnimationFrame(tick);
   },
 
   stop() {
@@ -4321,34 +4322,28 @@ function convoState(state, label) {
   }
 }
 
-// ── DATA DAEMON face crossfade ─────────────────────────────────────────────
-// Two 720p loops (idle + speak) crossfade via opacity. Only the visible loop
-// decodes in steady state; the other is paused just after the crossfade ends.
-let _convoFacePauseT = null;
+// ── DATA DAEMON face — SINGLE light 720p loop (crossfade retired 2026-06-28) ──
+// One stream on the hardware-overlay plane. The only state change is the CSS
+// "speaking" cue (box-shadow glow), toggled on .convo-face. Single chokepoint:
+// convoState(). No second stream, no canvas brain — so conversation mode stays
+// smooth.
 function _convoFaceSync(state) {
   const face = document.getElementById('convo-face');
   if (!face) return;
-  const idle     = document.getElementById('convo-face-idle');
-  const speak    = document.getElementById('convo-face-speak');
-  const speaking = (state === 'speaking');
-  face.classList.toggle('speaking', speaking);
-
-  const incoming = speaking ? speak : idle;
-  const outgoing = speaking ? idle  : speak;
-  if (incoming) { try { if (speaking) incoming.currentTime = 0; incoming.play(); } catch (e) {} }
-  clearTimeout(_convoFacePauseT);
-  _convoFacePauseT = setTimeout(() => {
-    if (outgoing) { try { outgoing.pause(); } catch (e) {} }
-  }, 650);   // just past the .55s opacity transition
+  face.classList.toggle('speaking', state === 'speaking');
+  // Make sure the loop is actually running. Autoplay can be skipped when the
+  // overlay was display:none at load, so kick it whenever the face is synced.
+  const vid = document.getElementById('convo-face-idle');
+  if (vid && vid.paused) { try { vid.play(); } catch (e) {} }
 }
 
-// Stop both face streams decoding when the overlay is not in use.
+// Pause the single loop on exit so a hidden overlay is not decoding in the
+// background (saves GPU/battery when conversation mode is closed).
 function _convoFaceStop() {
-  clearTimeout(_convoFacePauseT);
-  ['convo-face-idle', 'convo-face-speak'].forEach(id => {
-    const v = document.getElementById(id);
-    if (v) { try { v.pause(); } catch (e) {} }
-  });
+  const face = document.getElementById('convo-face');
+  if (face) face.classList.remove('speaking');
+  const vid = document.getElementById('convo-face-idle');
+  if (vid) { try { vid.pause(); } catch (e) {} }
 }
 
 function _convoLabel(text) {
@@ -7837,3 +7832,214 @@ subscribeShipsHealth();   // /vitals_fast SSE → engine gauge + Hull/Shield/SIF
 loadBriefing();
 // Populate provider dropdown
 loadProviders();
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SETTINGS PANEL — themes, voice, default LLM, crew personalities, memory,
+// conversation tuning. Opened from the footer Settings button (replaced the
+// old theme-cycle cap). Ported from LCARS and adapted to retail: 2 themes
+// (MINIMAL/CYBER via the inline toggleTheme system), Kokoro-only voice (crew
+// selector, no F5/XTTS/tier rows). Reuses existing globals: _themeLabel,
+// setProvider/loadProviders, setCrewVoice/syncCrewVoiceToggle,
+// toggleWakeListener/WAKE, CONVO.
+// ════════════════════════════════════════════════════════════════════════
+let _settingsAgents = [];        // [{id,name,path,content}] from /agents
+let _settingsActiveAgent = null;
+
+function openSettings() {
+  const ov = document.getElementById('settings-overlay');
+  if (!ov) return;
+  ov.classList.remove('hidden');
+  document.addEventListener('keydown', _settingsKey);
+  settingsTab('appearance');
+  _settingsPaintTheme();
+  _settingsLoadVoice();
+  _settingsLoadModel();
+  _settingsLoadCrew();
+  _settingsLoadMemory();
+  _settingsLoadConvo();
+}
+function closeSettings() {
+  const ov = document.getElementById('settings-overlay');
+  if (ov) ov.classList.add('hidden');
+  document.removeEventListener('keydown', _settingsKey);
+}
+function _settingsBackdrop(evt) { if (evt.target.id === 'settings-overlay') closeSettings(); }
+function _settingsKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeSettings(); } }
+
+function settingsTab(name) {
+  document.querySelectorAll('.settings-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.settings-pane').forEach(p =>
+    p.classList.toggle('active', p.dataset.pane === name));
+}
+
+// ── Appearance — retail 2-theme system (MINIMAL default / CYBER) ────────────
+function _settingsCurrentTheme() {
+  return document.body.classList.contains('theme-cyberpunk') ? 'cyber' : 'minimal';
+}
+function _settingsPaintTheme() {
+  const cur = _settingsCurrentTheme();
+  document.querySelectorAll('#settings-theme-row .settings-opt').forEach(b =>
+    b.classList.toggle('active', b.dataset.theme === cur));
+}
+function settingsSetTheme(t) {
+  const toCyber = (t === 'cyber');
+  document.body.classList.toggle('theme-cyberpunk', toCyber);
+  document.body.classList.toggle('theme-minimal', !toCyber);
+  try { localStorage.setItem('data-theme', toCyber ? 'cyber' : 'minimal'); } catch (e) {}
+  if (typeof _themeLabel === 'function') _themeLabel();
+  if (typeof addLog === 'function') addLog('Theme → ' + (toCyber ? 'CYBER' : 'MINIMAL'));
+  _settingsPaintTheme();
+}
+
+// ── Voice — retail ships a single engine (Kokoro); only the crew voice (which
+//    officer answers) is user-selectable. F5/XTTS + model-tier rows are
+//    intentionally omitted (they do not exist in retail). ─────────────────────
+async function _settingsLoadVoice() {
+  if (!CREW_VOICES_LIST.length) { try { await syncCrewVoiceToggle(); } catch (e) {} }
+  _settingsPaintVoiceRow();
+}
+function _settingsPaintVoiceRow() {
+  const row = document.getElementById('settings-voice-row');
+  if (!row) return;
+  if (!CREW_VOICES_LIST.length) { row.innerHTML = '<span class="settings-sub">No crew voices available.</span>'; return; }
+  row.innerHTML = (CREW_VOICES_LIST || []).map(v =>
+    `<button class="settings-opt${v.id === CREW_VOICE ? ' active' : ''}" data-voice="${v.id}" onclick="settingsSetCrewVoice('${v.id}')">${(v.name || v.id).toUpperCase()}</button>`).join('');
+}
+function settingsSetCrewVoice(id) { if (typeof setCrewVoice === 'function') setCrewVoice(id); _settingsPaintVoiceRow(); }
+
+// ── Default LLM ─────────────────────────────────────────────
+async function _settingsLoadModel() {
+  try {
+    const d = await (await fetch(`${API_BASE}/providers`)).json();
+    const row = document.getElementById('settings-model-row');
+    if (!row) return;
+    row.innerHTML = (d.providers || []).map(p =>
+      `<button class="settings-opt${p.id === d.active ? ' active' : ''}" ${p.available ? '' : 'disabled'} data-prov="${p.id}" onclick="settingsSetModel('${p.id}')" title="${(p.model || '')}${p.available ? '' : ' — not installed'}">${(p.label || p.id).toUpperCase()}</button>`).join('');
+  } catch (e) { addLog(`Providers load failed: ${e.message || e}`); }
+}
+async function settingsSetModel(id) {
+  if (typeof setProvider === 'function') { await setProvider(id); }
+  _settingsLoadModel();
+}
+
+// ── Crew personalities ──────────────────────────────────────
+async function _settingsLoadCrew() {
+  try {
+    const d = await (await fetch(`${API_BASE}/agents`)).json();
+    _settingsAgents = d.agents || [];
+    const pick = document.getElementById('settings-crew-pick');
+    if (pick) {
+      pick.innerHTML = _settingsAgents.length
+        ? _settingsAgents.map(a =>
+            `<button class="settings-opt${a.id === _settingsActiveAgent ? ' active' : ''}" data-agent="${a.id}" onclick="settingsPickAgent('${a.id}')">${(a.name || a.id).toUpperCase()}</button>`).join('')
+        : '<span class="settings-sub">No officer personality files found in ~/.claude/agents.</span>';
+    }
+    if (_settingsActiveAgent && _settingsAgents.some(a => a.id === _settingsActiveAgent)) settingsPickAgent(_settingsActiveAgent);
+  } catch (e) { addLog(`Crew personalities load failed: ${e.message || e}`); }
+}
+function settingsPickAgent(id) {
+  _settingsActiveAgent = id;
+  const a = _settingsAgents.find(x => x.id === id);
+  const ed = document.getElementById('settings-crew-editor');
+  const pa = document.getElementById('settings-crew-path');
+  if (a && ed) ed.value = a.content || '';
+  if (a && pa) pa.textContent = a.path || '';
+  document.querySelectorAll('#settings-crew-pick .settings-opt').forEach(b =>
+    b.classList.toggle('active', b.dataset.agent === id));
+}
+async function settingsSaveAgent() {
+  if (!_settingsActiveAgent) { addLog('Pick an officer first'); return; }
+  const ed = document.getElementById('settings-crew-editor');
+  const btn = document.getElementById('settings-crew-save');
+  try {
+    const d = await (await fetch(`${API_BASE}/agents`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: _settingsActiveAgent, content: ed.value }) })).json();
+    if (d.error) { addLog(`Save failed: ${d.error}`); return; }
+    const a = _settingsAgents.find(x => x.id === _settingsActiveAgent); if (a) a.content = ed.value;
+    addLog(`Personality saved → ${_settingsActiveAgent} (${d.bytes} bytes)`);
+    _flashSaved(btn);
+  } catch (e) { addLog(`Save error: ${e.message || e}`); }
+}
+
+// ── Memory ──────────────────────────────────────────────────
+async function _settingsLoadMemory() {
+  try {
+    const d = await (await fetch(`${API_BASE}/crew-memory`)).json();
+    const ed = document.getElementById('settings-memory-editor');
+    const pa = document.getElementById('settings-memory-path');
+    if (ed) ed.value = d.content || '';
+    if (pa) pa.textContent = d.path || '';
+  } catch (e) { addLog(`Memory load failed: ${e.message || e}`); }
+}
+async function settingsSaveMemory() {
+  const ed = document.getElementById('settings-memory-editor');
+  const btn = document.getElementById('settings-memory-save');
+  try {
+    const d = await (await fetch(`${API_BASE}/crew-memory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: ed.value }) })).json();
+    if (d.error) { addLog(`Memory save failed: ${d.error}`); return; }
+    addLog(`Memory saved (${d.bytes} bytes)`);
+    _flashSaved(btn);
+  } catch (e) { addLog(`Memory save error: ${e.message || e}`); }
+}
+
+// ── Conversation tuning ─────────────────────────────────────
+function _settingsLoadConvo() {
+  _settingsPaintWake();
+  const mic = document.getElementById('settings-mic-threshold');
+  const micv = document.getElementById('settings-mic-val');
+  const curMic = parseFloat(localStorage.getItem('convo-mic-threshold')) || (typeof CONVO !== 'undefined' ? CONVO.threshold : 0.018);
+  if (mic) mic.value = curMic;
+  if (micv) micv.textContent = `${curMic.toFixed(3)} (default 0.018)`;
+  const sil = document.getElementById('settings-silence');
+  const silv = document.getElementById('settings-silence-val');
+  const curSil = parseInt(localStorage.getItem('convo-silence-hold')) || (typeof CONVO !== 'undefined' ? CONVO.SILENCE_HOLD_MS : 1500);
+  if (sil) sil.value = curSil;
+  if (silv) silv.textContent = `${curSil} ms (default 1500)`;
+}
+function _settingsPaintWake() {
+  const b = document.getElementById('settings-wake-toggle');
+  if (!b) return;
+  const on = (typeof WAKE !== 'undefined' && WAKE.enabled);
+  b.textContent = on ? 'WAKE: ON' : 'WAKE: OFF';
+  b.classList.toggle('active', on);
+}
+function settingsToggleWake() {
+  if (typeof toggleWakeListener === 'function') toggleWakeListener();
+  setTimeout(_settingsPaintWake, 50);
+}
+function settingsSetMic(v) {
+  const f = parseFloat(v);
+  localStorage.setItem('convo-mic-threshold', f);
+  if (typeof CONVO !== 'undefined') { CONVO.threshold = f; CONVO.calibrated = true; }
+  const micv = document.getElementById('settings-mic-val');
+  if (micv) micv.textContent = `${f.toFixed(3)} (default 0.018)`;
+}
+function settingsSetSilence(v) {
+  const n = parseInt(v);
+  localStorage.setItem('convo-silence-hold', n);
+  if (typeof CONVO !== 'undefined') CONVO.SILENCE_HOLD_MS = n;
+  const silv = document.getElementById('settings-silence-val');
+  if (silv) silv.textContent = `${n} ms (default 1500)`;
+}
+
+function _flashSaved(btn) {
+  if (!btn) return;
+  const old = btn.textContent;
+  btn.textContent = '✓ SAVED';
+  btn.classList.add('saved');
+  setTimeout(() => { btn.textContent = old; btn.classList.remove('saved'); }, 1400);
+}
+
+// Apply persisted conversation-tuning overrides at startup (no-op unless the
+// Captain has moved the sliders before — so zero impact on defaults).
+(function _settingsApplyConvoOverrides() {
+  try {
+    const m = parseFloat(localStorage.getItem('convo-mic-threshold'));
+    const s = parseInt(localStorage.getItem('convo-silence-hold'));
+    if (typeof CONVO !== 'undefined') {
+      if (!isNaN(m)) { CONVO.threshold = m; CONVO.calibrated = true; }
+      if (!isNaN(s)) CONVO.SILENCE_HOLD_MS = s;
+    }
+  } catch (e) {}
+})();

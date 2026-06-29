@@ -1,18 +1,27 @@
 # DATA - AI provider bootstrap (runs during the installer, optional step)
 # ----------------------------------------------------------------------------
-# DATA's dashboard loads on its own, but chat needs an AI provider CLI. The
-# recommended one is Anthropic's Claude Code, which installs via npm and so
-# needs Node.js first. This script makes that one-click:
+# DATA's dashboard loads on its own, but chat needs an AI provider CLI. They all
+# install via npm, so Node.js is the one shared prerequisite. This script makes
+# installing one or more of them one-click:
 #
-#   1. If Claude Code is already on PATH -> done, nothing to do.
-#   2. Ensure Node.js LTS is present (winget; falls back to the official MSI).
-#   3. npm install -g @anthropic-ai/claude-code
-#   4. Report status. The ONE thing it can't do is sign you in -- you run
-#      `claude` once and type /login (an interactive browser auth).
+#   1. Ensure Node.js LTS is present (winget; falls back to the official MSI).
+#   2. For each requested CLI, npm install -g <package>.
+#   3. Report status. The ONE thing it can't do is sign you in -- you run the
+#      CLI once and authenticate (an interactive browser/login flow).
+#
+# Which CLIs to install is passed by the wizard via -Clis (comma list). Valid
+# ids: claude, codex, gemini. Defaults to "claude" when omitted (back-compat).
+#
+#   claude  -> @anthropic-ai/claude-code  (Anthropic Claude Code)   bin: claude
+#   codex   -> @openai/codex              (OpenAI Codex CLI)        bin: codex
+#   gemini  -> @google/gemini-cli         (Google Gemini CLI)       bin: gemini
 #
 # Never hard-fails the install: if a step errors, DATA is still fully installed
 # and the user can add a provider later. Exit code is always 0 so the wizard
 # completes; real status is written to the log and echoed to the console.
+param(
+    [string]$Clis = "claude"
+)
 $ErrorActionPreference = "Continue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -41,19 +50,42 @@ function Find-Npm {
     return $null
 }
 
+# Catalog of supported provider CLIs.
+$CATALOG = @{
+    "claude" = @{ pkg = "@anthropic-ai/claude-code"; bin = "claude"; name = "Claude Code (Anthropic)"; login = "type 'claude', then '/login'" }
+    "codex"  = @{ pkg = "@openai/codex";             bin = "codex";  name = "Codex CLI (OpenAI)";      login = "type 'codex', then sign in when prompted" }
+    "gemini" = @{ pkg = "@google/gemini-cli";        bin = "gemini"; name = "Gemini CLI (Google)";     login = "type 'gemini', then sign in when prompted" }
+}
+
+# Parse + normalize the requested list.
+$requested = @()
+foreach ($id in ($Clis -split "[,; ]+")) {
+    $k = $id.Trim().ToLower()
+    if ($k -and $CATALOG.ContainsKey($k) -and ($requested -notcontains $k)) { $requested += $k }
+}
+if ($requested.Count -eq 0) { $requested = @("claude") }
+
 Write-Host ""
 Write-Host "  DATA - AI provider setup" -ForegroundColor Cyan
 Write-Host "  ---------------------------------------------------------------"
 "" | Set-Content -Path $log -ErrorAction SilentlyContinue
+Say ("Requested CLIs: " + ($requested -join ", ")) "Gray"
 
-# 1. Already have Claude Code?
-if (Find-Cmd "claude") {
-    Say "Claude Code is already installed -- nothing to do." "Green"
-    Say "If chat ever says 'run /login', open a terminal, type 'claude', then '/login'." "Gray"
+# Figure out which ones still need installing (skip any already on PATH).
+$toInstall = @()
+foreach ($id in $requested) {
+    if (Find-Cmd $CATALOG[$id].bin) {
+        Say ("$($CATALOG[$id].name) is already installed -- skipping.") "Green"
+    } else {
+        $toInstall += $id
+    }
+}
+if ($toInstall.Count -eq 0) {
+    Say "All requested provider CLIs are already installed -- nothing to do." "Green"
     exit 0
 }
 
-# 2. Ensure Node.js
+# Ensure Node.js (shared prerequisite for every CLI).
 $npm = Find-Npm
 if ($npm) {
     Say "Node.js found." "Green"
@@ -61,7 +93,7 @@ if ($npm) {
     Say "Node.js not found -- installing the LTS release..." "Yellow"
     $installed = $false
 
-    # 2a. Preferred: winget (present on Windows 10 1809+/11)
+    # Preferred: winget (present on Windows 10 1809+/11)
     if (Find-Cmd "winget") {
         Say "Installing Node.js via winget (this can take a minute)..."
         winget install --id OpenJS.NodeJS.LTS -e --silent `
@@ -71,7 +103,7 @@ if ($npm) {
         if ($npm) { $installed = $true; Say "Node.js installed via winget." "Green" }
     }
 
-    # 2b. Fallback: download + run the official Node MSI silently
+    # Fallback: download + run the official Node MSI silently
     if (-not $installed) {
         Say "winget unavailable or failed -- downloading the Node.js MSI..." "Yellow"
         try {
@@ -90,34 +122,39 @@ if ($npm) {
     if (-not $npm) {
         Say "Could not install Node.js automatically." "Red"
         Say "Install it yourself from https://nodejs.org (LTS), then run:" "Yellow"
-        Say "  npm install -g @anthropic-ai/claude-code" "Yellow"
+        foreach ($id in $toInstall) { Say ("  npm install -g " + $CATALOG[$id].pkg) "Yellow" }
         exit 0   # DATA itself is still fully installed
     }
 }
 
-# 3. Install Claude Code globally
-Say "Installing Claude Code (npm i -g @anthropic-ai/claude-code)..."
-& $npm install -g "@anthropic-ai/claude-code" 2>&1 | ForEach-Object {
-    Add-Content -Path $log -Value $_
-}
-if (Find-Cmd "claude") {
-    Say "Claude Code installed." "Green"
-} else {
-    # npm's global bin may not be on the current session PATH yet; check directly.
-    $npmBin = & $npm prefix -g 2>$null
-    if ($npmBin -and (Test-Path (Join-Path $npmBin "claude.cmd"))) {
-        Say "Claude Code installed (will be on PATH in a new terminal)." "Green"
+# Install each requested CLI globally via npm.
+$ok = @()
+$pending = @()
+foreach ($id in $toInstall) {
+    $pkg = $CATALOG[$id].pkg
+    $bin = $CATALOG[$id].bin
+    Say ("Installing $($CATALOG[$id].name)  (npm i -g $pkg)...")
+    & $npm install -g $pkg 2>&1 | ForEach-Object { Add-Content -Path $log -Value $_ }
+    if (Find-Cmd $bin) {
+        Say ("$($CATALOG[$id].name) installed.") "Green"; $ok += $id
     } else {
-        Say "Claude Code install did not complete. Run later:" "Yellow"
-        Say "  npm install -g @anthropic-ai/claude-code" "Yellow"
-        exit 0
+        # npm's global bin may not be on the current session PATH yet; check directly.
+        $npmBin = & $npm prefix -g 2>$null
+        if ($npmBin -and (Test-Path (Join-Path $npmBin "$bin.cmd"))) {
+            Say ("$($CATALOG[$id].name) installed (will be on PATH in a new terminal).") "Green"; $ok += $id
+        } else {
+            Say ("$($CATALOG[$id].name) install did not complete. Run later:  npm install -g $pkg") "Yellow"
+            $pending += $id
+        }
     }
 }
 
-# 4. The one manual step
-Write-Host ""
-Say "ONE more step the installer can't do for you:" "Cyan"
-Say "Open a terminal, type 'claude', then '/login' to sign in once." "Cyan"
-Say "After that, DATA's chat is live." "Cyan"
-Write-Host ""
+# Final guidance — each installed CLI still needs an interactive sign-in.
+if ($ok.Count -gt 0) {
+    Write-Host ""
+    Say "ONE more step the installer can't do for you -- sign in to each CLI once:" "Cyan"
+    foreach ($id in $ok) { Say ("  $($CATALOG[$id].name): open a terminal, " + $CATALOG[$id].login) "Cyan" }
+    Say "After that, DATA's chat is live with your chosen provider." "Cyan"
+    Write-Host ""
+}
 exit 0

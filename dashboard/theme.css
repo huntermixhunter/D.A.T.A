@@ -2724,15 +2724,29 @@ html, body {
   z-index: 9000;
   overflow: hidden;
 }
-.convo-canvas {
+/* Sphere visualization retired (2026-06-28). The canvas element stays in the
+   DOM so JS refs never break, but it is never painted or shown — the framed
+   face video is the focal point now. */
+.convo-canvas { display: none; }
+/* Edge vignette — soft black frame that fades the fullscreen black backdrop
+   into the bezel now that the sphere is gone. Sits above the backdrop but below
+   the face panel and all UI controls. */
+.convo-overlay::after {
+  content: '';
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 92% 92% at 50% 50%,
+      transparent 62%,
+      rgba(0,0,0,0.55) 100%);
+  opacity: 0;
+  animation: convoVignetteIn 1.4s ease 0.15s forwards;
 }
-/* DATA DAEMON face — calm idle loop holds, crossfades to the speak loop
-   while DATA talks. Driven by convoState() via _convoFaceSync(). */
+@keyframes convoVignetteIn { from { opacity: 0; } to { opacity: 1; } }
+/* DATA DAEMON face — SINGLE light 720p loop (crossfade retired). The speaking
+   cue is the cheap CSS box-shadow glow on .convo-face.speaking. */
 .convo-face {
   position: absolute;
   top: 50%;
@@ -2776,20 +2790,14 @@ html, body {
   height: 100%;
   object-fit: cover;
   display: block;
-  /* Opacity-only crossfade. A per-frame CSS `filter` on a *playing* video
-     that is clipped by the parent's border-radius + overflow:hidden forces
-     Chrome off its GPU compositing fast path and drops frames, so no filter
-     here. The "lights up while speaking" cue is carried by the container's
-     box-shadow (.convo-face.speaking) instead. */
-  transition: opacity .55s cubic-bezier(.22,.61,.36,1);
-  transform: translateZ(0);        /* keep each video on its own GPU layer */
+  opacity: 1;
+  /* Single light loop on the hardware-overlay plane — no crossfade, no
+     per-frame CSS filter, no second stream. That trio was the old chop, not
+     "video" itself. The "lights up while speaking" cue is carried entirely by
+     the container's box-shadow (.convo-face.speaking) — a cheap GPU paint. */
+  transform: translateZ(0);        /* keep the video on its own GPU layer */
   backface-visibility: hidden;
-  will-change: opacity;
 }
-#convo-face-idle  { opacity: 1; }
-#convo-face-speak { opacity: 0; }
-.convo-face.speaking #convo-face-idle  { opacity: 0; }
-.convo-face.speaking #convo-face-speak { opacity: 1; }
 .convo-status-band {
   position: absolute;
   top: 24px;
@@ -4981,3 +4989,290 @@ body.theme-cyberpunk .header-title .ship-name {
   padding: 9px 12px; color: var(--data-yellow); font-size: 11px;
 }
 .conn-warn a { color: var(--data-orange); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   SETTINGS — footer button + full-screen control panel (themes, voice, model,
+   crew personalities, memory, conversation tuning). Replaces the old theme
+   toggle cap. Driven by the settings* fns in app.js.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Footer Settings button — readable on every theme (the old black-on-dark
+   theme-toggle bug is fixed here by giving each theme an explicit color). */
+.settings-toggle-cap {
+  border: none;
+  padding: 0 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-main);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--data-text);
+  background: transparent;
+  transition: filter 0.15s, box-shadow 0.15s, transform 0.08s, color 0.15s;
+}
+.settings-toggle-cap:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 0 10px rgba(255, 153, 0, 0.45);
+}
+.settings-toggle-cap:active { transform: translateY(1px); }
+.settings-toggle-cap:focus-visible {
+  outline: 2px solid var(--data-yellow);
+  outline-offset: 2px;
+}
+body.theme-cyberpunk .settings-toggle-cap {
+  color: var(--data-orange);
+  text-shadow: 0 0 6px rgba(0, 240, 255, 0.55);
+  letter-spacing: 0.14em;
+}
+body.theme-cyberpunk .settings-toggle-cap:hover {
+  color: var(--data-yellow);
+  text-shadow: 0 0 8px rgba(255, 0, 170, 0.65);
+  filter: brightness(1.15) saturate(1.2);
+  box-shadow: 0 0 14px rgba(255, 0, 170, 0.55);
+}
+/* Minimal: dark footer — black text was invisible. Use the minimal accent +
+   a hairline so it reads as a button. */
+body.theme-minimal .settings-toggle-cap {
+  color: #4D9FFF;
+  border: 1px solid var(--min-border);
+  border-radius: 6px;
+  background: var(--min-accent-dim);
+  text-shadow: none;
+}
+body.theme-minimal .settings-toggle-cap:hover {
+  color: #fff;
+  background: rgba(77, 159, 255, 0.28);
+  filter: none;
+  box-shadow: none;
+}
+
+/* Overlay shell */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(3px);
+}
+.settings-overlay.hidden { display: none; }
+
+.settings-frame {
+  width: min(92vw, 960px);
+  height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+  background: var(--data-bg, #0a0a0f);
+  border: 2px solid var(--data-orange);
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 30px 90px -30px rgba(0,0,0,0.95),
+              0 0 60px -20px color-mix(in srgb, var(--data-orange) 50%, transparent);
+  overflow: hidden;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: var(--data-orange);
+  color: #000;
+}
+.settings-title {
+  font-family: var(--font-main);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.22em;
+}
+.settings-close {
+  border: none;
+  background: rgba(0,0,0,0.25);
+  color: #000;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 700;
+  transition: background 0.15s, transform 0.08s;
+}
+.settings-close:hover { background: rgba(0,0,0,0.45); }
+.settings-close:active { transform: scale(0.92); }
+
+.settings-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* Left rail */
+.settings-nav {
+  flex: 0 0 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 10px;
+  background: rgba(255,255,255,0.025);
+  border-right: 1px solid rgba(255,153,0,0.18);
+  overflow-y: auto;
+}
+.settings-tab {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--data-text, #cfd3dc);
+  font-family: var(--font-main);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 11px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.settings-tab:hover { background: rgba(255,153,0,0.10); }
+.settings-tab.active {
+  background: rgba(255,153,0,0.16);
+  color: var(--data-orange);
+  border-left-color: var(--data-orange);
+}
+
+/* Right content */
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 22px 26px;
+}
+.settings-pane { display: none; }
+.settings-pane.active { display: block; }
+
+.settings-h {
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--data-orange);
+  margin: 22px 0 4px;
+}
+.settings-pane > .settings-h:first-child { margin-top: 0; }
+.settings-sub {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--data-text-dim, #8a90a0);
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+
+.settings-opt-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.settings-opt {
+  border: 1px solid rgba(255,153,0,0.4);
+  background: rgba(255,153,0,0.06);
+  color: var(--data-text, #cfd3dc);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  padding: 9px 15px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.settings-opt:hover { background: rgba(255,153,0,0.16); }
+.settings-opt.active {
+  background: var(--data-orange);
+  border-color: var(--data-orange);
+  color: #000;
+  font-weight: 700;
+  box-shadow: 0 0 14px -3px color-mix(in srgb, var(--data-orange) 70%, transparent);
+}
+.settings-opt[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+/* Editors (crew personalities + memory) */
+.settings-editor {
+  width: 100%;
+  min-height: 300px;
+  resize: vertical;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,153,0,0.28);
+  border-radius: 8px;
+  color: var(--data-text, #d6dae3);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 12px 14px;
+  margin-top: 6px;
+}
+.settings-editor.tall { min-height: 420px; }
+.settings-editor:focus {
+  outline: none;
+  border-color: var(--data-orange);
+  box-shadow: 0 0 0 1px var(--data-orange);
+}
+.settings-editor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.settings-editor-path {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--data-text-dim, #777d8c);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-save {
+  flex: 0 0 auto;
+  border: none;
+  background: var(--data-orange);
+  color: #000;
+  font-family: var(--font-main);
+  font-weight: 700;
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  padding: 9px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: filter 0.12s, transform 0.08s;
+}
+.settings-save:hover { filter: brightness(1.12); }
+.settings-save:active { transform: translateY(1px); }
+.settings-save.saved { background: var(--data-blue, #4d9fff); }
+
+/* Range sliders */
+.settings-range {
+  width: 100%;
+  max-width: 460px;
+  accent-color: var(--data-orange);
+  margin: 4px 0 2px;
+}
+.settings-range-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--data-orange);
+  margin-bottom: 6px;
+}
+
+@media (max-width: 640px) {
+  .settings-body { flex-direction: column; }
+  .settings-nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,153,0,0.18);
+  }
+}
