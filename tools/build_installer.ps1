@@ -93,8 +93,20 @@ if ($RebuildRuntime -or -not $hasPy -or $cacheStale) {
 Write-Host "  [..] Copying runtime into staging..."
 $stageRuntime = Join-Path $staging "runtime\python"
 New-Item -ItemType Directory -Force (Split-Path -Parent $stageRuntime) | Out-Null
-Copy-Item -Recurse -Force $cachedPy $stageRuntime
-Write-Host "  [OK] Runtime in place -> $stageRuntime"
+# Use robocopy, NOT Copy-Item: the embedded runtime (onnxruntime, setuptools,
+# pip _vendor) nests paths past Windows MAX_PATH (260), and Copy-Item -Recurse
+# silently aborts partway, shipping a runtime missing pyyaml/setuptools/pip
+# (breaks the voice stack). Robocopy handles long paths natively. /MIR mirrors
+# the tree, /NFL /NDL /NJH /NJS /NP keep the log quiet. Robocopy exit codes
+# 0-7 are success (8+ is a real failure).
+$rc = Start-Process robocopy -ArgumentList @("`"$cachedPy`"","`"$stageRuntime`"","/MIR","/NFL","/NDL","/NJH","/NJS","/NP","/R:1","/W:1") -Wait -PassThru -NoNewWindow
+if ($rc.ExitCode -ge 8) { Write-Host "  runtime copy (robocopy) failed with code $($rc.ExitCode)" -ForegroundColor Red; exit 1 }
+$srcCount = (Get-ChildItem $cachedPy -Recurse -File -Force).Count
+$dstCount = (Get-ChildItem $stageRuntime -Recurse -File -Force).Count
+if ($dstCount -lt $srcCount) {
+    Write-Host "  runtime copy incomplete: staged $dstCount of $srcCount files" -ForegroundColor Red; exit 1
+}
+Write-Host "  [OK] Runtime in place ($dstCount files) -> $stageRuntime"
 
 # --- 3. compile the wizard ---
 New-Item -ItemType Directory -Force (Join-Path $root "dist") | Out-Null
