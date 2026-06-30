@@ -2632,6 +2632,26 @@ TOOLS = [
         }
     },
     {
+        "name": "session_resume",
+        "description": (
+            "Get a per-pane digest of where EVERY chat window left off — the last "
+            "thing the Captain asked and the last thing you replied, in each project "
+            "folder, ordered most-recent-first. Call this whenever the Captain asks "
+            "what was being worked on previously across his windows: 'what were we "
+            "working on last time', 'where did we leave off', 'catch me up', 'pick up "
+            "where we left off', 'what was I doing in the other panes'. This is "
+            "CROSS-PANE by design — unlike your visible history (this pane only), it "
+            "reports all panes. Summarize the result in your own words; do not dump it "
+            "verbatim. For deeper detail on any one thread, follow up with "
+            "search_history(scope='all')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
         "name": "pinterest_list_boards",
         "description": (
             "List the Captain's Pinterest boards (id, name, pin count). "
@@ -4580,6 +4600,164 @@ def auto_recall_hint(user_message: str, scope: str = "all",
     )
 
 
+# ── Session resume: "what were we working on last time?" across ALL panes ──────
+# auto_recall_hint surfaces *topically relevant* snippets, but a generic ask like
+# "what were we working on last time" has no keyword overlap with the actual work,
+# so semantic recall misses it. This block answers it deterministically: read the
+# permanent archive, group by pane, and report the last activity of EVERY chat
+# window — not just the one the Captain happens to be typing in.
+
+_RESUME_PATTERNS = (
+    "what were we working on", "what was i working on", "what were we doing",
+    "what was i doing", "what have we been working on", "what were we up to",
+    "where did we leave off", "where did i leave off", "where were we",
+    "where we left off", "left off last time", "pick up where", "pick back up",
+    "resume where", "catch me up", "catch you up", "what did we do last",
+    "what were we last", "status across", "status of each", "across all panes",
+    "across the panes", "across my panes", "all my chat windows", "other chat windows",
+    "every chat window", "each chat window", "each pane", "all the panes",
+    "what was everyone working on", "where everything left off", "where each",
+)
+
+
+def _pane_label_from_key(pane_key: str) -> str:
+    """Turn a history key ('C:\\...\\Folder::paneid' or '' or '(main)') into a
+    Captain-friendly label — the project folder name."""
+    if not pane_key or pane_key == "(main)":
+        return "Main computer (no project folder)"
+    path = pane_key.split("::", 1)[0].strip()
+    if not path:
+        return "Main computer (no project folder)"
+    base = os.path.basename(path.rstrip("\\/"))
+    return base or path
+
+
+def _is_resume_query(message: str) -> bool:
+    """True when the Captain is asking to be caught up on prior work, rather than
+    giving a fresh task. Kept conservative — only fires on short, clearly
+    resume-shaped asks so it never hijacks a real instruction."""
+    if not message:
+        return False
+    m = message.strip().lower()
+    if len(m) > 240:  # long messages are tasks/pastes, not "catch me up"
+        return False
+    if any(p in m for p in _RESUME_PATTERNS):
+        return True
+    # Secondary combo: "last time" / "earlier" paired with a work verb.
+    if ("last time" in m or "earlier" in m or "before" in m) and any(
+        w in m for w in ("working", "doing", "left off", "build", "we on", "i on")
+    ):
+        return True
+    return False
+
+
+def _pane_resume_digest(max_folders: int = 12, snippet_chars: int = 220,
+                        exclude_user_text: str = "") -> str:
+    """Read the permanent archive, group turns by PROJECT FOLDER, and return a
+    'last activity' digest ordered most-recent-first. Folder-level (not raw pane
+    key) because each browser session mints fresh pane ids — grouping by key would
+    splinter one folder across dozens of sessions. Returns '' if nothing archived.
+    Best-effort — any failure returns ''.
+
+    exclude_user_text: the message that triggered the resume (already archived by
+    injection time). When a folder's most-recent user turn equals it, that echo is
+    dropped so the Captain's own 'what were we working on' question is not read
+    back to him."""
+    try:
+        if not CONVERSATION_ARCHIVE_FILE.exists():
+            return ""
+        # Tail the archive: only the most recent turns matter for "last activity".
+        with open(CONVERSATION_ARCHIVE_FILE, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            back = min(size, 2_500_000)
+            f.seek(size - back)
+            raw = f.read().decode("utf-8", "replace")
+        lines = raw.splitlines()
+        if back < size and lines:
+            lines = lines[1:]  # drop the partial first line from a mid-file seek
+
+        trigger = " ".join((exclude_user_text or "").split()).strip().lower()
+        per_folder: dict = {}  # folder_path -> {"ts","user","asst"}
+        for ln in lines:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                rec = json.loads(ln)
+            except Exception:
+                continue
+            pane = rec.get("pane", "(main)") or "(main)"
+            # Collapse the per-session pane id; keep just the folder path.
+            folder = pane.split("::", 1)[0].strip().lower()
+            if pane == "(main)":
+                folder = ""
+            role = rec.get("role", "?")
+            ts = rec.get("ts", "") or ""
+            content = (rec.get("content") or "").strip()
+            if not content:
+                continue
+            slot = per_folder.setdefault(folder, {"ts": "", "user": "", "asst": ""})
+            if ts >= slot["ts"]:
+                slot["ts"] = ts
+            # File is oldest→newest, so the last write per role wins (most recent).
+            if role == "user":
+                # Skip the triggering question so it is not echoed back.
+                if trigger and " ".join(content.split()).strip().lower() == trigger:
+                    continue
+                slot["user"] = content
+            elif role == "assistant":
+                slot["asst"] = content
+
+        if not per_folder:
+            return ""
+
+        def _clip(s: str) -> str:
+            s = " ".join((s or "").split())
+            return s[: snippet_chars - 1] + "…" if len(s) > snippet_chars else s
+
+        ordered = sorted(per_folder.items(), key=lambda kv: kv[1]["ts"], reverse=True)
+        rows = []
+        for folder, slot in ordered[:max_folders]:
+            if not (slot["user"] or slot["asst"]):
+                continue
+            label = _pane_label_from_key(folder)
+            parts = []
+            if slot["user"]:
+                parts.append(f'Captain asked: "{_clip(slot["user"])}"')
+            if slot["asst"]:
+                parts.append(f'you replied: "{_clip(slot["asst"])}"')
+            rows.append(f"  • {label} — {' → '.join(parts)}")
+        if not rows:
+            return ""
+        return (
+            "[session resume — where each chat pane left off]\n"
+            "The Captain is asking what was being worked on previously. Below is the "
+            "LAST activity in each project folder across ALL chat panes, most recent "
+            "first. Summarize this for him in your own words — which folder, what the "
+            "task was, where it stands. Do not dump it verbatim. Call "
+            "search_history(scope='all') for deeper detail on any thread.\n"
+            + "\n".join(rows)
+        )
+    except Exception as e:
+        log.warning(f"[RESUME] digest build failed: {e}")
+        return ""
+
+
+def resume_digest_hint(message: str) -> str:
+    """Return the per-folder resume digest ONLY when the message is a resume-type
+    ask; '' otherwise. Safe to call on every turn at each prompt-assembly site."""
+    if not _is_resume_query(message):
+        return ""
+    return _pane_resume_digest(exclude_user_text=message)
+
+
+def tool_session_resume() -> str:
+    """Tool entrypoint: cross-pane 'where did we leave off' digest, on demand."""
+    digest = _pane_resume_digest()
+    return digest or "No prior chat activity found in any pane yet, Captain."
+
+
 # Lazy-load the desktop_control module so missing pyautogui doesn't break boot.
 _dc_mod = None
 def _get_dc():
@@ -4694,6 +4872,7 @@ TOOL_HANDLERS = {
     "take_screenshot": lambda inp: tool_take_screenshot(),
     "load_skill":      lambda inp: tool_load_skill(inp["skill_name"]),
     "search_history":  lambda inp: tool_search_history(inp["query"], inp.get("k", 5), inp.get("scope", "current"), inp.get("sources")),
+    "session_resume":  lambda inp: tool_session_resume(),
     "youtube_upload_video":   lambda inp: tool_youtube_upload_video(inp),
     "youtube_update_video":   lambda inp: tool_youtube_update_video(inp),
     "youtube_set_thumbnail":  lambda inp: tool_youtube_set_thumbnail(inp),
@@ -4895,6 +5074,19 @@ def ask_hermes(message: str, project_path: str = "") -> str:
             ] + messages
     except Exception as e:
         log.warning(f"[RECALL] auto-hint failed: {e}")
+
+    # Session resume: when the Captain asks "what were we working on last time"
+    # (or similar), splice in a deterministic per-pane digest of where EVERY chat
+    # window left off — not just this one. Fires only on resume-shaped asks.
+    try:
+        _resume = resume_digest_hint(message)
+        if _resume:
+            messages = [
+                {"role": "user",      "content": _resume},
+                {"role": "assistant", "content": "Understood — I will summarize where each pane left off."},
+            ] + messages
+    except Exception as e:
+        log.warning(f"[RESUME] non-stream inject failed: {e}")
 
     final_text = ""
 
@@ -5102,6 +5294,15 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
             prompt = _recall_block + "\n\n" + prompt
     except Exception as e:
         log.warning(f"[RECALL] CLI auto-hint failed: {e}")
+
+    # Session resume (CLI path) — prepend the per-pane "where each window left
+    # off" digest when the Captain asks a resume-shaped question.
+    try:
+        _resume_block = resume_digest_hint(message)
+        if _resume_block:
+            prompt = _resume_block + "\n\n" + prompt
+    except Exception as e:
+        log.warning(f"[RESUME] CLI inject failed: {e}")
 
     # Stage attachments for the CLI subprocess. Text content folds inline;
     # image/PDF go to a temp dir and we tell Claude to Read them by path.
@@ -5388,6 +5589,14 @@ def _build_history_prompt(message: str, project_path: str = "") -> str:
             prompt = _recall_block + "\n\n" + prompt
     except Exception as e:
         log.warning(f"[RECALL] CLI helper auto-hint failed: {e}")
+    # Session resume — per-pane "where each window left off" digest on a
+    # resume-shaped ask (codex / gemini path).
+    try:
+        _resume_block = resume_digest_hint(message)
+        if _resume_block:
+            prompt = _resume_block + "\n\n" + prompt
+    except Exception as e:
+        log.warning(f"[RESUME] CLI helper inject failed: {e}")
     return prompt
 
 
@@ -6033,6 +6242,18 @@ def ask_hermes_stream(message: str, project_path: str, send_sse) -> None:
             ] + messages
     except Exception as e:
         log.warning(f"[RECALL] auto-hint failed: {e}")
+
+    # Session resume (streaming path) — per-pane "where each window left off"
+    # digest, injected only when the Captain asks a resume-shaped question.
+    try:
+        _resume = resume_digest_hint(message)
+        if _resume:
+            messages = [
+                {"role": "user",      "content": _resume},
+                {"role": "assistant", "content": "Understood — I will summarize where each pane left off."},
+            ] + messages
+    except Exception as e:
+        log.warning(f"[RESUME] stream inject failed: {e}")
 
     final_text = ""
     total_input_tokens = 0
