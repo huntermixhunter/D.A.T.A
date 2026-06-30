@@ -3496,6 +3496,7 @@ async function enterConvoMode() {
   BRAIN.init();
   BRAIN.start();
   _convoFaceSync('idle');   // start ONLY the idle loop (autoplay removed from markup)
+  _prefetchSpeakingFace();  // warm the speaking clip so the first swap is instant
   document.addEventListener('keydown', _convoKeyHandler);
 
   CONVO.state  = 'idle';
@@ -4322,28 +4323,68 @@ function convoState(state, label) {
   }
 }
 
-// ── DATA DAEMON face — SINGLE light 720p loop (crossfade retired 2026-06-28) ──
-// One stream on the hardware-overlay plane. The only state change is the CSS
-// "speaking" cue (box-shadow glow), toggled on .convo-face. Single chokepoint:
-// convoState(). No second stream, no canvas brain — so conversation mode stays
-// smooth.
+// ── DATA DAEMON face — SINGLE-STREAM SOURCE SWAP (idle ↔ speaking) ───────────
+// One <video> element, one decoder, ever. When Data speaks we swap the element's
+// src to the speaking loop; when he stops we swap back to the idle loop. Because
+// only ONE 720p stream is ever decoding, this carries NO added main-thread cost
+// over the plain idle loop — the chop only ever came from running TWO loops at
+// once (the retired crossfade). The CSS "speaking" glow rides along on top.
+// Single chokepoint: convoState() → _convoFaceSync().
+const _FACE_SRC = {
+  idle:     'assets/faces/daita_face_idle.opt.mp4',
+  speaking: 'assets/faces/daita_face_loop.opt.mp4',
+};
+let _faceMode = 'idle';   // which clip the single element is currently playing
+
+// Warm the speaking clip into the HTTP cache once, so the first idle→speaking
+// swap decodes from disk instead of stalling on a network/disk fetch. This does
+// NOT create a second decoder — it is a byte prefetch only.
+let _facePrefetched = false;
+function _prefetchSpeakingFace() {
+  if (_facePrefetched) return;
+  _facePrefetched = true;
+  try { fetch(_FACE_SRC.speaking, { cache: 'force-cache' }).catch(() => {}); } catch (e) {}
+}
+
+function _convoFaceSwap(mode) {
+  const vid = document.getElementById('convo-face-idle');
+  if (!vid) return;
+  if (_faceMode === mode) {                       // already on the right clip
+    if (vid.paused) { try { vid.play(); } catch (e) {} }
+    return;
+  }
+  _faceMode = mode;
+  const src = _FACE_SRC[mode] || _FACE_SRC.idle;
+  // Resolve against the current URL so a bare relative path compares cleanly
+  // and we never reload the same file we are already playing.
+  try {
+    if (vid.src && vid.src.indexOf(src) !== -1) {
+      if (vid.paused) { try { vid.play(); } catch (e) {} }
+      return;
+    }
+    vid.src = src;            // assigning src triggers the load of the new clip
+    const p = vid.play();     // loop/muted/playsinline attributes persist
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+
 function _convoFaceSync(state) {
   const face = document.getElementById('convo-face');
   if (!face) return;
-  face.classList.toggle('speaking', state === 'speaking');
-  // Make sure the loop is actually running. Autoplay can be skipped when the
-  // overlay was display:none at load, so kick it whenever the face is synced.
-  const vid = document.getElementById('convo-face-idle');
-  if (vid && vid.paused) { try { vid.play(); } catch (e) {} }
+  const speaking = (state === 'speaking');
+  face.classList.toggle('speaking', speaking);     // glow cue
+  _convoFaceSwap(speaking ? 'speaking' : 'idle');  // swap the single decoder
 }
 
 // Pause the single loop on exit so a hidden overlay is not decoding in the
-// background (saves GPU/battery when conversation mode is closed).
+// background (saves GPU/battery when conversation mode is closed). Reset to idle
+// so the next entry starts on the idle clip.
 function _convoFaceStop() {
   const face = document.getElementById('convo-face');
   if (face) face.classList.remove('speaking');
   const vid = document.getElementById('convo-face-idle');
   if (vid) { try { vid.pause(); } catch (e) {} }
+  _faceMode = null;   // force the next sync to re-evaluate the clip on re-entry
 }
 
 function _convoLabel(text) {
@@ -6144,7 +6185,41 @@ function _shipZones() {
   return SHIP_ZONES;
 }
 
+// Lock the in-stage overlay (shield bubble, radar cone, engine glows) to the
+// ship image's ACTUAL rendered rect. The image uses object-fit: contain and is
+// centered in .msd-stage-inner, so on a screen whose aspect differs from the
+// calibration machine it gets letterboxed. The overlay's viewBox coords
+// (cx=50,cy=24 ship center, engine glows at 78%, etc.) are calibrated to the
+// ship pixels — so the overlay element must cover exactly the image rect, not
+// the whole stage box. Without this, the cone apex and shields drift off-ship.
+function _positionShipOverlay() {
+  const overlay = document.querySelector('.msd-overlay');
+  const inner   = document.querySelector('.msd-stage-inner');
+  const img     = document.getElementById('ship-schematic-img');
+  if (!overlay || !inner || !img || !img.naturalWidth) return;
+
+  const innerRect = inner.getBoundingClientRect();
+  if (innerRect.width === 0 || innerRect.height === 0) return;
+
+  // Compute the object-fit: contain rect of the image inside stage-inner.
+  const aspect = img.naturalWidth / img.naturalHeight;
+  let rW = innerRect.width, rH = innerRect.height;
+  if (rW / rH > aspect) rW = rH * aspect;   // limited by height → shrink width
+  else                  rH = rW / aspect;   // limited by width  → shrink height
+  const offX = (innerRect.width  - rW) / 2;
+  const offY = (innerRect.height - rH) / 2;
+
+  // Pin the overlay to that rect (offset parent is .msd-stage-inner).
+  overlay.style.left   = offX + 'px';
+  overlay.style.top    = offY + 'px';
+  overlay.style.right  = 'auto';
+  overlay.style.bottom = 'auto';
+  overlay.style.width  = rW + 'px';
+  overlay.style.height = rH + 'px';
+}
+
 function _drawLeaderLines() {
+  _positionShipOverlay();   // keep shields/cone/engine glows locked to the ship
   const svg = document.querySelector('.msd-leaders-global');
   const img = document.getElementById('ship-schematic-img');
   if (!svg || !img || !img.naturalWidth) return;

@@ -91,11 +91,11 @@
             <span class="alert-dot green" id="alert-dot" title="Alert status — click ship to expand"></span>
           </div>
           <div class="ships-health" id="ships-health-widget" onclick="openShipModal()" title="Click for full Master Systems Display">
-            <div class="ship-silhouette" id="ship-silhouette" aria-label="DATA-Class Starfighter · Lateral View">
+            <div class="ship-silhouette" id="ship-silhouette" aria-label="Daemon-Class Starfighter · Lateral View">
               <!-- Holographic side-view: image base + animated shield / engine-pulse / scan overlay -->
               <div class="ship-holo-frame ship-holo-frame-side">
                 <img src="assets/schematics/starfighter-side.png"
-                     alt="DATA-Class Starfighter — lateral schematic"
+                     alt="Daemon-Class Starfighter — lateral schematic"
                      draggable="false"/>
                 <svg class="ship-holo-overlay" viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true">
                   <defs>
@@ -533,16 +533,19 @@
          Powered by the local Kokoro voice engine (CPU, offline). -->
     <div class="convo-overlay hidden" id="convo-overlay" onclick="_convoOverlayClick(event)">
       <canvas class="convo-canvas" id="convo-canvas"></canvas>
-      <!-- DATA DAEMON face — SINGLE LIGHT 720p VIDEO LOOP (crossfade retired
-           2026-06-28). The chop was never "video is too hard" — it was THREE
-           heavy things on one main thread: two 720p loops crossfading PLUS a
-           full-screen canvas brain. The second loop and the sphere are both
-           retired now, so one 720p faststart loop has all the headroom it needs.
-           It stays a plain rectangle (NO rounded clip) so it rides Chrome's
-           hardware-overlay plane; the rounded bezel + glow live on the parent
-           .convo-face and never clip the video. The poster jpg paints instantly
-           while the loop decodes. "Speaking" is just the cheap CSS glow on
-           .convo-face.speaking — no second stream. -->
+      <!-- DATA DAEMON face — SINGLE-STREAM SOURCE SWAP (idle ↔ speaking).
+           ONE <video>, ONE decoder, ever. When Data speaks, app.js swaps this
+           element's src to the speaking loop; when he stops, back to idle. The
+           old chop came from running TWO 720p loops at once (the retired
+           crossfade) PLUS a canvas brain — never from "video is too hard." With
+           a single decoder active at any moment, the speaking clip adds ZERO
+           extra main-thread cost over the plain idle loop. The element stays a
+           plain rectangle (NO rounded clip) so it rides Chrome's hardware-
+           overlay plane; the rounded bezel + glow live on the parent .convo-face
+           and never clip the video. The poster jpg paints instantly while a clip
+           decodes; the speaking clip is byte-prefetched on convo entry so the
+           first swap is instant. id stays "convo-face-idle" for back-compat with
+           the app.js handlers. -->
       <div class="convo-face" id="convo-face" aria-hidden="true">
         <video id="convo-face-idle" class="convo-face-vid"
                src="assets/faces/daita_face_idle.opt.mp4"
@@ -662,7 +665,7 @@
       <!-- Top status ribbon -->
       <div class="msd-topbar">
         <div class="msd-topbar-left">
-          <span class="msd-brand">DATA-CLASS STARFIGHTER</span>
+          <span class="msd-brand">DAEMON-CLASS STARFIGHTER</span>
           <span class="msd-brand-sep">▸</span>
           <span class="msd-brand-sub">MASTER SYSTEMS DISPLAY</span>
         </div>
@@ -748,7 +751,7 @@
             <img id="ship-schematic-img"
                  src="assets/schematics/starfighter-topdown.png"
                  onerror="this.style.display='none';document.getElementById('ship-schematic-placeholder').style.display='flex';"
-                 alt="DATA-Class Starfighter — Master Systems Display"
+                 alt="Daemon-Class Starfighter — Master Systems Display"
                  draggable="false"/>
             <svg class="msd-overlay" viewBox="0 0 100 48" preserveAspectRatio="none" aria-hidden="true">
               <defs>
@@ -914,7 +917,7 @@
   <script>
     // Theme bootstrap — runs before app.js to avoid flash-of-wrong-theme
     // ── Themes: MINIMAL (default) ↔ CYBER ─────────────────────────
-    // Both themes fly the same DATA-Class Starfighter schematic, so only
+    // Both themes fly the same Daemon-Class Starfighter schematic, so only
     // the body class swaps. The toggle label always names the OTHER theme.
     (function () {
       var saved = localStorage.getItem('data-theme') || 'minimal';
