@@ -21,6 +21,9 @@ dashboard/test_output_*.wav
 dashboard/assets/faces/*.backup_*
 dashboard/assets/faces/*.bak-*
 
+# Internal IP/legal working docs — never ship to buyers
+COPYRIGHT_REGISTRATION.md
+
 # Secrets
 .env
 
