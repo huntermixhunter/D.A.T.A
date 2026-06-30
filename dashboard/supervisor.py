@@ -35,6 +35,21 @@ LOG             = HERE.parent / "bridge.log"
 SUPERVISOR_PORT = 7766
 BRIDGE_PORT     = 7777
 
+# ── Crash self-heal ──────────────────────────────────────────
+# A background watcher polls the bridge port. If it goes dark UNEXPECTEDLY — a
+# crash, an OOM kill, a wedge — we relaunch it so a random bridge death heals
+# itself instead of leaving the user on an OFFLINE page. A DELIBERATE shutdown
+# (SYSTEM OFFLINE, or the browser-disconnect lifecycle) is told apart by a
+# sentinel file the bridge writes on its way down: while it exists, the watcher
+# stays its hand, so we never fight an intentional shutdown.
+WATCH_INTERVAL_SECS = 5     # seconds between bridge-port polls
+WATCH_MISS_LIMIT    = 2     # consecutive dark polls before respawn (~10s)
+OFFLINE_SENTINEL    = HERE / ".data_offline"   # present ⇒ deliberate shutdown
+
+# Shared with the watcher thread.
+_reboot_in_progress = False   # true during /reboot so the watcher does not double-spawn
+_bridge_seen_up     = False   # latches true once the bridge has answered at least once
+
 # Reuse the interpreter that launched us — portable across installs (no
 # hardcoded paths). On Windows this is whatever start_data.bat invoked.
 PYTHON    = Path(sys.executable)
@@ -54,6 +69,48 @@ def _port_listening(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.4)
         return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _clear_offline_sentinel(reason: str = "") -> None:
+    """Remove the deliberate-shutdown marker. Called on a fresh supervisor
+    launch and on /reboot — both mean we are intentionally bringing DATA up, so
+    the crash-watcher should be free to keep the bridge alive again."""
+    try:
+        if OFFLINE_SENTINEL.exists():
+            OFFLINE_SENTINEL.unlink()
+            _log(f"Cleared offline sentinel{f' ({reason})' if reason else ''}")
+    except Exception as e:
+        _log(f"clear sentinel error: {e}")
+
+
+def _bridge_watcher() -> None:
+    """Self-heal loop. Respawns the bridge if its port goes dark with no offline
+    sentinel present — i.e. a crash, not a deliberate shutdown. Acts only after
+    the bridge has been seen alive at least once this supervisor lifetime, so
+    `--watch-only` at logon never forces up a bridge nobody launched."""
+    global _bridge_seen_up
+    misses = 0
+    while True:
+        time.sleep(WATCH_INTERVAL_SECS)
+        if _reboot_in_progress:
+            misses = 0
+            continue
+        if _port_listening(BRIDGE_PORT):
+            _bridge_seen_up = True
+            misses = 0
+            continue
+        # Port is dark.
+        if not _bridge_seen_up:
+            continue                      # never started yet — nothing to restore
+        if OFFLINE_SENTINEL.exists():
+            misses = 0
+            continue                      # deliberate shutdown — leave it down
+        misses += 1
+        if misses >= WATCH_MISS_LIMIT:
+            _log("Bridge port dark, no offline sentinel — auto-restarting (crash recovery)")
+            _spawn_bridge()
+            misses = 0
+            time.sleep(3)                 # let the fresh bridge bind before re-checking
 
 
 def _kill_bridge() -> None:
@@ -102,15 +159,26 @@ def _spawn_bridge() -> None:
 
 def _reboot_bridge() -> None:
     """Hard restart: kill the old bridge, wait for the port to free, relaunch."""
-    _log("Reboot requested — killing bridge")
-    _kill_bridge()
-    for _ in range(30):
-        if not _port_listening(BRIDGE_PORT):
-            break
-        time.sleep(0.2)
-    time.sleep(0.4)
-    _spawn_bridge()
-    _log("Reboot: fresh bridge launched")
+    global _reboot_in_progress
+    _reboot_in_progress = True
+    try:
+        _log("Reboot requested — killing bridge")
+        # A manual reboot is a deliberate bring-back — clear any offline marker
+        # so the watcher resumes keeping the bridge alive.
+        _clear_offline_sentinel("manual reboot")
+        _kill_bridge()
+        for _ in range(30):
+            if not _port_listening(BRIDGE_PORT):
+                break
+            time.sleep(0.2)
+        time.sleep(0.4)
+        _spawn_bridge()
+        _log("Reboot: fresh bridge launched")
+    finally:
+        # Settle window so the crash-watcher does not also fire during the gap
+        # while the fresh bridge is still binding the port.
+        time.sleep(3)
+        _reboot_in_progress = False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -147,14 +215,32 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # `--watch-only` (used by an at-logon autostart): stand up the control server
+    # + crash-watcher but do NOT spawn the bridge at startup. The bridge comes up
+    # when the user launches DATA (or presses REBOOT); the watcher then keeps it
+    # alive. Without the flag (the normal launcher path) we spawn it immediately.
+    watch_only = "--watch-only" in sys.argv[1:]
+
     try:
         server = ThreadingHTTPServer(("127.0.0.1", SUPERVISOR_PORT), Handler)
     except OSError as e:
         _log(f"Could not bind :{SUPERVISOR_PORT} ({e}) — another supervisor already running? Exiting.")
         return
 
-    _log(f"Supervisor online at http://127.0.0.1:{SUPERVISOR_PORT}")
-    if not _port_listening(BRIDGE_PORT):
+    _log(f"Supervisor online at http://127.0.0.1:{SUPERVISOR_PORT}"
+         + (" (watch-only)" if watch_only else ""))
+
+    # A fresh supervisor launch is a deliberate bring-up — clear any stale
+    # offline marker left by a prior shutdown so the watcher is free to heal.
+    _clear_offline_sentinel("supervisor start")
+
+    # Crash self-heal watcher (daemon so it dies with the supervisor).
+    import threading
+    threading.Thread(target=_bridge_watcher, daemon=True).start()
+
+    if watch_only:
+        _log("watch-only: not spawning bridge at startup — waiting for launch/reboot")
+    elif not _port_listening(BRIDGE_PORT):
         _spawn_bridge()
     else:
         _log("Bridge already listening on :7777 — not spawning a duplicate")

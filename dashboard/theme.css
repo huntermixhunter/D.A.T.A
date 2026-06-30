@@ -863,6 +863,32 @@ html, body {
   gap: 8px;
 }
 
+/* Drag handle to grow/shrink the prompt box. Sits at the top edge of the input
+   area; dragging up makes the textarea taller. Height is persisted by app.js. */
+.input-resize-handle {
+  height: 10px;
+  margin: -4px 0 -2px;
+  cursor: ns-resize;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;            /* let pointer drags work on touch screens */
+}
+.input-resize-handle::before {
+  content: "";
+  width: 46px;
+  height: 3px;
+  border-radius: 3px;
+  background: #2a2a3a;
+  transition: background 0.15s, width 0.15s;
+}
+.input-resize-handle:hover::before,
+.input-resize-handle.dragging::before {
+  background: var(--data-orange);
+  width: 72px;
+}
+
 .input-row {
   display: flex;
   align-items: flex-end;

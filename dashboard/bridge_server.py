@@ -117,6 +117,16 @@ def _do_shutdown(preserve_supervisor: bool = False):
     button can relaunch the bridge on its own after the machine wakes from sleep —
     no desktop-icon relaunch needed. The deliberate SYSTEM OFFLINE button calls
     this with preserve_supervisor=False for a full shutdown."""
+    # Mark this as a DELIBERATE shutdown (SYSTEM OFFLINE or the browser-disconnect
+    # lifecycle) BEFORE any kill, so the always-on supervisor's crash-watcher does
+    # not race in and respawn the bridge. A real crash never writes this file —
+    # that asymmetry is exactly what lets a crash self-heal while an intentional
+    # shutdown stays down.
+    try:
+        (Path(__file__).resolve().parent / ".data_offline").write_text(
+            time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+    except Exception:
+        pass
     time.sleep(0.6)
     log.info(f"[SHUTDOWN] System offline requested (preserve_supervisor={preserve_supervisor})")
 
@@ -186,6 +196,12 @@ def _do_reboot():
         (On the desktop the REBOOT button normally goes through the supervisor
         on :7766; this is the fallback for a wedged-but-alive bridge.)
     """
+    # A reboot is a deliberate bring-back — drop any offline marker so the
+    # supervisor's watcher resumes keeping the bridge alive.
+    try:
+        (Path(__file__).resolve().parent / ".data_offline").unlink(missing_ok=True)
+    except Exception:
+        pass
     time.sleep(0.4)
     mode = os.environ.get("DATA_REBOOT_MODE", "").strip().lower()
     log.info(f"[REBOOT] Bridge restart requested (platform={sys.platform}, mode={mode or 'auto'})")
@@ -4516,34 +4532,52 @@ def tool_search_history(query: str, k: int = 5, scope: str = "current",
     return "\n".join(lines).rstrip()
 
 
-def auto_recall_hint(user_message: str, scope: str = "current",
-                     min_chars: int = 30, min_score: float = 0.025) -> str:
-    """Quietly check whether anything in the recall index is strongly relevant
-    to this incoming user message. Returns either an empty string (silent) or a
-    one-line `[recall] ...` hint suitable to splice into the system prompt.
+def auto_recall_hint(user_message: str, scope: str = "all",
+                     min_chars: int = 12, min_score: float = 0.015,
+                     k: int = 3) -> str:
+    """Proactively pull the most relevant items from the memory banks for this
+    incoming message and return a compact block to splice into the prompt.
+    Returns '' when nothing clears the noise floor.
 
-    Threshold tuned conservatively — the hint stays silent unless the top hit
-    is well above the noise floor (RRF score over ~0.025 with both legs voting)."""
+    Cross-pane by DEFAULT (scope='all'): context that lives in OTHER panes — a
+    project window, a standing order, an older archived turn — surfaces here
+    without the Captain having to say 'search your memory banks'. That is the
+    whole point: recall happens on every turn, automatically.
+
+    Best-effort — any failure returns '' so a recall hiccup never blocks a turn.
+    Thresholds are deliberately looser than the old single-hit hint so genuinely
+    relevant context is not silently dropped, while the score floor still keeps
+    pure-noise matches out."""
     if not user_message or len(user_message.strip()) < min_chars:
         return ""
     try:
-        hits = _recall_search(user_message, k=1, scope=scope)
+        hits = _recall_search(user_message, k=k, scope=scope)
     except Exception:
         return ""
-    if not hits:
+    lines = []
+    for h in hits:
+        if h.get("score", 0) < min_score:
+            continue
+        snip = (h.get("snippet") or "").replace("\n", " ").strip()
+        if not snip:
+            continue
+        if len(snip) > 220:
+            snip = snip[:217] + "…"
+        src_tag = h.get("source", "")
+        if src_tag == "conversation":
+            where = f"convo · {h.get('pane', '?')} · turn {h.get('ref', '?')}"
+        else:
+            where = f"{src_tag} · {h.get('ref', '?')}"
+        lines.append(f"  • ({where}) {snip}")
+    if not lines:
         return ""
-    top = hits[0]
-    if top["score"] < min_score:
-        return ""
-    snip = top["snippet"].replace("\n", " ").strip()
-    if len(snip) > 200:
-        snip = snip[:197] + "…"
-    src_tag = top["source"]
-    where = (
-        f"{top['pane']} turn ref={top['ref']}" if src_tag == "conversation"
-        else f"{src_tag}: {top['ref']}"
+    return (
+        "[memory-bank auto-recall] Items from your archive (across ALL panes) that "
+        "may bear on the Captain's message below. Weave in any that are genuinely "
+        "relevant, and call search_history if you need the full context; ignore "
+        "the rest. Do not mention this block unless it helped.\n"
+        + "\n".join(lines)
     )
-    return f"[recall] Possibly relevant past context — {where} — {snip}"
 
 
 # Lazy-load the desktop_control module so missing pyautogui doesn't break boot.
@@ -5058,6 +5092,17 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     if active_path:
         prompt = f"[Active project: {active_path}]\n\n{prompt}"
 
+    # Auto memory-bank recall — surface relevant past context from EVERY pane so
+    # the Captain never has to prod ("search your memory banks"). This is the CLI
+    # path the Captain actually runs, which previously had NO auto-recall at all.
+    # Best-effort: a recall hiccup must never block the turn.
+    try:
+        _recall_block = auto_recall_hint(message)
+        if _recall_block:
+            prompt = _recall_block + "\n\n" + prompt
+    except Exception as e:
+        log.warning(f"[RECALL] CLI auto-hint failed: {e}")
+
     # Stage attachments for the CLI subprocess. Text content folds inline;
     # image/PDF go to a temp dir and we tell Claude to Read them by path.
     _attachments = getattr(_request_attachments, "list", None) or []
@@ -5335,6 +5380,14 @@ def _build_history_prompt(message: str, project_path: str = "") -> str:
     active_path = project_path or _project_path
     if active_path:
         prompt = f"[Active project: {active_path}]\n\n{prompt}"
+    # Auto memory-bank recall for the non-Claude CLIs (codex / gemini), matching
+    # the claude-cli path — cross-pane, best-effort.
+    try:
+        _recall_block = auto_recall_hint(message)
+        if _recall_block:
+            prompt = _recall_block + "\n\n" + prompt
+    except Exception as e:
+        log.warning(f"[RECALL] CLI helper auto-hint failed: {e}")
     return prompt
 
 
@@ -9680,6 +9733,13 @@ if __name__ == "__main__":
     # X-Data-Token auth gate is configured.
     BIND_HOST = os.environ.get("LCARS_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
     server = ThreadingHTTPServer((BIND_HOST, PORT), Handler)
+    # A fresh bridge process means DATA is deliberately online — drop any stale
+    # offline marker so the supervisor's crash-watcher treats future deaths as
+    # crashes to heal (not as an intended shutdown).
+    try:
+        (Path(__file__).resolve().parent / ".data_offline").unlink(missing_ok=True)
+    except Exception:
+        pass
     print(f"DATA Bridge Server online at http://localhost:{PORT}")
     print(f"Hermes directory: {HERMES_DIR}")
     print(f"Memory file: {MEMORY_FILE}")

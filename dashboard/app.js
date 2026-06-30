@@ -479,6 +479,7 @@ function setMainChatCrew(id) { setPaneCrew('main', id); }
 window.addEventListener('DOMContentLoaded', () => {
   _populatePaneCrewSelect('main', MAIN_CHAT_CREW);
   bootCaptains();
+  initChatInputResizer();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -489,6 +490,67 @@ window.addEventListener('DOMContentLoaded', () => {
     body: JSON.stringify({ path: '' }),
   }).catch(() => {});
 });
+
+// ── Resizable prompt box ───────────────────────────────────────────
+// The handle above the main chat textarea lets the Captain drag the prompt
+// area taller (to see a long message while typing) or shorter. The chosen
+// height persists across reloads in localStorage. Dragging UP grows the box.
+const _CHAT_INPUT_HEIGHT_KEY = 'data.chatInputHeight';
+const _CHAT_INPUT_MIN_PX = 38;
+function _chatInputMaxPx() {
+  // Never let the box swallow the whole window — cap at 60% of viewport.
+  return Math.max(120, Math.round(window.innerHeight * 0.6));
+}
+function _applyChatInputHeight(px) {
+  const ta = document.getElementById('chat-input');
+  if (!ta) return;
+  const clamped = Math.min(_chatInputMaxPx(), Math.max(_CHAT_INPUT_MIN_PX, Math.round(px)));
+  ta.style.height = clamped + 'px';
+  return clamped;
+}
+function initChatInputResizer() {
+  const handle = document.getElementById('chat-input-resizer');
+  const ta = document.getElementById('chat-input');
+  if (!handle || !ta) return;
+
+  // Restore a previously saved height.
+  const saved = parseInt(localStorage.getItem(_CHAT_INPUT_HEIGHT_KEY) || '', 10);
+  if (!isNaN(saved)) _applyChatInputHeight(saved);
+
+  let startY = 0, startH = 0, dragging = false;
+  const onMove = (e) => {
+    if (!dragging) return;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY);
+    // Handle is ABOVE the textarea, so dragging up (smaller Y) grows it.
+    const next = startH + (startY - y);
+    _applyChatInputHeight(next);
+    e.preventDefault();
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    localStorage.setItem(_CHAT_INPUT_HEIGHT_KEY, String(parseInt(ta.style.height, 10) || _CHAT_INPUT_MIN_PX));
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    startY = e.clientY;
+    startH = ta.getBoundingClientRect().height;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    e.preventDefault();
+  });
+  // Double-click the handle to reset to the default two-row height.
+  handle.addEventListener('dblclick', () => {
+    ta.style.height = '';
+    localStorage.removeItem(_CHAT_INPUT_HEIGHT_KEY);
+  });
+}
 
 // ══════════════════════════════════════════════════════════════════
 // CAPTAIN SWITCHER — selects which Captain (user profile) is active

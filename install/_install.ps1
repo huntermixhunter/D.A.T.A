@@ -135,6 +135,34 @@ timeout /t 2 >nul
 Set-Content -Path "$root\stop_data.bat" -Value $stopper -Encoding ascii
 Write-Host "  [OK] Stop script written: stop_data.bat"
 
+# 5d. Always-on supervisor at logon (best-effort).
+# Registers a per-user scheduled task that starts the supervisor in watch-only
+# mode at logon. This keeps the dashboard's REBOOT button working even when the
+# bridge is fully offline, and lets a crashed bridge self-heal without the user
+# relaunching. Entirely optional — DATA still runs without it (the launcher
+# starts the supervisor too); a failure here is only a warning.
+try {
+    $pwExe = $null
+    $exe = & $python -c "import sys; print(sys.executable)" 2>$null
+    if ($exe) {
+        $cand = Join-Path (Split-Path -Parent $exe) "pythonw.exe"
+        if (Test-Path $cand) { $pwExe = $cand }
+    }
+    if ($pwExe) {
+        $dash = Join-Path $root "dashboard"
+        $act = New-ScheduledTaskAction -Execute $pwExe -Argument '"supervisor.py" --watch-only' -WorkingDirectory $dash
+        $trg = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+        $prn = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+        $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
+        Register-ScheduledTask -TaskName "DATA Supervisor" -Action $act -Trigger $trg -Principal $prn -Settings $set -Description "Keeps the DATA supervisor (127.0.0.1:7766) running at logon so REBOOT works even when the bridge is offline, and a crashed bridge self-heals." -Force | Out-Null
+        Write-Host "  [OK] Registered at-logon supervisor task (REBOOT works offline; bridge self-heals)"
+    } else {
+        Write-Host "  [--] Skipped at-logon supervisor task (pythonw.exe not found). DATA still runs." -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "  [--] Could not register the at-logon supervisor task - DATA still runs. ($($_.Exception.Message))" -ForegroundColor Yellow
+}
+
 # 6. Desktop shortcut with the DATA icon (opt-in)
 # Ask first so the user stays in control. Defaults to Yes on a bare Enter.
 # In a non-interactive run (no console), skip the prompt and create it anyway.

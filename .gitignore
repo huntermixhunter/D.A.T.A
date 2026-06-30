@@ -1,5 +1,6 @@
 # Runtime state — created by the bridge, stays local
 users/
+dashboard/.data_offline
 screenshots/
 bridge.log
 standing_orders.json

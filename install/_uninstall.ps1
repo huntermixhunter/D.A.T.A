@@ -59,6 +59,18 @@ foreach ($f in @("start_data.bat", "start_data.vbs", "stop_data.bat", "bridge.lo
     }
 }
 
+# 3b. Remove the at-logon supervisor scheduled task, if the installer added it.
+try {
+    if (Get-ScheduledTask -TaskName "DATA Supervisor" -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName "DATA Supervisor" -Confirm:$false
+        Write-Host "  [OK] Removed at-logon supervisor task (DATA Supervisor)"
+    } else {
+        Write-Host "  [--] No at-logon supervisor task found (nothing to remove)."
+    }
+} catch {
+    Write-Host "  [--] Could not remove the at-logon supervisor task. ($($_.Exception.Message))" -ForegroundColor Yellow
+}
+
 # 4. .env - holds your saved settings (weather coords, port, any keys). Kept by
 #    default so a reinstall keeps your config; removable on request.
 $envFile = Join-Path $root ".env"
