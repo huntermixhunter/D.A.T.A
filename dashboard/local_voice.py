@@ -76,14 +76,136 @@ KOKORO_SR = 24000
 ENGINE = "kokoro"
 VALID_ENGINES = ("kokoro",)
 DEVICE = "cpu"
-COMPUTE_TYPE = "int8"          # faster-whisper compute type — CPU-friendly
 DEFAULT_VOICE = "data"
 
-# Which faster-whisper model to load. "base" is the sweet spot for a retail
-# CPU box: ~75MB, ~1s per short clip, good accuracy on conversational English.
-# Override with DATA_STT_MODEL (e.g. "tiny.en" for weaker machines, "small"
-# for more accuracy).
-_STT_MODEL = os.environ.get("DATA_STT_MODEL", "base.en").strip() or "base.en"
+# ════════════════════════════════════════════════════════════════
+# STT (Whisper) runtime config — live + persisted
+# ════════════════════════════════════════════════════════════════
+# These used to be import-time constants. They are now a live, persisted config
+# so the Settings UI can retune STT (which model, beam size, compute precision)
+# WITHOUT editing code or restarting the daemon — the next spoken turn picks up
+# the change, and a model swap reloads lazily on the following utterance.
+# Persisted to voice_config.json next to the model assets.
+VOICE_CONFIG_PATH = MODELS_DIR / "voice_config.json"
+
+# Catalog of Whisper models the Settings UI offers, fastest → most accurate.
+# size_mb is approximate on-disk (int8). The ".en" variants are smaller and
+# faster and are the right pick for an English-only, GPU-less machine (e.g. a
+# Surface Pro). faster-whisper downloads the chosen model from HuggingFace on
+# first use; "installing" simply pre-fetches it so the first turn is not slow.
+STT_MODEL_CATALOG = [
+    {"id": "tiny.en",          "label": "Tiny (English)",      "size_mb": 75,   "note": "fastest, lowest accuracy"},
+    {"id": "tiny",             "label": "Tiny (multilingual)", "size_mb": 75,   "note": "fastest, multilingual"},
+    {"id": "base.en",          "label": "Base (English)",      "size_mb": 145,  "note": "balanced, default"},
+    {"id": "base",             "label": "Base (multilingual)", "size_mb": 145,  "note": "balanced, multilingual"},
+    {"id": "small.en",         "label": "Small (English)",     "size_mb": 480,  "note": "more accurate, slower"},
+    {"id": "small",            "label": "Small (multilingual)","size_mb": 480,  "note": "more accurate, multilingual"},
+    {"id": "distil-small.en",  "label": "Distil-Small (Eng)",  "size_mb": 330,  "note": "fast, near-small accuracy"},
+    {"id": "medium.en",        "label": "Medium (English)",    "size_mb": 1500, "note": "high accuracy, much slower"},
+    {"id": "distil-medium.en", "label": "Distil-Medium (Eng)", "size_mb": 790,  "note": "fast, near-medium accuracy"},
+    {"id": "large-v3",         "label": "Large v3",            "size_mb": 3100, "note": "best accuracy, GPU recommended"},
+    {"id": "distil-large-v3",  "label": "Distil-Large v3",     "size_mb": 1500, "note": "near-large accuracy, faster"},
+]
+STT_MODEL_IDS = [m["id"] for m in STT_MODEL_CATALOG]
+
+# faster-whisper compute types. int8 is the fastest on a plain CPU and is the
+# retail default; the float types only help on a GPU.
+COMPUTE_TYPE_CHOICES = ("int8", "int8_float16", "float16", "float32")
+
+_STT_DEFAULTS = {
+    "model":        (os.environ.get("DATA_STT_MODEL", "base.en").strip() or "base.en"),
+    "beam_size":    1,        # 1 = greedy = fastest (best for CPU/no-GPU)
+    "best_of":      1,
+    "compute_type": "int8",
+    "vad_filter":   True,
+}
+
+_CONFIG_LOCK = threading.Lock()
+
+
+def _load_config() -> dict:
+    """Read voice_config.json over the defaults. Missing/garbled file → defaults."""
+    cfg = dict(_STT_DEFAULTS)
+    try:
+        if VOICE_CONFIG_PATH.exists():
+            import json
+            saved = json.loads(VOICE_CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(saved, dict):
+                for k in _STT_DEFAULTS:
+                    if k in saved and saved[k] is not None:
+                        cfg[k] = saved[k]
+    except Exception as e:
+        log.warning(f"[STT] could not read {VOICE_CONFIG_PATH.name}: {e}")
+    # Defensive clamps in case the file was hand-edited.
+    if cfg.get("model") not in STT_MODEL_IDS:
+        cfg["model"] = _STT_DEFAULTS["model"]
+    if cfg.get("compute_type") not in COMPUTE_TYPE_CHOICES:
+        cfg["compute_type"] = _STT_DEFAULTS["compute_type"]
+    try:
+        cfg["beam_size"] = max(1, min(10, int(cfg["beam_size"])))
+        cfg["best_of"]   = max(1, min(10, int(cfg["best_of"])))
+    except Exception:
+        cfg["beam_size"], cfg["best_of"] = 1, 1
+    cfg["vad_filter"] = bool(cfg.get("vad_filter", True))
+    return cfg
+
+
+_stt_cfg = _load_config()
+
+# Back-compat module attrs (older tooling / logs read these). Kept in sync with
+# the live config by set_stt_config().
+_STT_MODEL   = _stt_cfg["model"]
+COMPUTE_TYPE = _stt_cfg["compute_type"]
+
+
+def get_stt_config() -> dict:
+    """Snapshot of the current STT config (model / beam_size / best_of /
+    compute_type / vad_filter)."""
+    with _CONFIG_LOCK:
+        return dict(_stt_cfg)
+
+
+def _persist_config() -> None:
+    import json
+    try:
+        VOICE_CONFIG_PATH.write_text(json.dumps(_stt_cfg, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"[STT] could not write {VOICE_CONFIG_PATH.name}: {e}")
+
+
+def set_stt_config(**kw) -> dict:
+    """Update STT config, validate, persist, and drop the cached Whisper model
+    if the model or compute type changed so the next transcribe() reloads with
+    the new settings. Returns the new config snapshot."""
+    global _STT_MODEL, COMPUTE_TYPE, _whisper_model
+    with _CONFIG_LOCK:
+        old_model, old_compute = _stt_cfg["model"], _stt_cfg["compute_type"]
+        if kw.get("model"):
+            m = str(kw["model"]).strip()
+            if m not in STT_MODEL_IDS:
+                raise ValueError(f"unknown STT model {m!r}")
+            _stt_cfg["model"] = m
+        if kw.get("beam_size") is not None:
+            _stt_cfg["beam_size"] = max(1, min(10, int(kw["beam_size"])))
+        if kw.get("best_of") is not None:
+            _stt_cfg["best_of"] = max(1, min(10, int(kw["best_of"])))
+        if kw.get("compute_type"):
+            c = str(kw["compute_type"]).strip()
+            if c not in COMPUTE_TYPE_CHOICES:
+                raise ValueError(f"unknown compute type {c!r}")
+            _stt_cfg["compute_type"] = c
+        if kw.get("vad_filter") is not None:
+            _stt_cfg["vad_filter"] = bool(kw["vad_filter"])
+        _STT_MODEL   = _stt_cfg["model"]
+        COMPUTE_TYPE = _stt_cfg["compute_type"]
+        _persist_config()
+        changed = (_stt_cfg["model"] != old_model) or (_stt_cfg["compute_type"] != old_compute)
+        snapshot = dict(_stt_cfg)
+    if changed:
+        with _LOAD_LOCK:
+            _whisper_model = None
+        log.info(f"[STT] config changed → next turn loads {snapshot['model']} ({snapshot['compute_type']})")
+    return snapshot
 
 # ── Crew voice → Kokoro preset map ──────────────────────────────
 # Kokoro ships fixed voicepacks (am_=American male, af_=American female,
@@ -194,6 +316,9 @@ def start_idle_watcher(idle_seconds: int = 600, check_interval: int = 30) -> Non
 _LOAD_LOCK = threading.Lock()
 _kokoro_model = None
 _whisper_model = None
+# (model_id, compute_type) the cached Whisper handle was built with — lets
+# set_stt_config() force a reload only when one of those actually changed.
+_whisper_loaded_key = None
 
 # Back-compat aliases: the personal bridge's /voice/status reads `_f5_model`
 # and `_xtts_model`. Retail has neither engine, so they stay None; the status
@@ -237,18 +362,113 @@ _INITIAL_PROMPT = (
 
 
 def _load_whisper():
-    """Lazy-load faster-whisper. First call downloads the model (~75MB for base)."""
-    global _whisper_model
-    if _whisper_model is not None:
+    """Lazy-load faster-whisper using the live config. First call for a given
+    model downloads it (~75MB for tiny/base, more for larger models). Reloads
+    automatically if the configured model or compute type changed."""
+    global _whisper_model, _whisper_loaded_key
+    cfg = get_stt_config()
+    want = (cfg["model"], cfg["compute_type"])
+    if _whisper_model is not None and _whisper_loaded_key == want:
         return _whisper_model
     with _LOAD_LOCK:
-        if _whisper_model is not None:
+        if _whisper_model is not None and _whisper_loaded_key == want:
             return _whisper_model
         from faster_whisper import WhisperModel
-        log.info(f"[STT] loading faster-whisper {_STT_MODEL} ({DEVICE}, {COMPUTE_TYPE})")
-        _whisper_model = WhisperModel(_STT_MODEL, device=DEVICE, compute_type=COMPUTE_TYPE)
+        log.info(f"[STT] loading faster-whisper {want[0]} ({DEVICE}, {want[1]})")
+        _whisper_model = WhisperModel(want[0], device=DEVICE, compute_type=want[1])
+        _whisper_loaded_key = want
         log.info("[STT] model ready")
         return _whisper_model
+
+
+# ════════════════════════════════════════════════════════════════
+# STT model install (background download) + installed detection
+# ════════════════════════════════════════════════════════════════
+def _stt_repo_for(model_id: str) -> str:
+    """HuggingFace repo faster-whisper pulls a given model id from."""
+    if model_id.startswith("distil-"):
+        return f"Systran/faster-distil-whisper-{model_id[len('distil-'):]}"
+    return f"Systran/faster-whisper-{model_id}"
+
+
+def _hf_hub_cache() -> Path:
+    """Where huggingface_hub caches downloaded models."""
+    if os.environ.get("HF_HUB_CACHE"):
+        return Path(os.environ["HF_HUB_CACHE"])
+    if os.environ.get("HF_HOME"):
+        return Path(os.environ["HF_HOME"]) / "hub"
+    return Path.home() / ".cache" / "huggingface" / "hub"
+
+
+def is_model_installed(model_id: str) -> bool:
+    """True if the model's weights are already on disk (no download needed)."""
+    folder = "models--" + _stt_repo_for(model_id).replace("/", "--")
+    snaps = _hf_hub_cache() / folder / "snapshots"
+    if not snaps.is_dir():
+        return False
+    try:
+        for snap in snaps.iterdir():
+            if (snap / "model.bin").exists():
+                return True
+    except OSError:
+        pass
+    return False
+
+
+_install_state: dict = {}      # model_id -> {"status": "downloading"|"ready"|"error", "error"?: str}
+_install_lock = threading.Lock()
+
+
+def stt_install_state() -> dict:
+    with _install_lock:
+        return {k: dict(v) for k, v in _install_state.items()}
+
+
+def _do_install(model_id: str) -> None:
+    try:
+        from faster_whisper import WhisperModel
+        log.info(f"[STT] installing model {model_id} (downloading if needed)")
+        # Constructing the model triggers the HuggingFace download into cache.
+        WhisperModel(model_id, device=DEVICE, compute_type=get_stt_config()["compute_type"])
+        with _install_lock:
+            _install_state[model_id] = {"status": "ready"}
+        log.info(f"[STT] model {model_id} installed")
+    except Exception as e:
+        with _install_lock:
+            _install_state[model_id] = {"status": "error", "error": str(e)}
+        log.warning(f"[STT] install of {model_id} failed: {e}")
+
+
+def start_install(model_id: str) -> dict:
+    """Kick off a background download of a model. Idempotent: returns the current
+    status if it is already installed or in flight."""
+    if model_id not in STT_MODEL_IDS:
+        raise ValueError(f"unknown STT model {model_id!r}")
+    with _install_lock:
+        st = _install_state.get(model_id)
+        if st and st.get("status") == "downloading":
+            return {"status": "downloading"}
+        if is_model_installed(model_id):
+            _install_state[model_id] = {"status": "ready"}
+            return {"status": "ready"}
+        _install_state[model_id] = {"status": "downloading"}
+    threading.Thread(target=_do_install, args=(model_id,), daemon=True,
+                     name=f"stt-install-{model_id}").start()
+    return {"status": "downloading"}
+
+
+def stt_catalog() -> list:
+    """The model catalog annotated with per-model installed/download status —
+    what the Settings UI renders."""
+    out = []
+    for m in STT_MODEL_CATALOG:
+        with _install_lock:
+            st = _install_state.get(m["id"], {})
+        installed = is_model_installed(m["id"])
+        status = st.get("status") or ("ready" if installed else "not_installed")
+        out.append({**m, "installed": installed, "status": status,
+                    "error": st.get("error")})
+    return out
 
 
 # ════════════════════════════════════════════════════════════════
@@ -259,6 +479,7 @@ def transcribe(audio_bytes: bytes, suffix: str = ".webm") -> str:
     (webm/ogg/wav/mp3); returns the transcript text."""
     _touch_activity()
     model = _load_whisper()
+    cfg = get_stt_config()
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
         f.write(audio_bytes)
         tmp = f.name
@@ -266,12 +487,12 @@ def transcribe(audio_bytes: bytes, suffix: str = ".webm") -> str:
         segments, _info = model.transcribe(
             tmp,
             language="en",
-            beam_size=5,
-            best_of=5,
+            beam_size=int(cfg["beam_size"]),
+            best_of=int(cfg["best_of"]),
             temperature=0.0,
             initial_prompt=_INITIAL_PROMPT,
             condition_on_previous_text=False,
-            vad_filter=True,
+            vad_filter=bool(cfg["vad_filter"]),
             vad_parameters={"min_silence_duration_ms": 500},
         )
         return " ".join(s.text.strip() for s in segments).strip()

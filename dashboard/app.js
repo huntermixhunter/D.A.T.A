@@ -7982,6 +7982,8 @@ loadProviders();
 // ════════════════════════════════════════════════════════════════════════
 let _settingsAgents = [];        // [{id,name,path,content}] from /agents
 let _settingsActiveAgent = null;
+let _sttState = {};              // {config, models, compute_types} from /voice/stt
+let _sttPollTimer = null;        // polls while a model is downloading
 
 function openSettings() {
   const ov = document.getElementById('settings-overlay');
@@ -8000,6 +8002,7 @@ function closeSettings() {
   const ov = document.getElementById('settings-overlay');
   if (ov) ov.classList.add('hidden');
   document.removeEventListener('keydown', _settingsKey);
+  if (_sttPollTimer) { clearInterval(_sttPollTimer); _sttPollTimer = null; }
 }
 function _settingsBackdrop(evt) { if (evt.target.id === 'settings-overlay') closeSettings(); }
 function _settingsKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeSettings(); } }
@@ -8036,6 +8039,7 @@ function settingsSetTheme(t) {
 async function _settingsLoadVoice() {
   if (!CREW_VOICES_LIST.length) { try { await syncCrewVoiceToggle(); } catch (e) {} }
   _settingsPaintVoiceRow();
+  _settingsLoadStt();
 }
 function _settingsPaintVoiceRow() {
   const row = document.getElementById('settings-voice-row');
@@ -8045,6 +8049,78 @@ function _settingsPaintVoiceRow() {
     `<button class="settings-opt${v.id === CREW_VOICE ? ' active' : ''}" data-voice="${v.id}" onclick="settingsSetCrewVoice('${v.id}')">${(v.name || v.id).toUpperCase()}</button>`).join('');
 }
 function settingsSetCrewVoice(id) { if (typeof setCrewVoice === 'function') setCrewVoice(id); _settingsPaintVoiceRow(); }
+
+// ── STT (speech-to-text) tuning — model / beam size / compute precision ──────
+// The retail Whisper engine. Lets the Captain trade accuracy for speed on a
+// GPU-less machine and download new models on demand.
+async function _settingsLoadStt() {
+  try {
+    const d = await (await fetch(`${API_BASE}/voice/stt`)).json();
+    if (d && !d.error) { _sttState = d; _settingsPaintStt(); }
+  } catch (e) { /* voice engine may be absent — silently skip */ }
+}
+function _settingsPaintStt() {
+  const d = _sttState; if (!d || !d.config) return;
+  // model row — each model is a button; ⤓ = not installed, ⏳ = downloading
+  const mrow = document.getElementById('settings-stt-model-row');
+  if (mrow) {
+    mrow.innerHTML = (d.models || []).map(m => {
+      const active = m.id === d.config.model;
+      const dl = m.status === 'downloading';
+      const err = m.status === 'error';
+      const tag = dl ? ' ⏳' : (err ? ' ⚠' : (m.installed ? '' : ' ⤓'));
+      const state = dl ? 'downloading…' : (err ? ('error: ' + (m.error || 'failed')) : (m.installed ? 'installed' : 'click to install'));
+      const title = `${m.note} · ~${m.size_mb} MB · ${state}`;
+      return `<button class="settings-opt${active ? ' active' : ''}${dl ? ' busy' : ''}" title="${title}" onclick="settingsSetSttModel('${m.id}')">${(m.label || m.id).toUpperCase()}${tag}</button>`;
+    }).join('');
+  }
+  // beam slider
+  const beam = document.getElementById('settings-stt-beam');
+  const beamv = document.getElementById('settings-stt-beam-val');
+  if (beam) beam.value = d.config.beam_size;
+  if (beamv) beamv.textContent = `${d.config.beam_size} ${d.config.beam_size === 1 ? '(fastest, default)' : '(slower, more accurate)'}`;
+  // compute precision row
+  const crow = document.getElementById('settings-stt-compute-row');
+  if (crow) {
+    crow.innerHTML = (d.compute_types || []).map(c =>
+      `<button class="settings-opt${c === d.config.compute_type ? ' active' : ''}" onclick="settingsSetCompute('${c}')">${c.toUpperCase()}</button>`).join('');
+  }
+  // poll while anything is downloading; stop when idle
+  const anyDl = (d.models || []).some(m => m.status === 'downloading');
+  if (anyDl && !_sttPollTimer) {
+    _sttPollTimer = setInterval(_settingsLoadStt, 2000);
+  } else if (!anyDl && _sttPollTimer) {
+    clearInterval(_sttPollTimer); _sttPollTimer = null;
+  }
+}
+async function _sttPost(body) {
+  try {
+    const d = await (await fetch(`${API_BASE}/voice/stt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    if (d.error) { addLog(`STT setting failed: ${d.error}`); return null; }
+    if (d.config) { _sttState = Object.assign({}, _sttState, { config: d.config, models: d.models || _sttState.models }); _settingsPaintStt(); }
+    return d;
+  } catch (e) { addLog(`STT setting error: ${e.message || e}`); return null; }
+}
+async function settingsSetSttModel(id) {
+  const m = (_sttState.models || []).find(x => x.id === id);
+  await _sttPost({ model: id });
+  if (m && !m.installed && m.status !== 'downloading') {
+    try {
+      await fetch(`${API_BASE}/voice/stt/install`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: id }) });
+      addLog(`Downloading STT model ${id} (~${m.size_mb} MB)…`);
+    } catch (e) { addLog(`STT install error: ${e.message || e}`); }
+    _settingsLoadStt();   // refresh → shows ⏳ and starts the poll
+  } else {
+    addLog(`STT model → ${id}`);
+  }
+}
+function settingsSetBeam(v) {
+  const n = parseInt(v);
+  const beamv = document.getElementById('settings-stt-beam-val');
+  if (beamv) beamv.textContent = `${n} ${n === 1 ? '(fastest, default)' : '(slower, more accurate)'}`;
+  _sttPost({ beam_size: n, best_of: n });
+}
+function settingsSetCompute(c) { _sttPost({ compute_type: c }); }
 
 // ── Default LLM ─────────────────────────────────────────────
 async function _settingsLoadModel() {

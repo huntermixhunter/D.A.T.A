@@ -605,6 +605,19 @@
               <h3 class="settings-h">Crew voice</h3>
               <p class="settings-sub">Which officer answers in conversation mode.</p>
               <div class="settings-opt-row" id="settings-voice-row"></div>
+
+              <h3 class="settings-h">Speech-to-text model</h3>
+              <p class="settings-sub">What turns your speech into text. Smaller = much faster on a CPU / no-GPU machine (e.g. a Surface). Larger = more accurate. ⤓ = not downloaded yet; picking it installs it. Applies on your next spoken turn.</p>
+              <div class="settings-opt-row" id="settings-stt-model-row"></div>
+
+              <h3 class="settings-h">Recognition speed vs accuracy</h3>
+              <p class="settings-sub">Beam size. 1 = greedy = fastest (recommended for slow machines). Higher decodes several ways and ranks them — more accurate, more CPU, slower.</p>
+              <input type="range" class="settings-range" id="settings-stt-beam" min="1" max="5" step="1" oninput="settingsSetBeam(this.value)">
+              <div class="settings-range-val" id="settings-stt-beam-val"></div>
+
+              <h3 class="settings-h">Compute precision</h3>
+              <p class="settings-sub">int8 is fastest on a CPU and is the default. The float types only help if you have a GPU.</p>
+              <div class="settings-opt-row" id="settings-stt-compute-row"></div>
             </section>
 
             <section class="settings-pane" data-pane="model">

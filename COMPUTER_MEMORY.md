@@ -36,6 +36,15 @@ Preferences that should shape every response.
 - [e.g. "Always show the localhost URL after building a site."]
 - [e.g. "Default to private/unlisted when publishing anything."]
 
+### [Writing & formatting rules]
+Output conventions that apply to every reply and everything you generate.
+- **Links go out bare.** Never wrap a URL in quotes, parentheses, brackets,
+  backticks, or angle brackets, and never glue punctuation (period, comma,
+  closing paren) directly to the end of it. Any wrapping or trailing character
+  gets swallowed into the clickable link and sends the user to the wrong
+  address. Print the raw URL with a plain space before and after it, then start
+  a new sentence. Example: write  Live at https://example.com  then continue.
+
 ### [Key people]
 - **[Name]** — [relationship, role, what they work on with the Captain].
 

@@ -8252,6 +8252,18 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/voice/tts_engine":
             self._json({"engine": local_voice.ENGINE, "choices": list(local_voice.VALID_ENGINES)})
 
+        elif path == "/voice/stt":
+            # Current speech-to-text config + the model catalog (with per-model
+            # installed/download status) the Settings → VOICE pane renders.
+            try:
+                self._json({
+                    "config":        local_voice.get_stt_config(),
+                    "models":        local_voice.stt_catalog(),
+                    "compute_types": list(local_voice.COMPUTE_TYPE_CHOICES),
+                })
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+
         elif path == "/user/active":
             # Just the active user dict — used by the UI on boot and after
             # /user/switch to update the header pill.
@@ -9241,6 +9253,29 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"error": str(e)}, 500); return
             self._json({"engine": local_voice.ENGINE})
+
+        elif path == "/voice/stt":
+            # Update STT tuning (model / beam_size / best_of / compute_type /
+            # vad_filter). Only keys actually present in the body are changed;
+            # a model/compute change reloads lazily on the next spoken turn.
+            patch = {k: data.get(k) for k in
+                     ("model", "beam_size", "best_of", "compute_type", "vad_filter")
+                     if data.get(k) is not None}
+            try:
+                cfg = local_voice.set_stt_config(**patch)
+            except Exception as e:
+                self._json({"error": str(e)}, 400); return
+            self._json({"config": cfg, "models": local_voice.stt_catalog()})
+
+        elif path == "/voice/stt/install":
+            # Pre-download a Whisper model in the background so the first turn on
+            # it is not slow. Idempotent; returns immediately with a status.
+            model = (data.get("model") or "").strip()
+            try:
+                st = local_voice.start_install(model)
+            except Exception as e:
+                self._json({"error": str(e)}, 400); return
+            self._json({"model": model, **st})
 
         elif path == "/stop":
             # Body may include {"project_path": "...", "pane_id": "..."} to
