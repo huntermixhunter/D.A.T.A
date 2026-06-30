@@ -508,10 +508,12 @@
               title="Open Settings — themes, voice, model, crew personalities, memory">
         <span class="settings-toggle-label" id="settings-toggle-label">⚙ SETTINGS</span>
       </button>
-      <!-- CONVERSATION opens the hands-free voice loop (wake word → listen →
-           reply → loop), powered by the local Kokoro voice engine. -->
+      <!-- CONVERSATION MODE removed for now (Captain order 2026-06-30). The
+           overlay, CSS, app.js handlers, and bridge endpoints are left intact;
+           only this sole entry point is hidden, so restoring the feature is
+           just deleting the `hidden` attribute below. -->
       <button class="footer-pill convo-mode-btn" id="convo-mode-btn"
-              onclick="enterConvoMode()"
+              onclick="enterConvoMode()" hidden
               title="Open Conversation Mode — hands-free voice loop">
         ◉ CONVERSATION
       </button>
@@ -576,7 +578,7 @@
     </div>
 
     <!-- SETTINGS OVERLAY — full-screen control panel (themes, voice, model,
-         crew personalities, memory, conversation tuning). Opened from the
+         crew personalities, memory). Opened from the
          footer Settings button; built/driven by the settings* fns in app.js. -->
     <div class="settings-overlay hidden" id="settings-overlay" onclick="_settingsBackdrop(event)">
       <div class="settings-frame" onclick="event.stopPropagation()">
@@ -591,7 +593,7 @@
             <button class="settings-tab" data-tab="model"  onclick="settingsTab('model')">MODEL</button>
             <button class="settings-tab" data-tab="crew"   onclick="settingsTab('crew')">CREW PERSONALITIES</button>
             <button class="settings-tab" data-tab="memory" onclick="settingsTab('memory')">MEMORY</button>
-            <button class="settings-tab" data-tab="convo"  onclick="settingsTab('convo')">CONVERSATION</button>
+            <button class="settings-tab" data-tab="history" onclick="settingsTab('history')">HISTORY</button>
           </nav>
           <div class="settings-content">
 
@@ -606,7 +608,7 @@
 
             <section class="settings-pane" data-pane="voice">
               <h3 class="settings-h">Crew voice</h3>
-              <p class="settings-sub">Which officer answers in conversation mode.</p>
+              <p class="settings-sub">Which officer's voice is used for spoken replies (the ▶ play button on Data's messages).</p>
               <div class="settings-opt-row" id="settings-voice-row"></div>
 
               <h3 class="settings-h">Speech-to-text model</h3>
@@ -650,20 +652,15 @@
               </div>
             </section>
 
-            <section class="settings-pane" data-pane="convo">
-              <h3 class="settings-h">Wake word</h3>
-              <p class="settings-sub">Listen for "computer" / "data" to start hands-free.</p>
-              <div class="settings-opt-row">
-                <button class="settings-opt" id="settings-wake-toggle" onclick="settingsToggleWake()">WAKE: OFF</button>
+            <section class="settings-pane" data-pane="history">
+              <h3 class="settings-h">Conversation history</h3>
+              <p class="settings-sub">The Memory Banks — every turn ever said to Data, across all panes. Search the full archive or browse the most recent turns below.</p>
+              <div class="settings-history-search">
+                <input type="text" id="settings-history-q" class="settings-history-input" placeholder="Search your conversation history…" onkeydown="if(event.key==='Enter')settingsSearchHistory()" spellcheck="false" />
+                <button class="settings-save" onclick="settingsSearchHistory()">SEARCH</button>
+                <button class="settings-opt" onclick="_settingsLoadConvo()">RECENT</button>
               </div>
-              <h3 class="settings-h">Mic sensitivity</h3>
-              <p class="settings-sub">Lower = picks up quieter speech. Higher = needs louder speech.</p>
-              <input type="range" class="settings-range" id="settings-mic-threshold" min="0.005" max="0.06" step="0.001" oninput="settingsSetMic(this.value)">
-              <div class="settings-range-val" id="settings-mic-val"></div>
-              <h3 class="settings-h">Silence hold</h3>
-              <p class="settings-sub">How long a pause ends your turn (milliseconds).</p>
-              <input type="range" class="settings-range" id="settings-silence" min="600" max="3000" step="100" oninput="settingsSetSilence(this.value)">
-              <div class="settings-range-val" id="settings-silence-val"></div>
+              <div class="settings-history-list" id="settings-history-list"></div>
             </section>
 
           </div>

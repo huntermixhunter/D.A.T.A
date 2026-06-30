@@ -7694,12 +7694,18 @@ function appendMessageToPane(winEl, role, text, crewId) {
   msg.innerHTML = `
     <div class="avatar">${avatar}</div>
     <div class="bubble">
+      ${isData ? '<button class="tts-btn" title="Speak">▶</button>' : ''}
       <button class="copy-btn" title="Copy">⧉</button>
       <div class="sender">${sender}</div>
       <div class="text md-content">${renderMarkdown(text)}</div>
       <div class="timestamp">${ts}</div>
     </div>
   `;
+  if (isData) {
+    msg.querySelector('.tts-btn').addEventListener('click', function() {
+      toggleTts(this, text);
+    });
+  }
   msg.querySelector('.copy-btn').addEventListener('click', function() {
     navigator.clipboard.writeText(text).then(() => {
       this.textContent = '✓'; this.classList.add('copied');
@@ -8200,44 +8206,73 @@ async function settingsSaveMemory() {
   } catch (e) { addLog(`Memory save error: ${e.message || e}`); }
 }
 
-// ── Conversation tuning ─────────────────────────────────────
-function _settingsLoadConvo() {
-  _settingsPaintWake();
-  const mic = document.getElementById('settings-mic-threshold');
-  const micv = document.getElementById('settings-mic-val');
-  const curMic = parseFloat(localStorage.getItem('convo-mic-threshold')) || (typeof CONVO !== 'undefined' ? CONVO.threshold : 0.018);
-  if (mic) mic.value = curMic;
-  if (micv) micv.textContent = `${curMic.toFixed(3)} (default 0.018)`;
-  const sil = document.getElementById('settings-silence');
-  const silv = document.getElementById('settings-silence-val');
-  const curSil = parseInt(localStorage.getItem('convo-silence-hold')) || (typeof CONVO !== 'undefined' ? CONVO.SILENCE_HOLD_MS : 1500);
-  if (sil) sil.value = curSil;
-  if (silv) silv.textContent = `${curSil} ms (default 1500)`;
+// ── Conversation history (Memory Banks) ─────────────────────
+function _settingsHistEscape(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-function _settingsPaintWake() {
-  const b = document.getElementById('settings-wake-toggle');
-  if (!b) return;
-  const on = (typeof WAKE !== 'undefined' && WAKE.enabled);
-  b.textContent = on ? 'WAKE: ON' : 'WAKE: OFF';
-  b.classList.toggle('active', on);
+function _settingsHistTime(ts) {
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return ''; }
 }
-function settingsToggleWake() {
-  if (typeof toggleWakeListener === 'function') toggleWakeListener();
-  setTimeout(_settingsPaintWake, 50);
+function _settingsHistPane(p) {
+  if (!p || p === '(main)') return 'MAIN';
+  // pane looks like "C:\path\to\project::sessionid" — show the folder leaf.
+  const folder = String(p).split('::', 1)[0];
+  const leaf = folder.split(/[\\/]/).filter(Boolean).pop();
+  return (leaf || folder || 'MAIN').toUpperCase();
 }
-function settingsSetMic(v) {
-  const f = parseFloat(v);
-  localStorage.setItem('convo-mic-threshold', f);
-  if (typeof CONVO !== 'undefined') { CONVO.threshold = f; CONVO.calibrated = true; }
-  const micv = document.getElementById('settings-mic-val');
-  if (micv) micv.textContent = `${f.toFixed(3)} (default 0.018)`;
+function _settingsRenderTurns(turns) {
+  const list = document.getElementById('settings-history-list');
+  if (!list) return;
+  if (!turns || !turns.length) {
+    list.innerHTML = '<div class="settings-history-empty">No conversation turns found.</div>';
+    return;
+  }
+  list.innerHTML = turns.map(t => {
+    const role = (t.role === 'user') ? 'CAPTAIN' : 'DATA';
+    const roleCls = (t.role === 'user') ? 'user' : 'data';
+    const body = _settingsHistEscape(t.content);
+    return `<div class="settings-history-item ${roleCls}">
+      <div class="settings-history-meta">
+        <span class="settings-history-role">${role}</span>
+        <span class="settings-history-pane">${_settingsHistEscape(_settingsHistPane(t.pane))}</span>
+        <span class="settings-history-ts">${_settingsHistEscape(_settingsHistTime(t.ts))}</span>
+      </div>
+      <div class="settings-history-text">${body}</div>
+    </div>`;
+  }).join('');
 }
-function settingsSetSilence(v) {
-  const n = parseInt(v);
-  localStorage.setItem('convo-silence-hold', n);
-  if (typeof CONVO !== 'undefined') CONVO.SILENCE_HOLD_MS = n;
-  const silv = document.getElementById('settings-silence-val');
-  if (silv) silv.textContent = `${n} ms (default 1500)`;
+async function _settingsLoadConvo() {
+  const list = document.getElementById('settings-history-list');
+  if (list) list.innerHTML = '<div class="settings-history-empty">Loading recent turns…</div>';
+  const q = document.getElementById('settings-history-q');
+  if (q) q.value = '';
+  try {
+    const d = await (await fetch(`${API_BASE}/history?limit=60`)).json();
+    if (d.error) { if (list) list.innerHTML = `<div class="settings-history-empty">Error: ${_settingsHistEscape(d.error)}</div>`; return; }
+    _settingsRenderTurns(d.turns || []);
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="settings-history-empty">Failed to load history: ${_settingsHistEscape(e.message || e)}</div>`;
+  }
+}
+async function settingsSearchHistory() {
+  const q = document.getElementById('settings-history-q');
+  const list = document.getElementById('settings-history-list');
+  const query = (q && q.value || '').trim();
+  if (!query) { _settingsLoadConvo(); return; }
+  if (list) list.innerHTML = '<div class="settings-history-empty">Searching the Memory Banks…</div>';
+  try {
+    const url = `${API_BASE}/search-history?query=${encodeURIComponent(query)}&k=20&scope=all&format=text`;
+    const txt = await (await fetch(url)).text();
+    if (list) list.innerHTML = `<pre class="settings-history-results">${_settingsHistEscape(txt)}</pre>`;
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="settings-history-empty">Search failed: ${_settingsHistEscape(e.message || e)}</div>`;
+  }
 }
 
 function _flashSaved(btn) {

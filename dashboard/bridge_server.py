@@ -8838,6 +8838,55 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(result.encode("utf-8"))
 
+        elif path == "/history":
+            # Recent conversation turns for the settings → HISTORY pane.
+            # Tails the permanent archive (conversation_archive.jsonl) and
+            # returns the most recent N turns, newest first. Optional ?pane=
+            # filters to one project pane; default returns every pane with a
+            # label so the operator sees cross-pane context.
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try:    limit = int(qs.get("limit", ["60"])[0])
+            except ValueError: limit = 60
+            limit = max(1, min(limit, 500))
+            pane_filter = (qs.get("pane", [""])[0] or "").strip()
+            turns = []
+            try:
+                if CONVERSATION_ARCHIVE_FILE.exists():
+                    with open(CONVERSATION_ARCHIVE_FILE, "rb") as f:
+                        f.seek(0, 2)
+                        size = f.tell()
+                        back = min(size, 4_000_000)
+                        f.seek(size - back)
+                        raw = f.read().decode("utf-8", "replace")
+                    lines = raw.splitlines()
+                    if back < size and lines:
+                        lines = lines[1:]  # drop partial first line from mid-file seek
+                    for ln in lines:
+                        ln = ln.strip()
+                        if not ln:
+                            continue
+                        try:
+                            rec = json.loads(ln)
+                        except Exception:
+                            continue
+                        pane = rec.get("pane", "(main)") or "(main)"
+                        if pane_filter and pane != pane_filter:
+                            continue
+                        content = (rec.get("content") or "").strip()
+                        if not content:
+                            continue
+                        turns.append({
+                            "pane":    pane,
+                            "role":    rec.get("role", "?"),
+                            "ts":      rec.get("ts", "") or "",
+                            "content": content,
+                        })
+                    turns = turns[-limit:]
+                    turns.reverse()  # newest first
+            except Exception as e:
+                self._json({"error": str(e)}, 500); return
+            self._json({"turns": turns, "count": len(turns), "pane": pane_filter})
+
         elif path == "/neural":
             self._json(build_neural_graph())
 

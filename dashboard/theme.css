@@ -771,7 +771,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.4;
+  opacity: 0.85;
   transition: opacity 0.15s, background 0.15s;
   line-height: 1;
   padding: 0;
@@ -799,13 +799,16 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.4;
+  opacity: 0.85;
   transition: opacity 0.15s, background 0.15s, color 0.15s;
   line-height: 1;
   padding: 0;
 }
 .bubble:hover .copy-btn { opacity: 1; }
-.bubble:has(.tts-btn) .copy-btn { right: 38px; }
+/* On Data's messages the play (tts) button sits at the far right (right:10px),
+   so shift copy 28px to its left. Target by the .data wrapper class instead of
+   :has(.tts-btn) so it works even where :has() does not resolve. */
+.chat-message.data .copy-btn { right: 38px; }
 .chat-message.user .bubble .copy-btn { right: auto; left: 10px; }
 .copy-btn.copied {
   opacity: 1;
@@ -5292,6 +5295,84 @@ body.theme-minimal .settings-toggle-cap:hover {
 .settings-save:hover { filter: brightness(1.12); }
 .settings-save:active { transform: translateY(1px); }
 .settings-save.saved { background: var(--data-blue, #4d9fff); }
+
+/* Conversation history (Memory Banks) pane */
+.settings-history-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.settings-history-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,153,0,0.35);
+  border-radius: 999px;
+  color: var(--data-text, #e8e8ff);
+  font-family: var(--font-main);
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  padding: 9px 18px;
+  outline: none;
+}
+.settings-history-input:focus { border-color: var(--data-orange, #ff9900); }
+.settings-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.settings-history-empty {
+  color: rgba(232,232,255,0.55);
+  font-family: var(--font-main);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  padding: 18px 4px;
+}
+.settings-history-item {
+  border-left: 3px solid rgba(255,153,0,0.55);
+  background: rgba(255,153,0,0.05);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+.settings-history-item.user {
+  border-left-color: var(--data-blue, #4d9fff);
+  background: rgba(77,159,255,0.06);
+}
+.settings-history-meta {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  font-family: var(--font-main);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+.settings-history-role { color: var(--data-orange, #ff9900); font-weight: 700; }
+.settings-history-item.user .settings-history-role { color: var(--data-blue, #4d9fff); }
+.settings-history-pane { color: rgba(232,232,255,0.5); }
+.settings-history-ts { color: rgba(232,232,255,0.4); margin-left: auto; }
+.settings-history-text {
+  color: var(--data-text, #e8e8ff);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.settings-history-results {
+  color: var(--data-text, #e8e8ff);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
 
 /* Range sliders */
 .settings-range {
