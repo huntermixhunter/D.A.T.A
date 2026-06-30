@@ -90,8 +90,9 @@ _STT_MODEL = os.environ.get("DATA_STT_MODEL", "base.en").strip() or "base.en"
 # bm_/bf_=British). Each retail crew callsign gets the preset that best fits
 # its persona. "preset" is the Kokoro voice name; "speed" tunes cadence.
 # These ids mirror CREW_VOICES in bridge_server.py so the selector lines up.
+# Default voice "data" speaks as Daniel (bm_daniel) — Captain's pick, 2026-06-29.
 VOICES = {
-    "data":     {"name": "DATA",     "preset": "am_onyx",    "speed": 1.0},
+    "data":     {"name": "DATA",     "preset": "bm_daniel",  "speed": 0.95},
     "atlas":    {"name": "Atlas",    "preset": "am_michael", "speed": 1.0},
     "forge":    {"name": "Forge",    "preset": "am_fenrir",  "speed": 1.0},
     "vector":   {"name": "Vector",   "preset": "am_eric",    "speed": 1.0},
