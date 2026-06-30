@@ -551,11 +551,14 @@
            first swap is instant. id stays "convo-face-idle" for back-compat with
            the app.js handlers. -->
       <div class="convo-face" id="convo-face" aria-hidden="true">
-        <video id="convo-face-idle" class="convo-face-vid"
-               src="assets/faces/daita_face_idle.opt.mp4"
-               poster="assets/faces/daita_face_poster.jpg"
-               autoplay loop muted playsinline preload="auto"
-               disablepictureinpicture></video>
+        <!-- Wireframe DATA face — a STILL image kept alive by a perpetual CSS
+             "breathe" (slow drift + micro-scale); .speaking quickens it and the
+             bezel glow lifts. A still <img> has no decoder, so there is no idle
+             chop to fight and no need to swap clips. id stays "convo-face-idle"
+             for the app.js handlers; _convoFaceSwap() no-ops on a non-video. -->
+        <img id="convo-face-idle" class="convo-face-vid"
+             src="assets/faces/daita_face_poster.jpg"
+             alt="" aria-hidden="true">
       </div>
       <div class="convo-status-band">
         <span class="convo-status-label" id="convo-status-label">INITIALIZING</span>

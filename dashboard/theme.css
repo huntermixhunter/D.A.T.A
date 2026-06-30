@@ -2817,12 +2817,27 @@ html, body {
   object-fit: cover;
   display: block;
   opacity: 1;
-  /* Single light loop on the hardware-overlay plane — no crossfade, no
-     per-frame CSS filter, no second stream. That trio was the old chop, not
-     "video" itself. The "lights up while speaking" cue is carried entirely by
-     the container's box-shadow (.convo-face.speaking) — a cheap GPU paint. */
-  transform: translateZ(0);        /* keep the video on its own GPU layer */
+  /* Wireframe still face kept alive by a perpetual CSS "breathe" (slow drift +
+     micro-scale + a touch of brightness). One compositor-only transform on a
+     still <img> — no decoder, no overlay-plane penalty, so the old idle chop
+     cannot recur. A baseline scale (1.012) overscans past the bezel so the
+     upward drift never reveals a seam. The "talking" cue is the faster breathe
+     below plus the container glow (.convo-face.speaking) — a cheap GPU paint. */
+  transform-origin: 50% 44%;
+  animation: convoFaceIdleBreathe 5.4s ease-in-out infinite;
+  will-change: transform, filter;
   backface-visibility: hidden;
+}
+.convo-face.speaking .convo-face-vid {
+  animation: convoFaceSpeakBreathe 2.6s ease-in-out infinite;
+}
+@keyframes convoFaceIdleBreathe {
+  0%, 100% { transform: translateY(0)    scale(1.012); filter: brightness(0.97); }
+  50%      { transform: translateY(-3px) scale(1.020); filter: brightness(1.05); }
+}
+@keyframes convoFaceSpeakBreathe {
+  0%, 100% { transform: translateY(0)    scale(1.014); filter: brightness(1.00) saturate(1.00); }
+  50%      { transform: translateY(-4px) scale(1.026); filter: brightness(1.18) saturate(1.10); }
 }
 .convo-status-band {
   position: absolute;

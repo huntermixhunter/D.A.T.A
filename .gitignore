@@ -19,6 +19,7 @@ dashboard/test_output_*.wav
 
 # Face-video swap backups — local only, the original lives elsewhere
 dashboard/assets/faces/*.backup_*
+dashboard/assets/faces/*.bak-*
 
 # Secrets
 .env

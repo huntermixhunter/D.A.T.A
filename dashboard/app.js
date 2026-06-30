@@ -4411,6 +4411,10 @@ function _prefetchSpeakingFace() {
 function _convoFaceSwap(mode) {
   const vid = document.getElementById('convo-face-idle');
   if (!vid) return;
+  // Still-image wireframe face (locked 2026-06-30): there is no video to swap —
+  // the idle/speaking cue is carried entirely by the CSS .speaking class (faster
+  // breathe + brighter glow). Never assign an .mp4 to an <img>. No-op here.
+  if (vid.tagName !== 'VIDEO') return;
   if (_faceMode === mode) {                       // already on the right clip
     if (vid.paused) { try { vid.play(); } catch (e) {} }
     return;
