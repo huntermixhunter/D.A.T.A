@@ -770,7 +770,7 @@
                  onerror="this.style.display='none';document.getElementById('ship-schematic-placeholder').style.display='flex';"
                  alt="Daemon-Class Starfighter — Master Systems Display"
                  draggable="false"/>
-            <svg class="msd-overlay" viewBox="0 0 100 48" preserveAspectRatio="none" aria-hidden="true">
+            <svg class="msd-overlay" viewBox="0 0 100 48" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
               <defs>
                 <radialGradient id="msdEngineGrad" cx="50%" cy="50%" r="50%">
                   <stop offset="0%"   stop-color="#ff88ff" stop-opacity="1"/>
@@ -793,21 +793,24 @@
                   <stop offset="1"   stop-color="#00ffff" stop-opacity="0"/>
                 </linearGradient>
               </defs>
-              <!-- Shield bubble — pronounced horizontal oval (rx/ry ≈ 4) so it
-                   reads as an oval regardless of how the .msd-stage container
-                   stretches the preserveAspectRatio="none" viewBox. -->
-              <ellipse cx="50" cy="24" rx="60" ry="24"
+              <!-- Shield bubble — rounder oval sized to the measured hull.
+                   Hull bbox is x 13.5–82.2%, y 1.3–98.1% (center 48,24 in
+                   viewBox); the rear wingtips sit at the vertical extremes, so
+                   ry runs larger than the frame to bubble around them without
+                   letting the wings poke through. Overlay uses meet, so this
+                   oval tracks the ship at any container size. -->
+              <ellipse cx="48" cy="24" rx="47" ry="37"
                        fill="none" stroke="#4466ff" stroke-width="0.22"
                        stroke-dasharray="1.8 0.9" opacity="0.40"
                        class="ship-shield-dash"/>
-              <ellipse cx="50" cy="24" rx="58" ry="23"
+              <ellipse cx="48" cy="24" rx="45.3" ry="35.3"
                        fill="none" stroke="#6688ff" stroke-width="0.42"
                        filter="url(#msdShieldGlow)"
                        class="ship-shield-main"/>
-              <ellipse cx="50" cy="24" rx="55" ry="22"
+              <ellipse cx="48" cy="24" rx="43.6" ry="33.6"
                        fill="none" stroke="#88aaff" stroke-width="0.22"
                        class="ship-shield-ring2"/>
-              <ellipse cx="50" cy="24" rx="50" ry="20"
+              <ellipse cx="48" cy="24" rx="40.4" ry="30.4"
                        fill="none" stroke="#aabbff" stroke-width="0.16"
                        class="ship-shield-ring3"/>
               <!-- Radial radar sweep -->
@@ -823,9 +826,9 @@
               <!-- Engine glows: wide ovals to match the actual horizontal
                    exhaust-port slits in the schematic image (rx > ry).
                    Animation still scales uniformly so the aspect is preserved. -->
-              <ellipse class="ship-engine-pulse" cx="78" cy="22" rx="5.5" ry="2.0" fill="url(#msdEngineGrad)"/>
-              <ellipse class="ship-engine-pulse" cx="78" cy="26" rx="5.5" ry="2.0" fill="url(#msdEngineGrad)"/>
-              <ellipse class="ship-engine-pulse core-flux" cx="35" cy="24" rx="6.5" ry="2.6" fill="url(#msdCoreGrad)"/>
+              <ellipse class="ship-engine-pulse" cx="78.4" cy="20.2" rx="5.5" ry="2.0" fill="url(#msdEngineGrad)"/>
+              <ellipse class="ship-engine-pulse" cx="78.4" cy="28.2" rx="5.5" ry="2.0" fill="url(#msdEngineGrad)"/>
+              <ellipse class="ship-engine-pulse core-flux" cx="31.5" cy="24" rx="6.5" ry="2.6" fill="url(#msdCoreGrad)"/>
               <!-- (Leader lines have moved to .msd-leaders-global, a full-frame
                    SVG layer drawn by JS so each line connects a real metric
                    card to the actual on-ship anatomy point.) -->
