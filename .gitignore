@@ -24,6 +24,11 @@ dashboard/assets/faces/*.bak-*
 # Internal IP/legal working docs — never ship to buyers
 COPYRIGHT_REGISTRATION.md
 
+# Local dev artifacts — never ship to buyers
+dashboard/retail_local.log
+dashboard/shoot_dashboard.py
+dashboard/assets/social/
+
 # Secrets
 .env
 
