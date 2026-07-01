@@ -112,9 +112,13 @@ bash install/install.sh
 The dashboard opens at **http://localhost:7777**. (Not technical? See
 [INSTALL.txt](INSTALL.txt) for a plain-language walkthrough.)
 
-Once it's running, the [Dashboard Guide](DASHBOARD_GUIDE.md) covers how to actually
-drive it — talking to the main channel, customizing the UI by conversation, and
-having DATA rewrite its own source to add features and capabilities.
+Once it's running, two guides take you the rest of the way:
+
+- The [Capabilities Guide](CAPABILITIES_GUIDE.md) — the full catalog of everything
+  DATA can do (files, web, crew, workspaces, standing orders, memory, voice, computer
+  use, integrations, design) with the exact way to ask for each.
+- The [Dashboard Guide](DASHBOARD_GUIDE.md) — how to customize the UI by conversation
+  and have DATA rewrite its own source to add features and capabilities.
 
 ### Uninstall
 
