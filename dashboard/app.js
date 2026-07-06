@@ -502,28 +502,29 @@ function _chatInputMaxPx() {
   return Math.max(120, Math.round(window.innerHeight * 0.6));
 }
 function _applyChatInputHeight(px) {
-  const ta = document.getElementById('chat-input');
-  if (!ta) return;
-  const clamped = Math.min(_chatInputMaxPx(), Math.max(_CHAT_INPUT_MIN_PX, Math.round(px)));
-  ta.style.height = clamped + 'px';
-  return clamped;
+  return _clampChatInputHeight(px);
 }
-function initChatInputResizer() {
-  const handle = document.getElementById('chat-input-resizer');
-  const ta = document.getElementById('chat-input');
+function _clampChatInputHeight(px) {
+  return Math.min(_chatInputMaxPx(), Math.max(_CHAT_INPUT_MIN_PX, Math.round(px)));
+}
+// Wire a drag handle to a textarea so the Captain can resize the prompt box.
+// Generic on purpose: the same function serves the main pane AND every spawned
+// project pane. Each pane persists its own height under its own storage key,
+// so resizing one window no longer depends on hardcoded main-pane element ids.
+function _wireInputResizer(handle, ta, storageKey) {
   if (!handle || !ta) return;
+  const applyH = (px) => { ta.style.height = _clampChatInputHeight(px) + 'px'; };
 
   // Restore a previously saved height.
-  const saved = parseInt(localStorage.getItem(_CHAT_INPUT_HEIGHT_KEY) || '', 10);
-  if (!isNaN(saved)) _applyChatInputHeight(saved);
+  const saved = parseInt(localStorage.getItem(storageKey) || '', 10);
+  if (!isNaN(saved)) applyH(saved);
 
   let startY = 0, startH = 0, dragging = false;
   const onMove = (e) => {
     if (!dragging) return;
     const y = (e.touches ? e.touches[0].clientY : e.clientY);
     // Handle is ABOVE the textarea, so dragging up (smaller Y) grows it.
-    const next = startH + (startY - y);
-    _applyChatInputHeight(next);
+    applyH(startH + (startY - y));
     e.preventDefault();
   };
   const onUp = () => {
@@ -533,7 +534,7 @@ function initChatInputResizer() {
     document.body.style.userSelect = '';
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
-    localStorage.setItem(_CHAT_INPUT_HEIGHT_KEY, String(parseInt(ta.style.height, 10) || _CHAT_INPUT_MIN_PX));
+    localStorage.setItem(storageKey, String(parseInt(ta.style.height, 10) || _CHAT_INPUT_MIN_PX));
   };
   handle.addEventListener('pointerdown', (e) => {
     dragging = true;
@@ -548,8 +549,15 @@ function initChatInputResizer() {
   // Double-click the handle to reset to the default two-row height.
   handle.addEventListener('dblclick', () => {
     ta.style.height = '';
-    localStorage.removeItem(_CHAT_INPUT_HEIGHT_KEY);
+    localStorage.removeItem(storageKey);
   });
+}
+function initChatInputResizer() {
+  _wireInputResizer(
+    document.getElementById('chat-input-resizer'),
+    document.getElementById('chat-input'),
+    _CHAT_INPUT_HEIGHT_KEY
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -7108,6 +7116,10 @@ function addChatPane(wsId, name, path) {
     </div>
     <div class="chat-window" id="chat-win-ws${wsId}"></div>
     <div class="chat-input-area">
+      <!-- Drag up/down to resize this pane's prompt box. Height persists per project. -->
+      <div class="input-resize-handle" id="pane-resizer-ws${wsId}"
+           title="Drag to resize the prompt area" role="separator"
+           aria-orientation="horizontal"></div>
       <div class="attachment-tray" id="${trayId}" hidden></div>
       <div class="input-row">
         <div class="input-prefix">CAPTAIN ›</div>
@@ -7135,6 +7147,13 @@ function addChatPane(wsId, name, path) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendProjectMessage(wsId); }
   });
   pane.querySelector(`#pane-send-ws${wsId}`).addEventListener('click', () => sendProjectMessage(wsId));
+  // Wire this pane's prompt-box resize handle. Persist height per project path
+  // so reopening the same project restores its chosen size.
+  _wireInputResizer(
+    pane.querySelector(`#pane-resizer-ws${wsId}`),
+    pane.querySelector(`#${inputId}`),
+    `${_CHAT_INPUT_HEIGHT_KEY}:${path || `ws${wsId}`}`
+  );
 
   wrapper.appendChild(pane);
   _populateWindowProviderSelect(wsId);
