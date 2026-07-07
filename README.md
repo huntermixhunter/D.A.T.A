@@ -13,7 +13,7 @@ Two dark themes ship in the box — toggle from the bottom-left of the footer:
 
 Everything runs on your machine. No accounts, no telemetry, no cloud.
 
-![themes](https://img.shields.io/badge/themes-MINIMAL%20%7C%20CYBER-4d9fff) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-proprietary-orange)
+![themes](https://img.shields.io/badge/themes-MINIMAL%20%7C%20CYBER-4d9fff) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-Apache%202.0-4d9fff)
 
 ---
 
@@ -65,9 +65,10 @@ Linux container — see below).
 
 ### Windows
 
-1. **Download** the DATA `.zip` from your purchase link, then **extract it** to a
+1. **Get the code.** Clone `git clone https://github.com/huntermixhunter/D.A.T.A.git`,
+   or download the ZIP from the green **Code** button on GitHub, and **extract it** to a
    folder you'll remember (for example, your `Documents` folder).
-2. Open the extracted `DATA` folder and run the installer:
+2. Open the `DATA` folder and run the installer:
 
 ```powershell
 .\install\install.bat
@@ -96,8 +97,9 @@ anytime — you can drag it to your dock or taskbar to pin it.)
 
 ### macOS / Linux
 
-**Download** the DATA `.zip` from your purchase link and **extract it**, then from
-the extracted `DATA` folder run:
+**Get the code.** Run `git clone https://github.com/huntermixhunter/D.A.T.A.git` (or
+download and extract the ZIP from the green **Code** button on GitHub), then from
+the `DATA` folder run:
 
 ```bash
 bash install/install.sh
@@ -226,5 +228,11 @@ completely blank memory.
 
 ## License
 
-Proprietary — all rights reserved. Use requires purchase or written
-authorization. See [LICENSE](LICENSE).
+Open source under the **Apache License 2.0**. You are free to use, modify,
+and redistribute DATA, including commercially, provided you keep the license
+and [NOTICE](NOTICE) intact. The license includes an express patent grant.
+See [LICENSE](LICENSE) and [NOTICE](NOTICE). No warranty is provided; see
+[DISCLAIMER.md](DISCLAIMER.md).
+
+If DATA saves you time, paid courses, custom setups, integrations, and
+consultations are available at [magimatix.com](https://magimatix.com).
