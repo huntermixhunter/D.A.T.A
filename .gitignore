@@ -5,6 +5,12 @@ screenshots/
 bridge.log
 standing_orders.json
 power_core_baseline.json
+dashboard/provider_state.json
+dashboard/provider_state.json.tmp
+provider_state.json
+recall_index.db
+dashboard/preview_7799.log
+dashboard/preview_static.log
 daily_briefing.json
 dashboard/news_cache.json
 dashboard/og_image_cache.json

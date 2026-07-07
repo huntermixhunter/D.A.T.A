@@ -62,6 +62,7 @@ except ImportError:
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 import urllib.parse
 import urllib.request
+import urllib.error
 
 # ── Silent-subprocess shim ────────────────────────────────────
 # On Windows, every powershell/cmd/wmic/CLI subprocess we spawn would normally
@@ -1072,6 +1073,19 @@ def _provider_executable(provider_id: str) -> str:
         Path(r"C:\Program Files\nodejs"),
         Path(r"C:\Program Files (x86)\nodejs"),
     ]
+    # Ollama installs outside the dirs above — its silent installer drops the
+    # binary in a per-user Programs dir (Windows), inside the .app bundle
+    # (macOS), or a Homebrew/usr bin. A fresh auto-install would otherwise be
+    # invisible to this process until PATH refreshes on next login.
+    if base_name == "ollama":
+        install_dirs += [
+            home / "AppData" / "Local" / "Programs" / "Ollama",
+            Path(r"C:\Program Files\Ollama"),
+            Path("/Applications/Ollama.app/Contents/Resources"),
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            Path("/usr/bin"),
+        ]
     for d in install_dirs:
         if not d.exists(): continue
         for suffix in (".exe", ".cmd", ".bat", ""):
@@ -1107,20 +1121,198 @@ def _provider_available(provider_id: str) -> bool:
     return False
 
 
+# ── CLI authentication probe ──────────────────────────────────────────────
+# _provider_available() only proves an executable exists on disk. It does NOT
+# prove the CLI is signed in — an installed-but-logged-out Claude Code CLI looks
+# "available" yet cannot answer a single prompt. On a fresh retail box that gap
+# strands the buyer on a dead brain. The helpers below add the missing signal:
+# is the CLI actually authenticated?
+#
+# Design (flagged for security review — Worf):
+#   • We deliberately do NOT run a model prompt to test auth. That is slow, may
+#     bill against a subscription, and on a misconfigured box could resolve to
+#     the Claude DESKTOP launcher and pop a GUI. Instead we inspect the OAuth
+#     credential files each CLI writes at `/login` time. These are tiny, bounded,
+#     GUI-free, and cost nothing.
+#   • No stable non-interactive `claude whoami` flag exists across CLI versions,
+#     so file inspection is the most portable signal available today. Revisit if
+#     a CLI adds one.
+#   • ANY ambiguity — missing file, parse error, empty/expired token with no
+#     refresh path, unexpected structure — resolves to NOT authenticated. That is
+#     the SAFE default: it keeps the Ollama fallback active and shows the sign-in
+#     CTA rather than trusting a CLI that may be unable to answer.
+#   • Results are cached per executable path (60s TTL) so startup and page loads
+#     never re-probe the filesystem repeatedly.
+_auth_probe_cache: dict = {}   # {exe_path: (timestamp, bool, cred_mtime)}
+_AUTH_PROBE_TTL = 60.0
+# One lock guards BOTH the auth-probe cache and the active-provider state writes
+# below. The bridge is a ThreadingHTTPServer, so `/providers`, `/chat`, the Ollama
+# auto-connect thread, and startup can all touch these concurrently. The two
+# critical sections never nest, so a single lock cannot deadlock.
+_provider_lock = threading.Lock()
+
+# Credential file each CLI family writes at /login. Used both as the auth signal
+# source and as a cache-freshness key: when the buyer runs `claude /login`, this
+# file's mtime changes and busts the cached probe result immediately, so the
+# sign-in CTA clears promptly instead of lingering for up to the TTL.
+_CLI_CRED_FILES = {
+    "claude-cli": Path.home() / ".claude" / ".credentials.json",
+    "codex":      Path.home() / ".codex" / "auth.json",
+    "gemini":     Path.home() / ".gemini" / "oauth_creds.json",
+}
+
+
+def _cli_cred_mtime(provider_id: str) -> float:
+    """mtime of the provider's credential file, or 0.0 if absent. Used to bust
+    the auth-probe cache the moment a buyer logs in or out."""
+    key = "claude-cli" if provider_id.startswith("claude-cli") else provider_id
+    cred = _CLI_CRED_FILES.get(key)
+    try:
+        return cred.stat().st_mtime if cred and cred.is_file() else 0.0
+    except Exception:
+        return 0.0
+
+
+def _claude_cli_authenticated() -> bool:
+    """True if the Claude Code CLI is signed in. Checks the OAuth token the CLI
+    writes on /login. Linux/Windows keep it in ~/.claude/.credentials.json; macOS
+    stores it in the login Keychain instead, so we fall back to a non-interactive
+    `security` lookup there. A present accessToken OR refreshToken counts as
+    authenticated — an expired accessToken is auto-refreshed by the CLI on next
+    use, so the presence of either means the CLI can still answer."""
+    home = Path.home()
+    cred = home / ".claude" / ".credentials.json"
+    try:
+        if cred.is_file():
+            data = json.loads(cred.read_text(encoding="utf-8", errors="replace"))
+            oauth = data.get("claudeAiOauth") or {}
+            if oauth.get("accessToken") or oauth.get("refreshToken"):
+                return True
+    except Exception:
+        pass
+    # macOS: token lives in the Keychain, not on disk. Check only that the item
+    # EXISTS (omit -w) — reading the secret value with -w can trip a Keychain
+    # authorization dialog on a buyer machine because the DATA bridge is not on
+    # the item's ACL; existence returns exit 0 without touching the secret and so
+    # never prompts. A hard timeout still guards against any hang, and the timeout
+    # (or a non-zero exit) trips the safe "not authenticated" default.
+    if sys.platform == "darwin":
+        try:
+            r = subprocess.run(
+                ["security", "find-generic-password",
+                 "-s", "Claude Code-credentials"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _codex_cli_authenticated() -> bool:
+    """True if the Codex CLI is signed in. Codex writes ~/.codex/auth.json with
+    either OAuth `tokens` (ChatGPT subscription) or an OPENAI_API_KEY."""
+    try:
+        cred = Path.home() / ".codex" / "auth.json"
+        if cred.is_file():
+            data = json.loads(cred.read_text(encoding="utf-8", errors="replace"))
+            tokens = data.get("tokens") or {}
+            if tokens.get("access_token") or tokens.get("id_token") or data.get("OPENAI_API_KEY"):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _gemini_cli_authenticated() -> bool:
+    """True if the Gemini CLI is signed in. Gemini writes OAuth creds to
+    ~/.gemini/oauth_creds.json on sign-in."""
+    try:
+        cred = Path.home() / ".gemini" / "oauth_creds.json"
+        if cred.is_file():
+            data = json.loads(cred.read_text(encoding="utf-8", errors="replace"))
+            if data.get("access_token") or data.get("refresh_token"):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _provider_authenticated(provider_id: str) -> bool:
+    """Whether a provider can ACTUALLY answer, not merely whether its executable
+    exists. For subprocess CLI providers this checks sign-in state via the cheap,
+    GUI-free, zero-cost probes above. For http (Ollama) / api providers, sign-in
+    is not applicable, so authenticated == available. Cached per executable path
+    (_AUTH_PROBE_TTL) so startup and page polls never re-probe repeatedly."""
+    p = PROVIDERS.get(provider_id, {})
+    kind = p.get("kind")
+    if kind != "subprocess":
+        return _provider_available(provider_id)
+    exe = _provider_executable(provider_id)
+    if not exe:
+        return False
+    now = time.time()
+    cred_mtime = _cli_cred_mtime(provider_id)
+    # Read the cache under the lock so concurrent request threads see a consistent
+    # entry. Cache is fresh only if within TTL AND the credential file has not
+    # changed since — a buyer's /login (or logout) rewrites that file and busts it.
+    with _provider_lock:
+        cached = _auth_probe_cache.get(exe)
+        if cached and now - cached[0] < _AUTH_PROBE_TTL and cached[2] == cred_mtime:
+            return cached[1]
+    # Probe outside the lock — the filesystem/keychain check may block briefly and
+    # must not stall other providers' lookups. A concurrent double-probe is
+    # harmless (both compute the same answer); the last writer wins the cache slot.
+    if provider_id.startswith("claude-cli"):
+        ok = _claude_cli_authenticated()
+    elif provider_id == "codex":
+        ok = _codex_cli_authenticated()
+    elif provider_id == "gemini":
+        ok = _gemini_cli_authenticated()
+    else:
+        ok = True   # unknown subprocess provider — do not block on auth
+    with _provider_lock:
+        _auth_probe_cache[exe] = (now, ok, cred_mtime)
+    return ok
+
+
 def _list_providers() -> list:
-    """Return a list of {id, label, model, available, install_hint} for the UI."""
+    """Return a list of {id, label, model, available, authenticated, install_hint}
+    for the UI. `authenticated` distinguishes a CLI that is merely installed from
+    one that is actually signed in — the front-end uses it to gray out / flag a
+    logged-out CLI rather than letting the buyer pick a dead brain."""
     _sync_ollama_providers()   # surface any freshly-pulled local models in the selector
     out = []
     for pid, p in PROVIDERS.items():
         out.append({
-            "id":           pid,
-            "label":        p["label"],
-            "model":        p.get("model", ""),
-            "kind":         p.get("kind", ""),
-            "available":    _provider_available(pid),
-            "install_hint": p.get("install_hint", ""),
+            "id":            pid,
+            "label":         p["label"],
+            "model":         p.get("model", ""),
+            "kind":          p.get("kind", ""),
+            "available":     _provider_available(pid),
+            "authenticated": _provider_authenticated(pid),
+            "install_hint":  p.get("install_hint", ""),
         })
     return out
+
+
+def _needs_auth_payload() -> dict:
+    """CTA payload for the 'a CLI is installed but not signed in, so DATA is
+    running on the Ollama fallback' state. Empty dict when no CTA is warranted
+    (a CLI is active, or none is installed). Reuses CONNECTOR_CATALOG.login_cmd so
+    the buyer sees the exact sign-in command."""
+    pid = _PENDING_CLI_AUTH
+    if not pid:
+        return {}
+    conn = next((c for c in CONNECTOR_CATALOG
+                 if pid in c.get("provider_ids", []) or c.get("id") == pid), None)
+    return {
+        "provider_id": pid,
+        "name":        (conn or {}).get("name", pid),
+        "login_cmd":   (conn or {}).get("login_cmd", ""),
+        "on_fallback": str(ACTIVE_PROVIDER).startswith("ollama"),
+    }
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -1409,8 +1601,306 @@ def _cli_install_job(job_id: str, cmd: str) -> None:
                 j["state"] = "error"; j["error"] = str(e)
 
 
-def _start_install_job(kind: str, target: str) -> dict:
+# ── Ollama auto-install (OS-branched) + auto-connect ─────────────────────
+# A fresh buyer with no CLI provider selected can click a local model on the
+# AI Connectors page. If the Ollama runtime itself is not yet on the machine
+# we install it here (per-OS), wait for its daemon, pull the model, and — when
+# no working brain is currently active — set it as the active provider so chat
+# works with zero manual setup. This is what makes a cold install work out of
+# the box.
+
+PROVIDER_STATE_FILE = PROJECT_DIR / "provider_state.json"   # persists the active brain
+
+# True once the buyer EXPLICITLY picks a provider via POST /provider. An explicit
+# choice is sticky: CLI-first selection and the Ollama auto-connect never override
+# it. An auto-selected provider (this flag False) is overridable — it upgrades to
+# an authenticated CLI the moment one appears.
+PROVIDER_EXPLICIT = False
+
+# Fixed CLI preference order — authenticated Claude (Opus) wins, then Codex, then
+# Gemini. Order is explicit; never rely on dict ordering.
+_CLI_PRIORITY = ["claude-cli", "codex", "gemini"]
+
+# When a CLI is installed but NOT signed in and we fall back to Ollama, this holds
+# the highest-priority such provider id so the UI can show a "sign in" CTA. "" =
+# no pending auth (either a CLI is active, or no CLI is installed at all).
+_PENDING_CLI_AUTH = ""
+
+
+def _write_provider_state_unlocked() -> None:
+    """Persist ACTIVE_PROVIDER + the explicit-choice flag atomically. Writes to a
+    sibling temp file then os.replace()s it into place, so a crash mid-write can
+    never leave a truncated/corrupt provider_state.json (os.replace is atomic on
+    both Windows and POSIX). Caller MUST hold _provider_lock — this is the lock-free
+    core shared by _save_active_provider and _set_active to avoid re-entrant lock
+    acquisition (threading.Lock is non-reentrant)."""
+    try:
+        tmp = PROVIDER_STATE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps({"active_provider": ACTIVE_PROVIDER,
+                        "explicit": PROVIDER_EXPLICIT}, indent=2), encoding="utf-8")
+        os.replace(tmp, PROVIDER_STATE_FILE)
+    except Exception as e:
+        log.warning(f"[provider] could not persist active provider: {e}")
+
+
+def _save_active_provider() -> None:
+    """Persist ACTIVE_PROVIDER + the explicit-choice flag so both survive a
+    bridge restart. Thread-safe wrapper around the atomic write."""
+    with _provider_lock:
+        _write_provider_state_unlocked()
+
+
+def _set_active(pid: str, explicit: bool = False) -> None:
+    """Set the active brain and persist it. explicit=True marks it a sticky buyer
+    choice; explicit=False marks it an auto-managed (overridable) selection. The
+    global mutation and the persist happen under one lock hold so a concurrent
+    POST /provider and the Ollama auto-connect thread cannot interleave and leave
+    the file disagreeing with the in-memory active brain."""
+    global ACTIVE_PROVIDER, PROVIDER_EXPLICIT
+    with _provider_lock:
+        ACTIVE_PROVIDER = pid
+        PROVIDER_EXPLICIT = explicit
+        _write_provider_state_unlocked()
+
+
+def _best_ollama_provider() -> str:
+    """The best available Ollama provider id whose model is ACTUALLY pulled, or ""
+    if none. Prefers the curated built-in ids, then any dynamically-registered
+    pulled model. Returns "" when Ollama is absent or no model is downloaded — so
+    selection never activates a hollow Ollama brain (e.g. offline install)."""
+    _sync_ollama_providers()
+    if not _provider_executable("ollama"):
+        return ""
+    pulled = set(_ollama_installed_models())
+    if not pulled:
+        return ""
+    for pid in ("ollama", "ollama-small"):
+        p = PROVIDERS.get(pid)
+        if p and p.get("model") in pulled:
+            return pid
+    for pid, p in PROVIDERS.items():
+        if pid.startswith("ollama:") and p.get("model") in pulled:
+            return pid
+    return ""
+
+
+def _brain_usable(pid: str) -> bool:
+    """A brain is usable only if it is available AND (for CLIs) authenticated.
+    This is the auth-aware replacement for bare `_provider_available` wherever the
+    question is 'can this brain actually answer right now?'"""
+    return _provider_available(pid) and _provider_authenticated(pid)
+
+
+def _select_default_brain() -> None:
+    """CLI-first brain selection for a fresh / auto-managed install. Priority:
+      1. A still-usable EXPLICIT buyer choice — never override.
+      2. The highest-priority CLI that is present AND authenticated (Claude/Opus
+         first, then Codex, then Gemini).
+      3. If a CLI is present but unauthenticated → the Ollama fallback (if a model
+         is pulled), and record that a sign-in CTA is needed.
+      4. Else Ollama if a model is pulled.
+      5. Else keep the compiled-in default (buyer gets install/auth guidance).
+    Only auto-managed selections are persisted as overridable; an explicit choice
+    stays sticky. Never spawns a model; the auth probe is cheap + cached."""
+    global _PENDING_CLI_AUTH
+    _PENDING_CLI_AUTH = ""
+
+    # 1. Respect a still-usable explicit buyer choice.
+    if PROVIDER_EXPLICIT and ACTIVE_PROVIDER in PROVIDERS and _brain_usable(ACTIVE_PROVIDER):
+        log.info(f"[provider] keeping explicit buyer choice: {ACTIVE_PROVIDER}")
+        return
+
+    # 2. Highest-priority authenticated CLI; remember the first logged-out one.
+    first_unauth = ""
+    for pid in _CLI_PRIORITY:
+        if _provider_available(pid):
+            if _provider_authenticated(pid):
+                _set_active(pid)
+                log.info(f"[provider] CLI-first selection → {pid} (authenticated)")
+                return
+            if not first_unauth:
+                first_unauth = pid
+
+    # 3./4. No authenticated CLI — prefer the Ollama fallback.
+    _PENDING_CLI_AUTH = first_unauth   # "" if no CLI installed at all
+    ollama = _best_ollama_provider()
+    if ollama:
+        _set_active(ollama)
+        log.info(f"[provider] no authenticated CLI — fallback → {ollama}"
+                 + (f" (sign-in needed for {first_unauth})" if first_unauth else ""))
+        return
+
+    # 5. Nothing usable — keep the compiled-in default; UI surfaces guidance.
+    log.info(f"[provider] no usable brain — keeping default {ACTIVE_PROVIDER}"
+             + (f"; sign-in needed for {first_unauth}" if first_unauth else ""))
+
+
+def _load_active_provider() -> None:
+    """At startup: restore the persisted brain + explicit flag, then run CLI-first
+    selection. The compiled-in `claude-cli` default is no longer trusted blindly —
+    on a no-auth box selection falls back to Ollama and flags the sign-in CTA."""
+    global ACTIVE_PROVIDER, PROVIDER_EXPLICIT
+    _sync_ollama_providers()   # make ollama:<model> ids resolvable before checks
+    try:
+        if PROVIDER_STATE_FILE.exists():
+            st = json.loads(PROVIDER_STATE_FILE.read_text(encoding="utf-8"))
+            saved = st.get("active_provider", "")
+            PROVIDER_EXPLICIT = bool(st.get("explicit", False))   # legacy files → False
+            if saved in PROVIDERS and _provider_available(saved):
+                ACTIVE_PROVIDER = saved
+                log.info(f"[provider] restored active provider from disk: {saved}"
+                         + (" (explicit)" if PROVIDER_EXPLICIT else ""))
+            else:
+                # Persisted choice is gone → it is no longer a sticky preference.
+                PROVIDER_EXPLICIT = False
+                if saved:
+                    log.info(f"[provider] persisted provider '{saved}' unavailable — reselecting")
+    except Exception as e:
+        log.warning(f"[provider] could not read persisted provider: {e}")
+        PROVIDER_EXPLICIT = False
+    _select_default_brain()
+
+
+def _set_job(job_id: str, **fields) -> None:
+    with _install_lock:
+        j = _install_jobs.get(job_id)
+        if j:
+            j.update(fields)
+
+
+def _install_ollama_binary(job_id: str) -> bool:
+    """Install the Ollama runtime for the current OS. Streams coarse progress
+    into the job record. Returns True if the `ollama` executable is present
+    afterward. Idempotent — a machine that already has Ollama returns True fast."""
+    import platform, shutil
+    if _provider_executable("ollama"):
+        return True
+    system = platform.system()
+    _set_job(job_id, status_text="installing the Ollama runtime…")
+    try:
+        if system == "Windows":
+            ok = False
+            if shutil.which("winget"):
+                r = subprocess.run(
+                    ["winget", "install", "--id", "Ollama.Ollama", "--silent",
+                     "--accept-package-agreements", "--accept-source-agreements",
+                     "--disable-interactivity"],
+                    capture_output=True, text=True, timeout=1800,
+                )
+                blob = (r.stdout + r.stderr).lower()
+                ok = r.returncode == 0 or "already installed" in blob
+            if not ok and not _provider_executable("ollama"):
+                _set_job(job_id, status_text="downloading OllamaSetup.exe…")
+                dst = Path(tempfile.gettempdir()) / "OllamaSetup.exe"
+                urllib.request.urlretrieve("https://ollama.com/download/OllamaSetup.exe", str(dst))
+                r = subprocess.run([str(dst), "/VERYSILENT", "/NORESTART"],
+                                   capture_output=True, text=True, timeout=1800)
+        elif system == "Darwin":
+            if shutil.which("brew"):
+                r = subprocess.run(["brew", "install", "ollama"],
+                                   capture_output=True, text=True, timeout=1800)
+            else:
+                _set_job(job_id, status_text="downloading Ollama for macOS…")
+                dst = Path(tempfile.gettempdir()) / "Ollama-darwin.zip"
+                urllib.request.urlretrieve("https://ollama.com/download/Ollama-darwin.zip", str(dst))
+                subprocess.run(["ditto", "-x", "-k", str(dst), "/Applications"],
+                               capture_output=True, text=True, timeout=600)
+        else:  # Linux / other — official install script
+            _set_job(job_id, status_text="running the Ollama install script…")
+            subprocess.run("curl -fsSL https://ollama.com/install.sh | sh",
+                           shell=True, capture_output=True, text=True, timeout=1800)
+    except Exception as e:
+        log.warning(f"[connectors] Ollama runtime install failed: {e}")
+        _set_job(job_id, status_text=f"runtime install error: {e}")
+        return False
+    return bool(_provider_executable("ollama"))
+
+
+def _ollama_daemon_up() -> bool:
+    """True if the Ollama HTTP API answers (root returns 'Ollama is running')."""
+    try:
+        with urllib.request.urlopen(OLLAMA_BASE_URL, timeout=2) as r:
+            return r.status < 500
+    except urllib.error.HTTPError:
+        return True   # server answered (even a 404) — it is up
+    except Exception:
+        return False
+
+
+def _ensure_ollama_daemon(timeout: float = 45.0) -> bool:
+    """Make sure the Ollama daemon is reachable, launching `ollama serve` if not.
+    On Windows/Linux the installer usually starts it; on brew macOS it may not."""
+    if _ollama_daemon_up():
+        return True
+    exe = _provider_executable("ollama")
+    if exe:
+        try:
+            subprocess.Popen(
+                [exe, "serve"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except Exception as e:
+            log.warning(f"[connectors] could not start `ollama serve`: {e}")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _ollama_daemon_up():
+            return True
+        time.sleep(1.5)
+    return _ollama_daemon_up()
+
+
+def _ollama_provision_job(job_id: str, model: str, connect: bool) -> None:
+    """Full cold-start chain: install runtime → start daemon → pull model →
+    (optionally) activate it as the live brain. Runs in its own thread."""
+    global ACTIVE_PROVIDER
+    # 1. Runtime
+    if not _install_ollama_binary(job_id):
+        _set_job(job_id, state="error",
+                 error="Could not install the Ollama runtime automatically. "
+                       "Install it from https://ollama.com and try again.")
+        return
+    # 2. Daemon
+    _set_job(job_id, status_text="starting the Ollama service…")
+    if not _ensure_ollama_daemon():
+        _set_job(job_id, state="error",
+                 error="Ollama installed but its service did not come up. "
+                       "Start Ollama, then retry.")
+        return
+    # 3. Pull (blocks until complete; sets state=done on success)
+    _ollama_pull_job(job_id, model)
+    with _install_lock:
+        done_ok = _install_jobs.get(job_id, {}).get("state") == "done"
+    if not done_ok:
+        return
+    # 4. Auto-connect. Always connect on an explicit request. Otherwise take over
+    #    only when there is no *usable* brain — i.e. the active provider is
+    #    unavailable OR it is a CLI that is not authenticated. An installed-but-
+    #    logged-out CLI no longer blocks Ollama from taking over (the old
+    #    `_provider_available` check wrongly counted it as a working brain). A
+    #    still-usable explicit buyer choice is preserved (its brain is usable, so
+    #    the gate stays shut unless the buyer explicitly asked to connect).
+    should = connect or (not _brain_usable(ACTIVE_PROVIDER))
+    if should:
+        _sync_ollama_providers()
+        pid = f"ollama:{model}"
+        if pid not in PROVIDERS:
+            # Fall back to a built-in provider that already maps this model.
+            pid = next((k for k, v in PROVIDERS.items() if v.get("model") == model), pid)
+        if pid in PROVIDERS and _provider_available(pid):
+            # An explicit connect request is a sticky buyer choice; an automatic
+            # cold-start takeover is overridable (upgrades to a CLI once signed in).
+            _set_active(pid, explicit=bool(connect))
+            _set_job(job_id, activated=pid, status_text="complete — connected")
+            log.info(f"[connectors] auto-connected active provider → {pid}"
+                     + (" (explicit)" if connect else " (auto fallback)"))
+
+
+def _start_install_job(kind: str, target: str, connect: bool = False) -> dict:
     """Kick off an install (kind='ollama' model pull, or 'cli' connector command).
+    For 'ollama', the runtime is installed automatically if missing and the model
+    is connected as the active brain when no working provider is selected.
     Returns the new job record."""
     import uuid
     job_id = uuid.uuid4().hex[:12]
@@ -1419,11 +1909,8 @@ def _start_install_job(kind: str, target: str) -> dict:
     with _install_lock:
         _install_jobs[job_id] = job
     if kind == "ollama":
-        if not _provider_executable("ollama"):
-            job["state"] = "error"
-            job["error"] = "Ollama is not installed. Install it from https://ollama.com first."
-            return job
-        threading.Thread(target=_ollama_pull_job, args=(job_id, target), daemon=True).start()
+        threading.Thread(target=_ollama_provision_job,
+                         args=(job_id, target, connect), daemon=True).start()
     elif kind == "cli":
         threading.Thread(target=_cli_install_job, args=(job_id, target), daemon=True).start()
     else:
@@ -5262,6 +5749,59 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
         return f"CLI mode error, Captain. ({e})"
 
 
+# Developer Mode — largest tool payload (input or result) forwarded to the
+# frontend dev drawer. Generous enough to carry a full file Write or a large
+# command output, capped so a runaway result can't blow up the SSE stream or
+# the browser. Applied per field.
+_DEV_TOOL_MAX = 24000
+
+# File-touching tools whose input contains editable code/content. The frontend
+# "Live Code" tab renders these specially (path + content/diff); everything
+# else shows in the "Tool Log" tab only.
+_DEV_FILE_TOOLS = {
+    "Write", "Edit", "MultiEdit", "NotebookEdit",
+    "write_file", "edit_file", "create_file", "apply_patch", "str_replace",
+}
+
+
+def _dev_truncate(val, limit=_DEV_TOOL_MAX):
+    """Cap a string/JSON-serialized value for the dev drawer, flagging when
+    truncation happened so the UI can show a "… (truncated)" affordance."""
+    s = val if isinstance(val, str) else json.dumps(val, ensure_ascii=False, default=str)
+    if len(s) > limit:
+        return s[:limit], True
+    return s, False
+
+
+def _dev_tool_payload(phase, name, label, tool_id, *, inp=None, result=None, is_error=False):
+    """Build the structured dict carried by a `tool` SSE event in Developer
+    Mode. `phase` is 'call' (has input) or 'result' (has result content)."""
+    payload = {
+        "phase":   phase,          # 'call' | 'result'
+        "name":    name or "",
+        "id":      tool_id or "",
+        "is_file": (name in _DEV_FILE_TOOLS),
+    }
+    if label:
+        payload["label"] = label
+    if phase == "call":
+        raw = inp if inp is not None else {}
+        body, truncated = _dev_truncate(raw)
+        payload["input"] = body
+        payload["truncated"] = truncated
+        # Surface the file path directly so the Live Code tab does not have to
+        # re-parse the input for common field names.
+        if isinstance(raw, dict):
+            payload["path"] = (raw.get("path") or raw.get("file_path") or
+                               raw.get("filename") or raw.get("notebook_path") or "")
+    else:
+        body, truncated = _dev_truncate(result if result is not None else "")
+        payload["result"] = body
+        payload["truncated"] = truncated
+        payload["is_error"] = bool(is_error)
+    return payload
+
+
 def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     """
     Streaming CLI mode. Runs claude --print --output-format stream-json via Popen,
@@ -5401,6 +5941,9 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         return
 
     final_text = ""
+    # Developer Mode: maps tool_use_id → tool name so a tool_result (which
+    # arrives in a later `user` event) can be paired back to its call.
+    _dev_tool_calls = {}
 
     def _format_cli_detail(tool_name, inp):
         raw = (inp.get("query") or inp.get("url") or inp.get("path") or
@@ -5460,6 +6003,13 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                         label  = _TOOL_LABELS.get(name, name.replace("_", " ").title())
                         detail = _format_cli_detail(name, inp)
                         send_sse('thinking', f"{label}{' ' + detail if detail else ''}")
+                        # Developer Mode: full structured tool call (untruncated
+                        # input) + remember the id so the matching result can be
+                        # paired back to it. No-op when Developer Mode is off.
+                        tuid = block.get("id", "")
+                        _dev_tool_calls[tuid] = name
+                        send_sse('tool', _dev_tool_payload(
+                            'call', name, label, tuid, inp=inp))
 
             elif etype == "user":
                 # Tool results come back wrapped in a user message
@@ -5472,6 +6022,12 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                         preview = str(raw).replace('\n', ' ').strip()[:90]
                         if preview:
                             send_sse('thinking', f"  → {preview}")
+                        # Developer Mode: full structured tool result, paired to
+                        # its call via tool_use_id.
+                        tuid = block.get("tool_use_id", "")
+                        send_sse('tool', _dev_tool_payload(
+                            'result', _dev_tool_calls.get(tuid, ""), None, tuid,
+                            result=str(raw), is_error=bool(block.get("is_error"))))
 
             elif etype == "result":
                 result_text = ev.get("result", "").strip()
@@ -5688,17 +6244,24 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
                     send_sse('thinking', summary)
             elif itype in ("function_call", "tool_call", "shell_command"):
                 name   = item.get("name") or item.get("tool") or item.get("command") or "tool"
-                detail = item.get("arguments") or item.get("command") or ""
-                if isinstance(detail, (dict, list)):
-                    detail = json.dumps(detail)[:60]
+                raw    = item.get("arguments") or item.get("command") or ""
+                if isinstance(raw, (dict, list)):
+                    detail = json.dumps(raw)[:60]
                 else:
-                    detail = str(detail)[:60]
+                    detail = str(raw)[:60]
                 send_sse('thinking', f"Running {name}{': ' + detail if detail else ''}")
+                # Developer Mode: full structured tool call.
+                send_sse('tool', _dev_tool_payload(
+                    'call', name, None, item.get("id", ""), inp=raw))
             elif itype in ("function_call_output", "tool_call_output", "shell_command_output"):
                 out = item.get("output") or item.get("result") or ""
                 preview = str(out).replace('\n', ' ').strip()[:90]
                 if preview:
                     send_sse('thinking', f"  → {preview}")
+                # Developer Mode: full structured tool result.
+                send_sse('tool', _dev_tool_payload(
+                    'result', item.get("name", ""), None,
+                    item.get("id", ""), result=str(out)))
 
         elif etype == "turn.completed":
             usage = ev.get("usage", {}) or {}
@@ -6335,15 +6898,28 @@ def ask_hermes_stream(message: str, project_path: str, send_sse) -> None:
                             detail = ""
                         send_sse('thinking', f"{label}{' ' + detail if detail else ''}")
                         _set_status("tool", f"{label}{': ' + detail if detail else ''}")
+                        # Developer Mode: full structured tool call (untruncated
+                        # input) before execution so the Live Code / Tool Log
+                        # drawer updates live. No-op when Developer Mode is off.
+                        send_sse('tool', _dev_tool_payload(
+                            'call', block.name, label, block.id, inp=inp))
                         result = execute_tool(block.name, block.input)
                         # Preview text only — image results (computer screenshot) get a stub.
                         if isinstance(result, dict) and result.get("image_b64"):
                             preview = "[screenshot returned]"
+                            dev_result = "[screenshot returned]"
                         else:
-                            preview = (result.get("text") if isinstance(result, dict) else str(result)).replace('\n', ' ').strip()
+                            dev_result = (result.get("text") if isinstance(result, dict) else str(result))
+                            preview = dev_result.replace('\n', ' ').strip()
                             if len(preview) > 90:
                                 preview = preview[:87] + "..."
                         send_sse('thinking', f"  → {preview}")
+                        # Developer Mode: full structured tool result, paired to
+                        # its call by tool id.
+                        _dev_is_err = bool(isinstance(result, dict) and result.get("is_error"))
+                        send_sse('tool', _dev_tool_payload(
+                            'result', block.name, label, block.id,
+                            result=dev_result, is_error=_dev_is_err))
                         tool_results.append(_build_tool_result(block, result))
                 messages.append({"role": "user", "content": tool_results})
                 if loop < MAX_LOOPS - 1:
@@ -8181,7 +8757,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-cache")
+            # Entry assets (HTML/JS/CSS) must NEVER be served from a stale
+            # browser cache — otherwise a code fix silently fails to reach the
+            # Captain (he keeps seeing the old, broken build). `no-store` is the
+            # only header browsers honor unconditionally; the Pragma/Expires
+            # pair covers older/proxy caches. Non-entry assets keep long-cache
+            # below since they are content-addressed by ?v= query.
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.send_cors()
             self.end_headers()
             self.wfile.write(data)
@@ -8372,7 +8956,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"mode": BRIDGE_MODE})
 
         elif path == "/providers":
-            self._json({"active": ACTIVE_PROVIDER, "providers": _list_providers()})
+            self._json({"active": ACTIVE_PROVIDER,
+                        "providers": _list_providers(),
+                        "needs_auth": _needs_auth_payload()})
 
         elif path == "/agents":
             # Editable per-officer personality files (~/.claude/agents/*.md),
@@ -9442,8 +10028,10 @@ class Handler(BaseHTTPRequestHandler):
                     "install_hint": PROVIDERS[new_provider].get("install_hint", ""),
                 }, 400)
                 return
-            ACTIVE_PROVIDER = new_provider
-            log.info(f"[PROVIDER] switched to {ACTIVE_PROVIDER}")
+            # A buyer choosing a provider here is an EXPLICIT, sticky choice —
+            # CLI-first selection and Ollama auto-connect must never override it.
+            _set_active(new_provider, explicit=True)
+            log.info(f"[PROVIDER] switched to {ACTIVE_PROVIDER} (explicit buyer choice)")
             self._json({"active": ACTIVE_PROVIDER, "providers": _list_providers()})
 
         elif path == "/llm/install":
@@ -9462,7 +10050,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": "install command not in connector catalog"}, 400); return
             else:
                 self._json({"error": "kind must be 'ollama' or 'cli'"}, 400); return
-            job = _start_install_job(kind, target)
+            connect = bool(data.get("connect", False))
+            job = _start_install_job(kind, target, connect=connect)
             self._json(job)
 
         elif path == "/agents":
@@ -9660,6 +10249,12 @@ class Handler(BaseHTTPRequestHandler):
             req_crew = data.get("crew", "")
             if req_crew:
                 _set_main_chat_crew(req_crew)
+            # Developer Mode (Settings → DEVELOPER). When on, the runner emits
+            # structured `tool` SSE events carrying the full, untruncated tool
+            # name / input / result so the frontend dev drawer can show live
+            # code edits and a verbose tool log. When off, `tool` events are
+            # dropped in send_sse below (zero behavior change, zero bandwidth).
+            dev_mode = bool(data.get("dev_mode"))
             attachments = data.get("attachments") or []
             if not message and not attachments:
                 self._json({"error": "no message"}, 400)
@@ -9717,6 +10312,22 @@ class Handler(BaseHTTPRequestHandler):
             _done_sent = [False]
 
             def send_sse(event_type, text):
+                # Developer Mode: `tool` events carry a structured dict (name,
+                # input, result, phase) rather than the usual {'text': ...}
+                # envelope. Dropped entirely unless Developer Mode is on, so
+                # the default experience is byte-for-byte unchanged.
+                if event_type == 'tool':
+                    if not dev_mode:
+                        return
+                    _last_activity_ts[0] = time.time()
+                    with _write_lock:
+                        try:
+                            chunk = f"event: tool\ndata: {json.dumps(text)}\n\n"
+                            self.wfile.write(chunk.encode('utf-8'))
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError, OSError):
+                            pass
+                    return
                 # System Health: feed model output chunks into the engine gauge
                 # so token velocity spools up while Data is mid-response.
                 if event_type == 'token' and isinstance(text, str):
@@ -10059,6 +10670,9 @@ if __name__ == "__main__":
     # Cloudflare Tunnel — spawn detached so the public URL stays up regardless
     # of how the bridge was started (desktop shortcut, watchdog, IDE, etc.)
     _start_cloudflared_if_configured()
+    # Active brain: restore the persisted provider if it is still available
+    # (so a connected local model survives a restart on a machine with no CLI).
+    _load_active_provider()
     # Standing orders: load from disk, recompute next_run for each, start scheduler
     _load_standing_orders()
     # Auto-seed the daily Potential Upgrades scan if it doesn't exist yet.

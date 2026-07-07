@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=ent27" />
+  <link rel="stylesheet" href="theme.css?v=ent31" />
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -197,6 +197,11 @@
               </div>
             </div>
           </div>
+
+          <!-- CLI sign-in call-to-action. Hidden by default; app.js reveals it when
+               a CLI (e.g. Claude Code) is installed but not signed in and DATA is
+               running on the local Ollama fallback. Self-clears once signed in. -->
+          <div class="auth-cta hidden" id="auth-cta" role="status" aria-live="polite"></div>
 
           <div class="chats-wrapper" id="chats-wrapper">
             <!-- MAIN PANE -->
@@ -594,6 +599,7 @@
             <button class="settings-tab" data-tab="crew"   onclick="settingsTab('crew')">CREW PERSONALITIES</button>
             <button class="settings-tab" data-tab="memory" onclick="settingsTab('memory')">MEMORY</button>
             <button class="settings-tab" data-tab="history" onclick="settingsTab('history')">HISTORY</button>
+            <button class="settings-tab" data-tab="developer" onclick="settingsTab('developer')">DEVELOPER</button>
           </nav>
           <div class="settings-content">
 
@@ -663,10 +669,35 @@
               <div class="settings-history-list" id="settings-history-list"></div>
             </section>
 
+            <section class="settings-pane" data-pane="developer">
+              <h3 class="settings-h">Developer mode</h3>
+              <p class="settings-sub">Shows exactly what Data is doing under the hood, inline in the chat: each tool it runs appears as a compact card right in the conversation — the code being written or edited in real time (auto-expanded, diffed), and every tool call with its full input and result. Like watching Claude Code work in an editor. No effect on Data's replies; purely a window into the work.</p>
+              <label class="settings-switch-row">
+                <span class="settings-switch-label">Developer mode</span>
+                <button class="settings-switch" id="settings-dev-toggle" role="switch" aria-checked="false" onclick="settingsToggleDevMode()">
+                  <span class="settings-switch-knob"></span>
+                </button>
+              </label>
+
+              <h3 class="settings-h">Verbose tool log</h3>
+              <p class="settings-sub">Show a card for every tool call (name, full input, full result) inline in the chat. Turn off to keep the chat quiet and see only live code edits (file writes and edits).</p>
+              <label class="settings-switch-row">
+                <span class="settings-switch-label">Verbose tool log</span>
+                <button class="settings-switch" id="settings-dev-verbose-toggle" role="switch" aria-checked="true" onclick="settingsToggleDevVerbose()">
+                  <span class="settings-switch-knob"></span>
+                </button>
+              </label>
+
+              <p class="settings-sub" style="margin-top:18px;opacity:.75">Tip: tool cards are collapsible — click a card's header to expand or collapse its input and result. File edits open expanded so you can watch the code land.</p>
+            </section>
+
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Developer Mode renders inline in the chat as .toolcard elements
+         (see devInlineIngest in app.js) — no side drawer. -->
 
   </div><!-- end app -->
 
@@ -967,6 +998,6 @@
     // MSD metric-card placement (defined in app.js).
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
   </script>
-  <script src="app.js?v=retail2"></script>
+  <script src="app.js?v=retail6"></script>
 </body>
 </html>

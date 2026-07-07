@@ -480,6 +480,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _populatePaneCrewSelect('main', MAIN_CHAT_CREW);
   bootCaptains();
   initChatInputResizer();
+  try { _devModeInit(); } catch (_) {}
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -1198,6 +1199,7 @@ async function _dispatchChatMessage(text, attachments) {
         provider:     mainWs?.provider || '',
         crew:         MAIN_CHAT_CREW,
         attachments:  attachments,
+        dev_mode:     DEV_MODE.on,
       }),
     });
 
@@ -1237,6 +1239,9 @@ async function _dispatchChatMessage(text, attachments) {
           const payload = JSON.parse(evData);
           if (evType === 'thinking') {
             _addThoughtLine(thoughtEl, payload.text);
+          } else if (evType === 'tool') {
+            // Developer Mode: structured tool call/result → inline chat card.
+            try { devInlineIngest(payload, chatWin); } catch (_) {}
           } else if (evType === 'token') {
             if (!streamMsg) {
               thoughtEl.classList.add('done');
@@ -5645,6 +5650,9 @@ async function loadProviders() {
     const data = await res.json();
     _providersCache = data.providers || [];
     _lastKnownActiveProvider = data.active;
+    // Sign-in CTA: render BEFORE any early return so it shows even when the
+    // provider dropdown menu is not mounted in the current view.
+    _renderAuthCta(data.needs_auth, data.providers || [], data.active);
     // Refresh any per-window dropdowns that are already mounted
     _refreshAllWindowProviderDropdowns();
     const menu = document.getElementById('provider-menu');
@@ -5686,6 +5694,90 @@ async function loadProviders() {
   } catch (e) {
     addLog(`Could not load providers: ${e.message || e}`);
   }
+}
+
+// ══ CLI sign-in call-to-action ══════════════════════════════
+// Shown when a CLI (e.g. Claude Code) is installed but NOT signed in, so DATA is
+// running on the local Ollama fallback brain. The backend flags this via the
+// `needs_auth` payload on /providers. We ALSO consult the live per-provider
+// `authenticated` flag so the banner self-clears the instant the buyer signs in
+// (via `claude` → /login in their terminal) — no bridge restart required. While
+// the banner is up we poll /providers lightly so that flip is picked up promptly.
+let _authCtaPollTimer = null;
+let _authCtaDismissed = '';   // provider_id the buyer dismissed this session
+
+function _ctaEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function _startAuthCtaPoll() {
+  if (_authCtaPollTimer) return;
+  _authCtaPollTimer = setInterval(loadProviders, 15000);
+}
+function _stopAuthCtaPoll() {
+  if (_authCtaPollTimer) { clearInterval(_authCtaPollTimer); _authCtaPollTimer = null; }
+}
+
+function _renderAuthCta(needsAuth, providers, active) {
+  const el = document.getElementById('auth-cta');
+  if (!el) return;
+  const pid = needsAuth && needsAuth.provider_id;
+  // No pending CLI auth, or buyer dismissed it this session → hide + stop polling.
+  if (!pid || _authCtaDismissed === pid) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    _stopAuthCtaPoll();
+    return;
+  }
+  const name = needsAuth.name || 'Your CLI';
+  const cmd = needsAuth.login_cmd || '';
+  // Has that CLI just been signed in? (live probe from _list_providers)
+  const prov = (providers || []).find(p => p.id === pid);
+  const nowAuthed = !!(prov && prov.authenticated);
+
+  if (nowAuthed) {
+    _stopAuthCtaPoll();
+    // Already switched over → nothing to show.
+    if (active === pid) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    el.classList.remove('hidden');
+    el.classList.add('ready');
+    el.innerHTML =
+      `<div class="auth-cta-body">
+         <span class="auth-cta-icon">✓</span>
+         <span class="auth-cta-text"><strong>${_ctaEsc(name)}</strong> is signed in. Switch DATA's brain from the local fallback?</span>
+         <button type="button" class="auth-cta-btn" id="auth-cta-switch">Switch to ${_ctaEsc(name)}</button>
+         <button type="button" class="auth-cta-x" id="auth-cta-close" title="Dismiss">✕</button>
+       </div>`;
+    document.getElementById('auth-cta-switch')?.addEventListener('click', () => { setProvider(pid); });
+    document.getElementById('auth-cta-close')?.addEventListener('click', () => {
+      _authCtaDismissed = pid; _renderAuthCta({}, providers, active);
+    });
+    return;
+  }
+
+  // Still not signed in → show the sign-in instructions with the exact command.
+  el.classList.remove('hidden');
+  el.classList.remove('ready');
+  const onFallback = needsAuth.on_fallback
+    ? ', so DATA is running on the local fallback brain' : '';
+  el.innerHTML =
+    `<div class="auth-cta-body">
+       <span class="auth-cta-icon">◎</span>
+       <span class="auth-cta-text"><strong>${_ctaEsc(name)}</strong> is installed but not signed in${onFallback}. Sign in to use it:</span>
+       ${cmd ? `<code class="auth-cta-cmd" id="auth-cta-cmd" title="Click to copy">${_ctaEsc(cmd)}</code>` : ''}
+       <button type="button" class="auth-cta-x" id="auth-cta-close" title="Dismiss until restart">✕</button>
+     </div>`;
+  const cmdEl = document.getElementById('auth-cta-cmd');
+  if (cmdEl) cmdEl.addEventListener('click', () => {
+    navigator.clipboard?.writeText(cmd)
+      .then(() => { cmdEl.classList.add('copied'); setTimeout(() => cmdEl.classList.remove('copied'), 1200); })
+      .catch(() => {});
+  });
+  document.getElementById('auth-cta-close')?.addEventListener('click', () => {
+    _authCtaDismissed = pid; _renderAuthCta({}, providers, active);
+  });
+  _startAuthCtaPoll();
 }
 
 async function setProvider(providerId) {
@@ -8026,6 +8118,7 @@ function openSettings() {
   _settingsLoadCrew();
   _settingsLoadMemory();
   _settingsLoadConvo();
+  _settingsLoadDev();
 }
 function closeSettings() {
   const ov = document.getElementById('settings-overlay');
@@ -8041,6 +8134,146 @@ function settingsTab(name) {
     t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.settings-pane').forEach(p =>
     p.classList.toggle('active', p.dataset.pane === name));
+}
+
+/* ══ DEVELOPER MODE — INLINE TOOL CARDS ═══════════════════════════════════
+   When Developer Mode is on the bridge streams structured `tool` SSE events
+   (full name / input / result). This module persists the toggles and renders
+   each tool Data runs as a compact, expandable card RIGHT IN THE CHAT FLOW —
+   like watching Claude Code work in an editor. File writes/edits show the
+   live code/diff auto-expanded; every other tool logs its full input and
+   result on demand. Off = fully dormant. */
+const DEV_MODE = {
+  on:      false,   // master switch — also gates dev_mode in the chat request
+  verbose: true,    // when off, only file (live-code) tools render inline
+  _byId:   {},      // tool_use_id → { card } | { skipped }
+};
+
+function _devLoadPrefs() {
+  try {
+    DEV_MODE.on      = localStorage.getItem('data-dev-mode') === '1';
+    const v = localStorage.getItem('data-dev-verbose');
+    DEV_MODE.verbose = (v === null) ? true : (v === '1');
+  } catch (_) {}
+}
+function _devApplyChrome() {
+  document.body.classList.toggle('dev-mode-on', DEV_MODE.on);
+}
+function _devModeInit() { _devLoadPrefs(); _devApplyChrome(); }
+
+// Settings pane load + toggle handlers
+function _settingsLoadDev() {
+  _devLoadPrefs();
+  const t = document.getElementById('settings-dev-toggle');
+  if (t) { t.classList.toggle('on', DEV_MODE.on); t.setAttribute('aria-checked', DEV_MODE.on); }
+  const v = document.getElementById('settings-dev-verbose-toggle');
+  if (v) { v.classList.toggle('on', DEV_MODE.verbose); v.setAttribute('aria-checked', DEV_MODE.verbose); }
+}
+function settingsToggleDevMode() {
+  DEV_MODE.on = !DEV_MODE.on;
+  try { localStorage.setItem('data-dev-mode', DEV_MODE.on ? '1' : '0'); } catch (_) {}
+  _settingsLoadDev();
+  _devApplyChrome();
+  if (typeof addLog === 'function') addLog('Developer mode → ' + (DEV_MODE.on ? 'ON' : 'OFF'));
+}
+function settingsToggleDevVerbose() {
+  DEV_MODE.verbose = !DEV_MODE.verbose;
+  try { localStorage.setItem('data-dev-verbose', DEV_MODE.verbose ? '1' : '0'); } catch (_) {}
+  _settingsLoadDev();
+}
+
+function _devEsc(s) {
+  return String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+}
+function _devParse(input) {
+  if (input && typeof input === 'object') return input;
+  try { return JSON.parse(input); } catch (_) { return null; }
+}
+// Build the code/diff HTML for a file-touching tool. Returns '' if none.
+function _devCodeHtml(name, inputObj, rawInput) {
+  if (!inputObj) {
+    return `<pre class="devcode-raw">${_devEsc(rawInput || '')}</pre>`;
+  }
+  const old = inputObj.old_string ?? inputObj.oldText ?? inputObj.old;
+  const neu = inputObj.new_string ?? inputObj.newText ?? inputObj.new;
+  if (old !== undefined && neu !== undefined) {
+    const dl = String(old).split('\n').map(l => `<span class="dl del">- ${_devEsc(l)}</span>`).join('\n');
+    const al = String(neu).split('\n').map(l => `<span class="dl add">+ ${_devEsc(l)}</span>`).join('\n');
+    return `<pre class="devcode-diff">${dl}\n${al}</pre>`;
+  }
+  const content = inputObj.content ?? inputObj.text ?? inputObj.new_str;
+  if (content !== undefined) {
+    const ln = String(content).split('\n').map(l => `<span class="dl">${_devEsc(l)}</span>`).join('\n');
+    return `<pre class="devcode-new">${ln}</pre>`;
+  }
+  return `<pre class="devcode-raw">${_devEsc(rawInput || '')}</pre>`;
+}
+
+// Main entry — one structured `tool` SSE payload, rendered as an inline card
+// appended to the chat window `winEl` (the assistant turn's thinking trail is
+// removed after the turn; these cards persist as a record of the work).
+function devInlineIngest(p, winEl) {
+  if (!p || !p.phase) return;
+  winEl = winEl || document.getElementById('chat-window');
+  if (!winEl) return;
+  const id = p.id || ('_' + Math.random().toString(36).slice(2));
+
+  if (p.phase === 'call') {
+    // Verbose off → only surface file (live-code) tools; remember the skip so
+    // the matching result phase is a no-op instead of a lookup miss.
+    if (!DEV_MODE.verbose && !p.is_file) { DEV_MODE._byId[id] = { skipped: true }; return; }
+
+    const label = p.label || (p.name || 'tool');
+    const inputObj = _devParse(p.input);
+    const wasPinned = (typeof _isPinnedToBottom === 'function') ? _isPinnedToBottom(winEl) : true;
+
+    const card = document.createElement('div');
+    card.className = 'toolcard pending' + (p.is_file ? ' toolcard-file expanded' : '');
+    const pathBit = p.path ? `<span class="toolcard-path">${_devEsc(p.path)}</span>` : '';
+    const icon = p.is_file ? '&lt;/&gt;' : '⚙';
+    // File tools show the code/diff directly; other tools show raw input.
+    const body = p.is_file
+      ? `<div class="toolcard-code">${_devCodeHtml(p.name, inputObj, p.input)}</div>`
+      : `<div class="toolcard-sec">INPUT</div>` +
+        `<pre class="toolcard-pre">${_devEsc(p.input || '')}${p.truncated ? '\n… (truncated)' : ''}</pre>`;
+    card.innerHTML =
+      `<div class="toolcard-head" onclick="this.parentNode.classList.toggle('expanded')">` +
+        `<span class="toolcard-dot"></span>` +
+        `<span class="toolcard-icon">${icon}</span>` +
+        `<span class="toolcard-name">${_devEsc(label)}</span>${pathBit}` +
+        `<span class="toolcard-status">running…</span>` +
+        `<span class="toolcard-caret">▸</span>` +
+      `</div>` +
+      `<div class="toolcard-body">` +
+        body +
+        `<div class="toolcard-sec toolcard-result-sec" style="display:none">RESULT</div>` +
+        `<pre class="toolcard-pre toolcard-result" style="display:none"></pre>` +
+      `</div>`;
+    winEl.appendChild(card);
+    if (wasPinned) winEl.scrollTop = winEl.scrollHeight;
+    DEV_MODE._byId[id] = { card };
+    return;
+  }
+
+  if (p.phase === 'result') {
+    const rec = DEV_MODE._byId[id];
+    if (!rec || rec.skipped || !rec.card) return;
+    const card = rec.card;
+    card.classList.remove('pending');
+    card.classList.toggle('errored', !!p.is_error);
+    card.classList.add('done');
+    if (p.is_file && !p.is_error) card.classList.add('applied');
+    const st = card.querySelector('.toolcard-status');
+    if (st) st.textContent = p.is_error ? 'error' : 'done';
+    const sec = card.querySelector('.toolcard-result-sec');
+    const pre = card.querySelector('.toolcard-result');
+    if (sec) sec.style.display = '';
+    if (pre) {
+      pre.style.display = '';
+      pre.textContent = (p.result || '') + (p.truncated ? '\n… (truncated)' : '');
+      pre.classList.toggle('err', !!p.is_error);
+    }
+  }
 }
 
 // ── Appearance — retail 2-theme system (MINIMAL default / CYBER) ────────────
