@@ -5749,59 +5749,6 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
         return f"CLI mode error, Captain. ({e})"
 
 
-# Developer Mode — largest tool payload (input or result) forwarded to the
-# frontend dev drawer. Generous enough to carry a full file Write or a large
-# command output, capped so a runaway result can't blow up the SSE stream or
-# the browser. Applied per field.
-_DEV_TOOL_MAX = 24000
-
-# File-touching tools whose input contains editable code/content. The frontend
-# "Live Code" tab renders these specially (path + content/diff); everything
-# else shows in the "Tool Log" tab only.
-_DEV_FILE_TOOLS = {
-    "Write", "Edit", "MultiEdit", "NotebookEdit",
-    "write_file", "edit_file", "create_file", "apply_patch", "str_replace",
-}
-
-
-def _dev_truncate(val, limit=_DEV_TOOL_MAX):
-    """Cap a string/JSON-serialized value for the dev drawer, flagging when
-    truncation happened so the UI can show a "… (truncated)" affordance."""
-    s = val if isinstance(val, str) else json.dumps(val, ensure_ascii=False, default=str)
-    if len(s) > limit:
-        return s[:limit], True
-    return s, False
-
-
-def _dev_tool_payload(phase, name, label, tool_id, *, inp=None, result=None, is_error=False):
-    """Build the structured dict carried by a `tool` SSE event in Developer
-    Mode. `phase` is 'call' (has input) or 'result' (has result content)."""
-    payload = {
-        "phase":   phase,          # 'call' | 'result'
-        "name":    name or "",
-        "id":      tool_id or "",
-        "is_file": (name in _DEV_FILE_TOOLS),
-    }
-    if label:
-        payload["label"] = label
-    if phase == "call":
-        raw = inp if inp is not None else {}
-        body, truncated = _dev_truncate(raw)
-        payload["input"] = body
-        payload["truncated"] = truncated
-        # Surface the file path directly so the Live Code tab does not have to
-        # re-parse the input for common field names.
-        if isinstance(raw, dict):
-            payload["path"] = (raw.get("path") or raw.get("file_path") or
-                               raw.get("filename") or raw.get("notebook_path") or "")
-    else:
-        body, truncated = _dev_truncate(result if result is not None else "")
-        payload["result"] = body
-        payload["truncated"] = truncated
-        payload["is_error"] = bool(is_error)
-    return payload
-
-
 def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     """
     Streaming CLI mode. Runs claude --print --output-format stream-json via Popen,
@@ -5941,9 +5888,6 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         return
 
     final_text = ""
-    # Developer Mode: maps tool_use_id → tool name so a tool_result (which
-    # arrives in a later `user` event) can be paired back to its call.
-    _dev_tool_calls = {}
 
     def _format_cli_detail(tool_name, inp):
         raw = (inp.get("query") or inp.get("url") or inp.get("path") or
@@ -6003,13 +5947,6 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                         label  = _TOOL_LABELS.get(name, name.replace("_", " ").title())
                         detail = _format_cli_detail(name, inp)
                         send_sse('thinking', f"{label}{' ' + detail if detail else ''}")
-                        # Developer Mode: full structured tool call (untruncated
-                        # input) + remember the id so the matching result can be
-                        # paired back to it. No-op when Developer Mode is off.
-                        tuid = block.get("id", "")
-                        _dev_tool_calls[tuid] = name
-                        send_sse('tool', _dev_tool_payload(
-                            'call', name, label, tuid, inp=inp))
 
             elif etype == "user":
                 # Tool results come back wrapped in a user message
@@ -6022,12 +5959,6 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                         preview = str(raw).replace('\n', ' ').strip()[:90]
                         if preview:
                             send_sse('thinking', f"  → {preview}")
-                        # Developer Mode: full structured tool result, paired to
-                        # its call via tool_use_id.
-                        tuid = block.get("tool_use_id", "")
-                        send_sse('tool', _dev_tool_payload(
-                            'result', _dev_tool_calls.get(tuid, ""), None, tuid,
-                            result=str(raw), is_error=bool(block.get("is_error"))))
 
             elif etype == "result":
                 result_text = ev.get("result", "").strip()
@@ -6250,18 +6181,11 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
                 else:
                     detail = str(raw)[:60]
                 send_sse('thinking', f"Running {name}{': ' + detail if detail else ''}")
-                # Developer Mode: full structured tool call.
-                send_sse('tool', _dev_tool_payload(
-                    'call', name, None, item.get("id", ""), inp=raw))
             elif itype in ("function_call_output", "tool_call_output", "shell_command_output"):
                 out = item.get("output") or item.get("result") or ""
                 preview = str(out).replace('\n', ' ').strip()[:90]
                 if preview:
                     send_sse('thinking', f"  → {preview}")
-                # Developer Mode: full structured tool result.
-                send_sse('tool', _dev_tool_payload(
-                    'result', item.get("name", ""), None,
-                    item.get("id", ""), result=str(out)))
 
         elif etype == "turn.completed":
             usage = ev.get("usage", {}) or {}
@@ -6898,28 +6822,16 @@ def ask_hermes_stream(message: str, project_path: str, send_sse) -> None:
                             detail = ""
                         send_sse('thinking', f"{label}{' ' + detail if detail else ''}")
                         _set_status("tool", f"{label}{': ' + detail if detail else ''}")
-                        # Developer Mode: full structured tool call (untruncated
-                        # input) before execution so the Live Code / Tool Log
-                        # drawer updates live. No-op when Developer Mode is off.
-                        send_sse('tool', _dev_tool_payload(
-                            'call', block.name, label, block.id, inp=inp))
                         result = execute_tool(block.name, block.input)
                         # Preview text only — image results (computer screenshot) get a stub.
                         if isinstance(result, dict) and result.get("image_b64"):
                             preview = "[screenshot returned]"
-                            dev_result = "[screenshot returned]"
                         else:
-                            dev_result = (result.get("text") if isinstance(result, dict) else str(result))
-                            preview = dev_result.replace('\n', ' ').strip()
+                            preview = (result.get("text") if isinstance(result, dict) else str(result))
+                            preview = preview.replace('\n', ' ').strip()
                             if len(preview) > 90:
                                 preview = preview[:87] + "..."
                         send_sse('thinking', f"  → {preview}")
-                        # Developer Mode: full structured tool result, paired to
-                        # its call by tool id.
-                        _dev_is_err = bool(isinstance(result, dict) and result.get("is_error"))
-                        send_sse('tool', _dev_tool_payload(
-                            'result', block.name, label, block.id,
-                            result=dev_result, is_error=_dev_is_err))
                         tool_results.append(_build_tool_result(block, result))
                 messages.append({"role": "user", "content": tool_results})
                 if loop < MAX_LOOPS - 1:
@@ -10249,12 +10161,6 @@ class Handler(BaseHTTPRequestHandler):
             req_crew = data.get("crew", "")
             if req_crew:
                 _set_main_chat_crew(req_crew)
-            # Developer Mode (Settings → DEVELOPER). When on, the runner emits
-            # structured `tool` SSE events carrying the full, untruncated tool
-            # name / input / result so the frontend dev drawer can show live
-            # code edits and a verbose tool log. When off, `tool` events are
-            # dropped in send_sse below (zero behavior change, zero bandwidth).
-            dev_mode = bool(data.get("dev_mode"))
             attachments = data.get("attachments") or []
             if not message and not attachments:
                 self._json({"error": "no message"}, 400)
@@ -10312,22 +10218,6 @@ class Handler(BaseHTTPRequestHandler):
             _done_sent = [False]
 
             def send_sse(event_type, text):
-                # Developer Mode: `tool` events carry a structured dict (name,
-                # input, result, phase) rather than the usual {'text': ...}
-                # envelope. Dropped entirely unless Developer Mode is on, so
-                # the default experience is byte-for-byte unchanged.
-                if event_type == 'tool':
-                    if not dev_mode:
-                        return
-                    _last_activity_ts[0] = time.time()
-                    with _write_lock:
-                        try:
-                            chunk = f"event: tool\ndata: {json.dumps(text)}\n\n"
-                            self.wfile.write(chunk.encode('utf-8'))
-                            self.wfile.flush()
-                        except (BrokenPipeError, ConnectionResetError, OSError):
-                            pass
-                    return
                 # System Health: feed model output chunks into the engine gauge
                 # so token velocity spools up while Data is mid-response.
                 if event_type == 'token' and isinstance(text, str):

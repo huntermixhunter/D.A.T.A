@@ -34,6 +34,8 @@ COPYRIGHT_REGISTRATION.md
 dashboard/retail_local.log
 dashboard/shoot_dashboard.py
 dashboard/assets/social/
+dashboard_test.py
+dashboard_demo.py
 
 # Secrets
 .env

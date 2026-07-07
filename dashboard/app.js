@@ -480,7 +480,6 @@ window.addEventListener('DOMContentLoaded', () => {
   _populatePaneCrewSelect('main', MAIN_CHAT_CREW);
   bootCaptains();
   initChatInputResizer();
-  try { _devModeInit(); } catch (_) {}
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -1199,7 +1198,6 @@ async function _dispatchChatMessage(text, attachments) {
         provider:     mainWs?.provider || '',
         crew:         MAIN_CHAT_CREW,
         attachments:  attachments,
-        dev_mode:     DEV_MODE.on,
       }),
     });
 
@@ -1239,9 +1237,6 @@ async function _dispatchChatMessage(text, attachments) {
           const payload = JSON.parse(evData);
           if (evType === 'thinking') {
             _addThoughtLine(thoughtEl, payload.text);
-          } else if (evType === 'tool') {
-            // Developer Mode: structured tool call/result → inline chat card.
-            try { devInlineIngest(payload, chatWin); } catch (_) {}
           } else if (evType === 'token') {
             if (!streamMsg) {
               thoughtEl.classList.add('done');
@@ -5882,8 +5877,9 @@ function _renderModels(models, ollamaInstalled) {
   if (!el) return;
   let head = '';
   if (!ollamaInstalled) {
-    head = `<div class="conn-warn">Ollama is not installed — it runs local models for free.
-      <a href="https://ollama.com" target="_blank" rel="noopener">Download Ollama</a>, then click RESCAN.</div>`;
+    head = `<div class="conn-warn">Ollama (the free local-model runtime) is not installed yet — but you do not need to install it by hand.
+      Click <b>INSTALL</b> on any model below and DATA sets up Ollama automatically, then downloads the model and connects it.
+      <a href="https://ollama.com" target="_blank" rel="noopener">Learn more</a></div>`;
   }
   el.innerHTML = head + models.map(m => {
     const fit = _FIT_META[m.fit] || { cls: 'blue', label: m.fit };
@@ -5893,8 +5889,12 @@ function _renderModels(models, ollamaInstalled) {
     } else if (m.fit === 'wont-fit') {
       action = `<button class="data-btn-sm" disabled title="Exceeds this machine's memory">TOO BIG</button>`;
     } else {
-      const dis = ollamaInstalled ? '' : 'disabled title="Install Ollama first"';
-      action = `<button class="data-btn-sm orange" id="install-btn-${_cssId(m.model)}" onclick="installModel('${m.model}')" ${dis}>INSTALL</button>`;
+      // The backend installs the Ollama runtime automatically on first pull, so
+      // this button is always live — even when Ollama is not yet on the machine.
+      const tip = ollamaInstalled
+        ? 'Download and run this model locally'
+        : 'Installs the Ollama runtime automatically, then downloads this model';
+      action = `<button class="data-btn-sm orange" id="install-btn-${_cssId(m.model)}" onclick="installModel('${m.model}')" title="${tip}">INSTALL</button>`;
     }
     return `
       <div class="conn-card" id="card-${_cssId(m.model)}">
@@ -8118,7 +8118,6 @@ function openSettings() {
   _settingsLoadCrew();
   _settingsLoadMemory();
   _settingsLoadConvo();
-  _settingsLoadDev();
 }
 function closeSettings() {
   const ov = document.getElementById('settings-overlay');
@@ -8134,146 +8133,6 @@ function settingsTab(name) {
     t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.settings-pane').forEach(p =>
     p.classList.toggle('active', p.dataset.pane === name));
-}
-
-/* ══ DEVELOPER MODE — INLINE TOOL CARDS ═══════════════════════════════════
-   When Developer Mode is on the bridge streams structured `tool` SSE events
-   (full name / input / result). This module persists the toggles and renders
-   each tool Data runs as a compact, expandable card RIGHT IN THE CHAT FLOW —
-   like watching Claude Code work in an editor. File writes/edits show the
-   live code/diff auto-expanded; every other tool logs its full input and
-   result on demand. Off = fully dormant. */
-const DEV_MODE = {
-  on:      false,   // master switch — also gates dev_mode in the chat request
-  verbose: true,    // when off, only file (live-code) tools render inline
-  _byId:   {},      // tool_use_id → { card } | { skipped }
-};
-
-function _devLoadPrefs() {
-  try {
-    DEV_MODE.on      = localStorage.getItem('data-dev-mode') === '1';
-    const v = localStorage.getItem('data-dev-verbose');
-    DEV_MODE.verbose = (v === null) ? true : (v === '1');
-  } catch (_) {}
-}
-function _devApplyChrome() {
-  document.body.classList.toggle('dev-mode-on', DEV_MODE.on);
-}
-function _devModeInit() { _devLoadPrefs(); _devApplyChrome(); }
-
-// Settings pane load + toggle handlers
-function _settingsLoadDev() {
-  _devLoadPrefs();
-  const t = document.getElementById('settings-dev-toggle');
-  if (t) { t.classList.toggle('on', DEV_MODE.on); t.setAttribute('aria-checked', DEV_MODE.on); }
-  const v = document.getElementById('settings-dev-verbose-toggle');
-  if (v) { v.classList.toggle('on', DEV_MODE.verbose); v.setAttribute('aria-checked', DEV_MODE.verbose); }
-}
-function settingsToggleDevMode() {
-  DEV_MODE.on = !DEV_MODE.on;
-  try { localStorage.setItem('data-dev-mode', DEV_MODE.on ? '1' : '0'); } catch (_) {}
-  _settingsLoadDev();
-  _devApplyChrome();
-  if (typeof addLog === 'function') addLog('Developer mode → ' + (DEV_MODE.on ? 'ON' : 'OFF'));
-}
-function settingsToggleDevVerbose() {
-  DEV_MODE.verbose = !DEV_MODE.verbose;
-  try { localStorage.setItem('data-dev-verbose', DEV_MODE.verbose ? '1' : '0'); } catch (_) {}
-  _settingsLoadDev();
-}
-
-function _devEsc(s) {
-  return String(s).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
-}
-function _devParse(input) {
-  if (input && typeof input === 'object') return input;
-  try { return JSON.parse(input); } catch (_) { return null; }
-}
-// Build the code/diff HTML for a file-touching tool. Returns '' if none.
-function _devCodeHtml(name, inputObj, rawInput) {
-  if (!inputObj) {
-    return `<pre class="devcode-raw">${_devEsc(rawInput || '')}</pre>`;
-  }
-  const old = inputObj.old_string ?? inputObj.oldText ?? inputObj.old;
-  const neu = inputObj.new_string ?? inputObj.newText ?? inputObj.new;
-  if (old !== undefined && neu !== undefined) {
-    const dl = String(old).split('\n').map(l => `<span class="dl del">- ${_devEsc(l)}</span>`).join('\n');
-    const al = String(neu).split('\n').map(l => `<span class="dl add">+ ${_devEsc(l)}</span>`).join('\n');
-    return `<pre class="devcode-diff">${dl}\n${al}</pre>`;
-  }
-  const content = inputObj.content ?? inputObj.text ?? inputObj.new_str;
-  if (content !== undefined) {
-    const ln = String(content).split('\n').map(l => `<span class="dl">${_devEsc(l)}</span>`).join('\n');
-    return `<pre class="devcode-new">${ln}</pre>`;
-  }
-  return `<pre class="devcode-raw">${_devEsc(rawInput || '')}</pre>`;
-}
-
-// Main entry — one structured `tool` SSE payload, rendered as an inline card
-// appended to the chat window `winEl` (the assistant turn's thinking trail is
-// removed after the turn; these cards persist as a record of the work).
-function devInlineIngest(p, winEl) {
-  if (!p || !p.phase) return;
-  winEl = winEl || document.getElementById('chat-window');
-  if (!winEl) return;
-  const id = p.id || ('_' + Math.random().toString(36).slice(2));
-
-  if (p.phase === 'call') {
-    // Verbose off → only surface file (live-code) tools; remember the skip so
-    // the matching result phase is a no-op instead of a lookup miss.
-    if (!DEV_MODE.verbose && !p.is_file) { DEV_MODE._byId[id] = { skipped: true }; return; }
-
-    const label = p.label || (p.name || 'tool');
-    const inputObj = _devParse(p.input);
-    const wasPinned = (typeof _isPinnedToBottom === 'function') ? _isPinnedToBottom(winEl) : true;
-
-    const card = document.createElement('div');
-    card.className = 'toolcard pending' + (p.is_file ? ' toolcard-file expanded' : '');
-    const pathBit = p.path ? `<span class="toolcard-path">${_devEsc(p.path)}</span>` : '';
-    const icon = p.is_file ? '&lt;/&gt;' : '⚙';
-    // File tools show the code/diff directly; other tools show raw input.
-    const body = p.is_file
-      ? `<div class="toolcard-code">${_devCodeHtml(p.name, inputObj, p.input)}</div>`
-      : `<div class="toolcard-sec">INPUT</div>` +
-        `<pre class="toolcard-pre">${_devEsc(p.input || '')}${p.truncated ? '\n… (truncated)' : ''}</pre>`;
-    card.innerHTML =
-      `<div class="toolcard-head" onclick="this.parentNode.classList.toggle('expanded')">` +
-        `<span class="toolcard-dot"></span>` +
-        `<span class="toolcard-icon">${icon}</span>` +
-        `<span class="toolcard-name">${_devEsc(label)}</span>${pathBit}` +
-        `<span class="toolcard-status">running…</span>` +
-        `<span class="toolcard-caret">▸</span>` +
-      `</div>` +
-      `<div class="toolcard-body">` +
-        body +
-        `<div class="toolcard-sec toolcard-result-sec" style="display:none">RESULT</div>` +
-        `<pre class="toolcard-pre toolcard-result" style="display:none"></pre>` +
-      `</div>`;
-    winEl.appendChild(card);
-    if (wasPinned) winEl.scrollTop = winEl.scrollHeight;
-    DEV_MODE._byId[id] = { card };
-    return;
-  }
-
-  if (p.phase === 'result') {
-    const rec = DEV_MODE._byId[id];
-    if (!rec || rec.skipped || !rec.card) return;
-    const card = rec.card;
-    card.classList.remove('pending');
-    card.classList.toggle('errored', !!p.is_error);
-    card.classList.add('done');
-    if (p.is_file && !p.is_error) card.classList.add('applied');
-    const st = card.querySelector('.toolcard-status');
-    if (st) st.textContent = p.is_error ? 'error' : 'done';
-    const sec = card.querySelector('.toolcard-result-sec');
-    const pre = card.querySelector('.toolcard-result');
-    if (sec) sec.style.display = '';
-    if (pre) {
-      pre.style.display = '';
-      pre.textContent = (p.result || '') + (p.truncated ? '\n… (truncated)' : '');
-      pre.classList.toggle('err', !!p.is_error);
-    }
-  }
 }
 
 // ── Appearance — retail 2-theme system (MINIMAL default / CYBER) ────────────
