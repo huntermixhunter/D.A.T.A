@@ -2071,20 +2071,32 @@ def _load_histories() -> dict:
             return {"": data}
         if isinstance(data, dict):
             cleaned = {k: v for k, v in data.items() if isinstance(v, list)}
-            # Sweep session-tagged buckets from previous dashboard sessions.
-            # The frontend folds a per-page-load session tag into each pane_id
-            # (`<path>::s<tag>-main` / `::s<tag>-wsN`) so every time the Captain
-            # opens the dashboard, panes bind to fresh, empty buckets and start
-            # with no carry-over context. Those tagged buckets belong to dead
-            # sessions on startup, so we drop them here — keeps HISTORY_FILE from
-            # growing without bound. Every turn still lives in the permanent
-            # archive + recall index, so nothing searchable is lost.
+            # Per-tab pane buckets now SURVIVE restarts. The frontend persists a
+            # stable per-tab session tag in sessionStorage, so a reload or a
+            # bridge restart rebinds the SAME bucket key (`<path>::s<tag>-main` /
+            # `::s<tag>-wsN`) and the Captain keeps his live transcript. Two
+            # separate windows get separate sessionStorage → separate tags →
+            # separate transcripts, so panes still never collide.
+            #
+            # We no longer wipe every session-tagged bucket on startup. To keep
+            # HISTORY_FILE bounded we prune instead: (1) drop EMPTY session
+            # buckets (dead or never-used tabs with nothing to preserve), and
+            # (2) cap retained session buckets to MAX_SESSION_BUCKETS, dropping
+            # the OLDEST (front of insertion order) beyond the cap. Every turn
+            # also lives in the permanent archive + recall index, so nothing
+            # searchable is ever lost by pruning.
             _SESSION_BUCKET_RE = re.compile(r"::s[0-9a-z]{5,}-(?:main|ws\d+)$")
-            swept = [k for k in cleaned if _SESSION_BUCKET_RE.search(k)]
-            for k in swept:
+            dropped = []
+            for k in [k for k in cleaned if _SESSION_BUCKET_RE.search(k) and not cleaned[k]]:
                 cleaned.pop(k, None)
-            if swept:
-                log.info(f"[history] swept {len(swept)} stale session bucket(s) from prior dashboard session(s)")
+                dropped.append(k)
+            remaining = [k for k in cleaned if _SESSION_BUCKET_RE.search(k)]
+            if len(remaining) > MAX_SESSION_BUCKETS:
+                for k in remaining[:-MAX_SESSION_BUCKETS]:
+                    cleaned.pop(k, None)
+                    dropped.append(k)
+            if dropped:
+                log.info(f"[history] pruned {len(dropped)} empty/overflow session bucket(s) on startup (kept live per-tab transcripts)")
             log.info(f"[history] loaded {len(cleaned)} project bucket(s)")
             return cleaned
     except Exception as e:
