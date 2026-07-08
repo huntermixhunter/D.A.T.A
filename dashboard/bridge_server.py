@@ -2053,6 +2053,12 @@ def build_file_graph(root: Path, max_depth: int = 999, max_nodes: int = 500) -> 
 # thin list-like proxy that resolves to the per-thread bucket bound by
 # `_bind_history(project_path)`, which the request entry points call.
 
+# Cap on how many per-tab session buckets survive a restart. Per-tab buckets
+# now persist across reloads and bridge restarts (see _load_histories), so we
+# bound their count here instead of wiping them all. Newest are kept; oldest
+# beyond the cap are dropped (every turn still lives in the permanent archive).
+MAX_SESSION_BUCKETS = 60
+
 def _load_histories() -> dict:
     """Load per-project histories from disk. Migrates the legacy single-list
     format (everything in one global history) into the main bucket."""

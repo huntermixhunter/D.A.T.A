@@ -113,24 +113,33 @@ window.fetch = async function(input, init) {
   return res;
 };
 
-// ── Per-session pane token ────────────────────────────────────────
-// Regenerated on EVERY full page load. Chat panes fold this into the
-// `pane_id` they send to the bridge, so the bridge's history bucket key
-// (`path::<pane_id>`) is unique to this dashboard session. Result: every
-// time the Captain opens the dashboard, panes bind to BRAND-NEW, empty
-// history buckets and start with fresh context — no carry-over from what
-// was being worked on in the previous session.
+// ── Per-tab pane identity ─────────────────────────────────────────
+// STABLE per browser tab, persisted in sessionStorage. Chat panes fold this
+// into the `pane_id` they send to the bridge, so the bridge's history bucket
+// key (`path::<pane_id>`) is unique to THIS tab and stable across reloads.
+// Result: reloading the page — or the bridge restarting underneath a live
+// tab — rebinds the SAME history buckets, so the Captain keeps his running
+// transcript instead of dropping into fresh, empty context.
 //
-// Why this was needed: pane numbers (`ws1`, `ws2`, …) reset to 1 on each
-// page load, so the Nth pane of a new session used to collide with the Nth
-// pane of the previous session pointed at the same folder and inherit its
-// transcript. The session tag breaks that collision.
+// Two windows on the same machine each get their OWN sessionStorage, hence
+// their own tag, so their transcripts stay separate and panes never collide
+// (`ws1` of tab A ≠ `ws1` of tab B). sessionStorage survives reloads and
+// clears when the tab is truly closed — exactly per-tab identity.
 //
-// What is NOT lost: the permanent conversation archive + searchable Memory
-// Banks (recall_index.db) and COMPUTER_MEMORY.md persist independently of
-// this — only the rolling ~20-turn live context resets. Search history
-// still reaches every past session.
-const _SESSION_TAG = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// The backend (see _load_histories) keeps these tagged buckets across
+// restarts and only prunes empty/overflow ones, so the two halves match.
+// Every turn also lives in the permanent archive + Memory Banks regardless.
+const _SESSION_TAG = (() => {
+  const mint = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try {
+    let t = sessionStorage.getItem('dataPaneSessionTag');
+    if (!t) { t = mint(); sessionStorage.setItem('dataPaneSessionTag', t); }
+    return t;
+  } catch (e) {
+    // Private-mode / storage-disabled fallback: fresh tag per load (old behavior).
+    return mint();
+  }
+})();
 function _paneId(base) { return `${_SESSION_TAG}-${base}`; }
 
 // DATA sound palette — original synthesized UI tones, generated from pure
@@ -7440,7 +7449,7 @@ async function sendProjectMessage(wsId) {
       body: JSON.stringify({
         message:      wireText,
         project_path: ws.path,
-        pane_id:      _paneId(`ws${wsId}`),   // session-tagged: isolates this pane from siblings AND from prior sessions
+        pane_id:      _paneId(`ws${wsId}`),   // per-tab tag: isolates this pane from sibling tabs, stable across reloads/restarts
         provider:     ws.provider,   // per-window model override
         crew:         ws.crew,       // per-window agent (officer persona)
         attachments,
