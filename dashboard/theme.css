@@ -2354,6 +2354,74 @@ html, body {
 }
 .fullscreen-btn:hover { border-color: var(--data-blue); color: var(--data-blue); }
 
+/* ── Find in conversation ─────────────────────────────────
+   Slim search bar that drops in below the chat panel header. Styled to sit
+   flush with the LCARS chrome; the highlight + active-match colours reuse the
+   existing yellow/orange accents. */
+.chat-find-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid #2a2a3a;
+  background: rgba(6,6,14,0.9);
+}
+.chat-find-bar[hidden] { display: none; }
+.chat-find-icon { font-size: 12px; opacity: 0.7; line-height: 1; }
+.chat-find-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid #2a2a3a;
+  border-radius: 4px;
+  color: var(--data-yellow);
+  font-family: 'Share Tech Mono', 'JetBrains Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  padding: 5px 9px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.chat-find-input:focus { border-color: var(--data-orange); }
+.chat-find-input::placeholder { color: #556; }
+.chat-find-count {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--data-blue);
+  min-width: 42px;
+  text-align: center;
+  white-space: nowrap;
+}
+.chat-find-count.no-match { color: #ff5a5a; }
+.chat-find-nav, .chat-find-close {
+  background: rgba(6,6,14,0.85);
+  border: 1px solid #2a2a3a;
+  color: #888;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.chat-find-nav:hover, .chat-find-close:hover {
+  border-color: var(--data-orange);
+  color: var(--data-orange);
+}
+mark.chat-find-hl {
+  background: rgba(255,204,0,0.28);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+mark.chat-find-hl.active {
+  background: var(--data-orange);
+  color: #000;
+  box-shadow: 0 0 0 1px var(--data-orange);
+}
+
 /* Fullscreen state — covers the DATA header + footer + sidebars and
    collapses the panel-header bar itself so the chat panes get every
    available pixel. The fullscreen button floats in the top-right
