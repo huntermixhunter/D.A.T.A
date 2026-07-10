@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=ent31" />
+  <link rel="stylesheet" href="theme.css?v=ent32" />
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -193,6 +193,7 @@
             <div class="panel-title-bar">
               <span class="panel-title">COMMUNICATIONS</span>
               <div class="panel-pills">
+                <button class="fullscreen-btn" id="chat-find-btn" onclick="toggleChatFind()" title="Find in conversation (Ctrl+F)">🔍</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
               </div>
             </div>
@@ -202,6 +203,26 @@
                a CLI (e.g. Claude Code) is installed but not signed in and DATA is
                running on the local Ollama fallback. Self-clears once signed in. -->
           <div class="auth-cta hidden" id="auth-cta" role="status" aria-live="polite"></div>
+
+          <!-- FIND IN CONVERSATION — searches the main channel's messages,
+               highlights matches, and lets the Captain step through them.
+               Hidden until toggled via the 🔍 pill or Ctrl+F. -->
+          <div class="chat-find-bar" id="chat-find-bar" hidden role="search">
+            <span class="chat-find-icon" aria-hidden="true">🔍</span>
+            <input type="text" id="chat-find-input" class="chat-find-input"
+                   placeholder="Find in conversation…"
+                   autocomplete="off" spellcheck="false"
+                   aria-label="Find in conversation"
+                   oninput="chatFindRun(this.value)"
+                   onkeydown="chatFindKey(event)" />
+            <span class="chat-find-count" id="chat-find-count">0/0</span>
+            <button class="chat-find-nav" id="chat-find-prev" title="Previous match (Shift+Enter)"
+                    onclick="chatFindStep(-1)" aria-label="Previous match">▲</button>
+            <button class="chat-find-nav" id="chat-find-next" title="Next match (Enter)"
+                    onclick="chatFindStep(1)" aria-label="Next match">▼</button>
+            <button class="chat-find-close" title="Close (Esc)"
+                    onclick="toggleChatFind(false)" aria-label="Close find">✕</button>
+          </div>
 
           <div class="chats-wrapper" id="chats-wrapper">
             <!-- MAIN PANE -->

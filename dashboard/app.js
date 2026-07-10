@@ -7916,6 +7916,135 @@ function toggleChatFullscreen() {
   btn.textContent = panel.classList.contains('fullscreen') ? '⊡' : '⛶';
 }
 
+// ── Find in conversation ─────────────────────────────────
+// Client-side search over the main channel's rendered messages. Matches are
+// wrapped in <mark class="chat-find-hl"> spans (walking text nodes only, so the
+// rendered markdown/HTML is never corrupted) and can be stepped through. The
+// highlights are fully removed when the bar closes or the query is cleared, so
+// the message DOM always returns to its original state.
+let _chatFindMarks = [];      // <mark> elements for the current query, in order
+let _chatFindIdx   = -1;      // index of the currently-focused match
+let _chatFindDebounce = null;
+
+function toggleChatFind(force) {
+  const bar = document.getElementById('chat-find-bar');
+  if (!bar) return;
+  const show = (force === undefined) ? bar.hidden : force;
+  bar.hidden = !show;
+  if (show) {
+    playDataSound('confirm');
+    const input = document.getElementById('chat-find-input');
+    input.focus();
+    input.select();
+    if (input.value.trim()) chatFindRun(input.value);
+  } else {
+    _chatFindClearHighlights();
+    _chatFindIdx = -1;
+    _updateChatFindCount();
+  }
+}
+
+function chatFindKey(e) {
+  if (e.key === 'Escape') { e.preventDefault(); toggleChatFind(false); return; }
+  if (e.key === 'Enter')  { e.preventDefault(); chatFindStep(e.shiftKey ? -1 : 1); }
+}
+
+// Remove every highlight span, restoring the original text nodes. Idempotent.
+function _chatFindClearHighlights() {
+  const win = document.getElementById('chat-window');
+  if (win) {
+    win.querySelectorAll('mark.chat-find-hl').forEach(m => {
+      const parent = m.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(m.textContent), m);
+      parent.normalize();   // merge the split text nodes back together
+    });
+  }
+  _chatFindMarks = [];
+}
+
+function chatFindRun(query) {
+  clearTimeout(_chatFindDebounce);
+  _chatFindDebounce = setTimeout(() => _chatFindApply(query), 90);
+}
+
+function _chatFindApply(query) {
+  _chatFindClearHighlights();
+  _chatFindIdx = -1;
+  const q = (query || '').trim();
+  const win = document.getElementById('chat-window');
+  if (!win || q.length < 1) { _updateChatFindCount(); return; }
+
+  const needle = q.toLowerCase();
+  // Only search inside the rendered message text, never sender/timestamp/buttons.
+  const textBlocks = win.querySelectorAll('.chat-message .text');
+  textBlocks.forEach(block => {
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+    const targets = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue && node.nodeValue.toLowerCase().includes(needle)) {
+        targets.push(node);
+      }
+    }
+    targets.forEach(textNode => _chatFindHighlightNode(textNode, needle));
+  });
+
+  _chatFindMarks = Array.from(win.querySelectorAll('mark.chat-find-hl'));
+  if (_chatFindMarks.length) chatFindStep(1);
+  _updateChatFindCount();
+}
+
+// Split one text node into [before][mark][before][mark]… for each match.
+function _chatFindHighlightNode(textNode, needle) {
+  const text = textNode.nodeValue;
+  const lower = text.toLowerCase();
+  const frag = document.createDocumentFragment();
+  let pos = 0, hit;
+  while ((hit = lower.indexOf(needle, pos)) !== -1) {
+    if (hit > pos) frag.appendChild(document.createTextNode(text.slice(pos, hit)));
+    const mark = document.createElement('mark');
+    mark.className = 'chat-find-hl';
+    mark.textContent = text.slice(hit, hit + needle.length);
+    frag.appendChild(mark);
+    pos = hit + needle.length;
+  }
+  if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+  textNode.parentNode.replaceChild(frag, textNode);
+}
+
+function chatFindStep(dir) {
+  if (!_chatFindMarks.length) return;
+  if (_chatFindIdx >= 0 && _chatFindMarks[_chatFindIdx]) {
+    _chatFindMarks[_chatFindIdx].classList.remove('active');
+  }
+  _chatFindIdx = (_chatFindIdx + dir + _chatFindMarks.length) % _chatFindMarks.length;
+  const cur = _chatFindMarks[_chatFindIdx];
+  cur.classList.add('active');
+  cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  _updateChatFindCount();
+}
+
+function _updateChatFindCount() {
+  const el = document.getElementById('chat-find-count');
+  if (!el) return;
+  const total = _chatFindMarks.length;
+  el.textContent = total ? `${_chatFindIdx + 1}/${total}` : '0/0';
+  el.classList.toggle('no-match', !total && !!document.getElementById('chat-find-input')?.value.trim());
+}
+
+// Ctrl/Cmd+F opens the conversation find bar while the Bridge (chat) panel is
+// active, replacing the browser's native page find with an in-app search that
+// understands the message list. Ignored elsewhere so other panels keep the
+// native find.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'f' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+  const chatPanel = document.getElementById('panel-chat');
+  if (!chatPanel || !chatPanel.classList.contains('active')) return;
+  e.preventDefault();
+  toggleChatFind(true);
+});
+
 // ── Potential Upgrades (AI tool discovery) ───────────────
 let _briefingRefreshing = false;
 let _lastBriefingBadge = 0;
