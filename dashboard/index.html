@@ -75,9 +75,6 @@
           <button class="data-btn blue" onclick="showPanel('orders')">
             STANDING ORDERS
           </button>
-          <button class="data-btn purple" id="nav-briefing-btn" onclick="showPanel('briefing')">
-            POTENTIAL UPGRADES <span class="briefing-badge" id="briefing-badge" style="display:none">0</span>
-          </button>
           <button class="data-btn teal" onclick="showPanel('widgets')">
             CONNECTIONS
           </button>
@@ -403,21 +400,7 @@
           </div>
         </div>
 
-        <!-- PANEL: POTENTIAL UPGRADES (AI tool discovery) -->
-        <div class="panel" id="panel-briefing">
-          <div class="panel-header">
-            <div class="panel-title-bar">
-              <span class="panel-title">POTENTIAL UPGRADES — AI TOOL DISCOVERY</span>
-              <div class="panel-pills">
-                <span class="pill teal" id="briefing-timestamp">NEVER</span>
-                <button class="data-btn-sm orange" onclick="refreshBriefing()" id="briefing-refresh-btn">REFRESH</button>
-              </div>
-            </div>
-          </div>
-          <div id="briefing-list" class="briefing-list">
-            <div class="briefing-empty">No scan yet. Click REFRESH to discover new AI tools, MCP servers, and skills.</div>
-          </div>
-        </div>
+        <!-- Potential Upgrades moved into Settings > UPGRADES -->
 
         <!-- AI CONNECTORS -->
         <!-- PANEL: CONNECTIONS (widget hub) -->
@@ -586,7 +569,7 @@
             <button class="settings-tab active" data-tab="appearance" onclick="settingsTab('appearance')">APPEARANCE</button>
             <button class="settings-tab" data-tab="voice"  onclick="settingsTab('voice')">VOICE</button>
             <button class="settings-tab" data-tab="model"  onclick="settingsTab('model')">MODEL</button>
-            <button class="settings-tab" data-tab="connectors" onclick="settingsTab('connectors')">AI CONNECTORS</button>
+            <button class="settings-tab" data-tab="upgrades" onclick="settingsTab('upgrades')">UPGRADES</button>
             <button class="settings-tab" data-tab="crew"   onclick="settingsTab('crew')">CREW PERSONALITIES</button>
             <button class="settings-tab" data-tab="memory" onclick="settingsTab('memory')">MEMORY</button>
             <button class="settings-tab" data-tab="history" onclick="settingsTab('history')">HISTORY</button>
@@ -627,15 +610,16 @@
               <div class="settings-opt-row" id="settings-model-row"></div>
             </section>
 
-            <section class="settings-pane" data-pane="connectors">
+            <section class="settings-pane" data-pane="upgrades">
               <div class="settings-pane-head">
                 <div>
-                  <h3 class="settings-h">AI connectors</h3>
-                  <p class="settings-sub">Hardware scan, local models (Ollama), and CLI providers available on this machine.</p>
+                  <h3 class="settings-h">Upgrades — make DATA smarter</h3>
+                  <p class="settings-sub">One store for everything you can add: local AI models, CLI providers, skills, tools, offline knowledge, and feature unlocks. Install anything and the dashboard picks it up and uses it going forward.</p>
                 </div>
-                <button class="data-btn-sm orange" onclick="loadConnectors(true)" id="connectors-refresh-btn">RESCAN</button>
+                <button class="data-btn-sm orange" onclick="loadUpgrades(true)" id="connectors-refresh-btn">RESCAN</button>
               </div>
-              <div class="connectors-body" id="connectors-body">
+              <div class="connectors-body" id="upgrades-body">
+
                 <!-- Hardware readout -->
                 <section class="conn-section">
                   <div class="conn-section-label">THIS MACHINE <span class="pill teal" id="connectors-active-pill">—</span></div>
@@ -650,21 +634,74 @@
                   <div id="conn-rec-card"></div>
                 </section>
 
+                <!-- Feature unlocks -->
+                <section class="conn-section">
+                  <div class="conn-section-label">FEATURE UNLOCKS <span class="conn-sub">(change how DATA behaves — instant, no download)</span></div>
+                  <div class="conn-cards" id="upg-features">
+                    <div class="briefing-empty">Loading feature unlocks…</div>
+                  </div>
+                </section>
+
                 <!-- Local models catalog -->
                 <section class="conn-section">
-                  <div class="conn-section-label">LOCAL MODELS <span class="conn-sub">(via Ollama — free, runs on this machine)</span></div>
+                  <div class="conn-section-label">LOCAL AI MODELS <span class="conn-sub">(via Ollama — free, runs on this machine, works offline)</span></div>
                   <div class="conn-cards" id="conn-models">
                     <div class="briefing-empty">Loading model catalog…</div>
                   </div>
                 </section>
 
-                <!-- CLI connectors -->
+                <!-- CLI providers -->
                 <section class="conn-section">
                   <div class="conn-section-label">CLI PROVIDERS <span class="conn-sub">(cloud models via your subscriptions)</span></div>
                   <div class="conn-cards" id="conn-connectors">
-                    <div class="briefing-empty">Loading connectors…</div>
+                    <div class="briefing-empty">Loading providers…</div>
                   </div>
                 </section>
+
+                <!-- Skills -->
+                <section class="conn-section">
+                  <div class="conn-section-label">SKILLS <span class="conn-sub">(new abilities — auto-discovered once installed)</span></div>
+                  <div class="conn-cards" id="upg-skills">
+                    <div class="briefing-empty">Loading skills…</div>
+                  </div>
+                </section>
+
+                <!-- MCP tools -->
+                <section class="conn-section">
+                  <div class="conn-section-label">TOOLS (MCP) <span class="conn-sub">(new tools for the CLI brain)</span></div>
+                  <div class="conn-cards" id="upg-mcp">
+                    <div class="briefing-empty">Loading tools…</div>
+                  </div>
+                </section>
+
+                <!-- Python packages -->
+                <section class="conn-section">
+                  <div class="conn-section-label">PYTHON PACKAGES <span class="conn-sub">(runtime libraries powering RAG, search, media)</span></div>
+                  <div class="conn-cards" id="upg-pip">
+                    <div class="briefing-empty">Loading packages…</div>
+                  </div>
+                </section>
+
+                <!-- Knowledge packs -->
+                <section class="conn-section">
+                  <div class="conn-section-label">OFFLINE KNOWLEDGE <span class="conn-sub">(local corpora DATA reads for grounding / RAG)</span></div>
+                  <div class="conn-cards" id="upg-knowledge">
+                    <div class="briefing-empty">Loading knowledge packs…</div>
+                  </div>
+                </section>
+
+                <!-- Discovery briefing -->
+                <section class="conn-section">
+                  <div class="conn-section-label" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    DISCOVERY <span class="conn-sub">(freshly-scanned tools worth adding)</span>
+                    <span class="pill teal" id="briefing-timestamp" style="margin-left:auto">NEVER</span>
+                    <button class="data-btn-sm orange" onclick="refreshBriefing()" id="briefing-refresh-btn">SCAN</button>
+                  </div>
+                  <div id="briefing-list" class="briefing-list">
+                    <div class="briefing-empty">No scan yet. Click SCAN to discover new AI tools, MCP servers, and skills.</div>
+                  </div>
+                </section>
+
               </div>
             </section>
 

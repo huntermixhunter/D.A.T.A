@@ -1918,6 +1918,502 @@ def _start_install_job(kind: str, target: str, connect: bool = False) -> dict:
     return job
 
 
+# ════════════════════════════════════════════════════════════════════════
+# UPGRADES REGISTRY — the unified "Upgrades" store + install registry.
+# ────────────────────────────────────────────────────────────────────────
+# One page, every kind of add-on: local models & CLI providers (folded in from
+# the AI-connectors machinery above), Claude/Hermes SKILLS, MCP TOOLS, PYTHON
+# packages, offline KNOWLEDGE packs (for RAG / grounding), and FEATURE unlocks
+# (behaviour flags injected into the system prompt).
+#
+# The registry file `installed_upgrades.json` is the source of truth for what
+# the buyer has turned on. Installing anything writes to it; the dashboard then
+# "picks it up and uses it going forward":
+#   • skills    → cloned into the live skills dir → auto-discovered next request
+#   • mcp       → registered via `claude mcp add` → available to the CLI brain
+#   • pip       → installed into the runtime → import-able by tools/skills
+#   • knowledge → downloaded into knowledge/<id>/ → surfaced to Data for RAG
+#   • feature   → flag flipped → injected into the system prompt every request
+# ════════════════════════════════════════════════════════════════════════
+
+UPGRADES_STATE_FILE = PROJECT_DIR / "installed_upgrades.json"
+KNOWLEDGE_DIR       = PROJECT_DIR / "knowledge"
+
+# Curated starter catalog. Every entry is data-driven so the Captain can extend
+# it without touching dispatch code. `kind` selects the installer branch below.
+UPGRADES_CATALOG = [
+    # ── FEATURE UNLOCKS (pure local flags — instant, no download) ──────────
+    {"id": "deep_reasoning", "kind": "feature", "name": "Deep Reasoning Mode",
+     "blurb": "Data always thinks a problem through step by step before answering. Slower, sharper.",
+     "prompt": "FEATURE UNLOCK — Deep Reasoning: For any non-trivial question, reason through the problem "
+               "step by step before giving your answer. Do not jump to the first answer that comes to mind.",
+     "default_on": False},
+    {"id": "proactive_memory", "kind": "feature", "name": "Proactive Memory",
+     "blurb": "Data saves durable facts to persistent memory on his own, without being asked.",
+     "prompt": "FEATURE UNLOCK — Proactive Memory: When the Captain shares a durable fact about themselves, "
+               "their projects, or their preferences, save it to persistent memory immediately without being asked.",
+     "default_on": False},
+    {"id": "auto_cite", "kind": "feature", "name": "Auto-Cite Sources",
+     "blurb": "When Data states a fact pulled from the web, he appends the source URL.",
+     "prompt": "FEATURE UNLOCK — Auto-Cite: When you state a factual claim drawn from a web source, include "
+               "the bare source URL so the Captain can verify it.",
+     "default_on": False},
+    {"id": "concise_mode", "kind": "feature", "name": "Concise Mode",
+     "blurb": "Terse, minimal-word answers. Good for power users who want signal only.",
+     "prompt": "FEATURE UNLOCK — Concise Mode: Prefer terse, minimal-word answers. Lead with the answer, "
+               "cut preamble, and only expand when the Captain asks.",
+     "default_on": False},
+
+    # ── PYTHON PACKAGES (expand what tools/skills can do) ──────────────────
+    {"id": "pip-sentence-transformers", "kind": "pip", "name": "Local Embeddings (sentence-transformers)",
+     "blurb": "On-device text embeddings — the engine behind offline RAG over your knowledge packs.",
+     "package": "sentence-transformers", "size": "~90 MB"},
+    {"id": "pip-faiss", "kind": "pip", "name": "Vector Search (faiss-cpu)",
+     "blurb": "Fast local similarity search over embeddings. Pairs with the embeddings package for RAG.",
+     "package": "faiss-cpu", "size": "~15 MB"},
+    {"id": "pip-ddg", "kind": "pip", "name": "Web Search Library (ddgs)",
+     "blurb": "Lightweight DuckDuckGo search Data can call from a skill — no API key.",
+     "package": "ddgs", "size": "~1 MB"},
+    {"id": "pip-ytdlp", "kind": "pip", "name": "Media Downloader (yt-dlp)",
+     "blurb": "Download and extract audio/video from YouTube and 1000+ sites for transcription.",
+     "package": "yt-dlp", "size": "~5 MB"},
+
+    # ── MCP TOOLS (registered with the Claude CLI brain) ───────────────────
+    {"id": "mcp-filesystem", "kind": "mcp", "name": "Filesystem MCP",
+     "blurb": "Sandboxed file read/write tools for the CLI brain, scoped to your Documents folder.",
+     "mcp_name": "filesystem",
+     "mcp_args": ["npx", "-y", "@modelcontextprotocol/server-filesystem", str(Path.home() / "Documents")]},
+    {"id": "mcp-fetch", "kind": "mcp", "name": "Web Fetch MCP",
+     "blurb": "Lets the CLI brain fetch and read a URL's contents directly as a tool.",
+     "mcp_name": "fetch",
+     "mcp_args": ["npx", "-y", "@modelcontextprotocol/server-fetch"]},
+    {"id": "mcp-sqlite", "kind": "mcp", "name": "SQLite MCP",
+     "blurb": "Query a local SQLite database through natural language via the CLI brain.",
+     "mcp_name": "sqlite",
+     "mcp_args": ["npx", "-y", "@modelcontextprotocol/server-sqlite"]},
+
+    # ── SKILLS (cloned into the live Claude-skills dir, auto-discovered) ────
+    {"id": "skill-canvas-design", "kind": "skill", "name": "Canvas Design skill",
+     "blurb": "Adds poster / art / static-design generation to Data's toolset.",
+     "repo": "https://github.com/anthropics/skills", "subdir": "canvas-design",
+     "target": "canvas-design"},
+
+    # ── KNOWLEDGE PACKS (offline corpora for grounding / RAG) ──────────────
+    {"id": "kb-starter", "kind": "knowledge", "name": "Starter Knowledge Pack",
+     "blurb": "Seeds a local knowledge/ folder Data reads from offline. Drop your own .md files in to expand it.",
+     "size": "seed"},
+]
+
+_UPGRADE_KINDS_LOCAL = {"feature"}   # kinds that install instantly with no job
+
+
+def _load_upgrades_state() -> dict:
+    """Read the install registry. Returns a dict with per-kind sub-dicts."""
+    base = {"skills": {}, "mcp": {}, "pip": {}, "knowledge": {}, "features": {}}
+    try:
+        if UPGRADES_STATE_FILE.exists():
+            data = json.loads(UPGRADES_STATE_FILE.read_text(encoding="utf-8"))
+            for k in base:
+                if isinstance(data.get(k), dict):
+                    base[k] = data[k]
+    except Exception as e:
+        log.warning(f"[upgrades] could not read registry: {e}")
+    return base
+
+
+def _save_upgrades_state(state: dict) -> None:
+    try:
+        UPGRADES_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"[upgrades] could not write registry: {e}")
+
+
+def _upgrade_entry(uid: str) -> dict | None:
+    return next((e for e in UPGRADES_CATALOG if e["id"] == uid), None)
+
+
+# Which registry sub-dict a kind records into.
+_KIND_BUCKET = {"skill": "skills", "mcp": "mcp", "pip": "pip",
+                "knowledge": "knowledge", "feature": "features"}
+
+
+def _upgrade_installed(entry: dict, state: dict | None = None) -> bool:
+    """Is this catalog entry currently installed / enabled?"""
+    state = state or _load_upgrades_state()
+    bucket = _KIND_BUCKET.get(entry["kind"])
+    if entry["kind"] == "feature":
+        # A feature is "installed" (available) once flipped on; default reflects seed.
+        return bool(state["features"].get(entry["id"], entry.get("default_on", False)))
+    return entry["id"] in (state.get(bucket, {}) or {})
+
+
+def _register_upgrade(entry: dict, extra: dict | None = None) -> None:
+    """Record a successful install in the registry so the dashboard picks it up."""
+    state = _load_upgrades_state()
+    bucket = _KIND_BUCKET[entry["kind"]]
+    rec = {"name": entry["name"], "installed_at": time.time()}
+    if extra:
+        rec.update(extra)
+    state[bucket][entry["id"]] = rec
+    _save_upgrades_state(state)
+
+
+def _set_feature(uid: str, on: bool) -> bool:
+    """Flip a feature flag. Returns the new state. Instant — no install job."""
+    entry = _upgrade_entry(uid)
+    if not entry or entry["kind"] != "feature":
+        return False
+    state = _load_upgrades_state()
+    state["features"][uid] = bool(on)
+    _save_upgrades_state(state)
+    log.info(f"[upgrades] feature {uid} → {'on' if on else 'off'}")
+    return bool(on)
+
+
+def _active_feature_prompts() -> str:
+    """Concatenated prompt fragments for every enabled feature flag. Injected
+    into the system prompt so enabled features change Data's behaviour."""
+    state = _load_upgrades_state()
+    frags = []
+    for e in UPGRADES_CATALOG:
+        if e["kind"] != "feature":
+            continue
+        on = state["features"].get(e["id"], e.get("default_on", False))
+        if on and e.get("prompt"):
+            frags.append(f"- {e['prompt']}")
+    if not frags:
+        return ""
+    return "## Feature Unlocks (installed from the Upgrades page)\n" + "\n".join(frags)
+
+
+def _installed_knowledge_block() -> str:
+    """List installed knowledge packs so Data knows he can read them offline."""
+    state = _load_upgrades_state()
+    packs = state.get("knowledge", {})
+    if not packs:
+        return ""
+    lines = []
+    for uid, rec in packs.items():
+        p = rec.get("path") or str(KNOWLEDGE_DIR / uid)
+        lines.append(f"- {rec.get('name', uid)} — read/grep files under `{p}`")
+    return ("## Offline Knowledge Packs (installed from the Upgrades page)\n"
+            "You have local knowledge corpora on disk. When a question matches one, "
+            "read or grep these folders for grounding before answering:\n" + "\n".join(lines))
+
+
+# ── Install dispatch ─────────────────────────────────────────────────────
+def _upgrade_install_job(job_id: str, entry: dict) -> None:
+    """Run the real install for a catalog entry, then register it. Branches on
+    kind. Progress/errors flow through the shared _install_jobs record."""
+    kind = entry["kind"]
+    try:
+        def _mark(pct, txt):
+            with _install_lock:
+                j = _install_jobs.get(job_id)
+                if j:
+                    j["pct"] = pct; j["status_text"] = txt
+
+        if kind == "pip":
+            _mark(10, f"pip install {entry['package']}…")
+            proc = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", entry["package"]],
+                                  capture_output=True, text=True, timeout=1200)
+            if proc.returncode != 0:
+                raise RuntimeError((proc.stderr or proc.stdout).strip()[-600:])
+            _register_upgrade(entry, {"package": entry["package"]})
+
+        elif kind == "mcp":
+            _mark(20, "claude mcp add…")
+            claude = _provider_executable("claude") or "claude"
+            cmd = [claude, "mcp", "add", entry["mcp_name"], "--"] + entry["mcp_args"]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if proc.returncode != 0:
+                raise RuntimeError((proc.stderr or proc.stdout).strip()[-600:] or "mcp add failed")
+            _register_upgrade(entry, {"mcp_name": entry["mcp_name"]})
+
+        elif kind == "skill":
+            _mark(20, "cloning skill…")
+            CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+            dest = CLAUDE_SKILLS_DIR / entry["target"]
+            if not dest.exists():
+                import tempfile, shutil
+                tmp = Path(tempfile.mkdtemp(prefix="upg_"))
+                try:
+                    proc = subprocess.run(["git", "clone", "--depth", "1", entry["repo"], str(tmp / "repo")],
+                                          capture_output=True, text=True, timeout=600)
+                    if proc.returncode != 0:
+                        raise RuntimeError((proc.stderr or proc.stdout).strip()[-600:] or "git clone failed")
+                    repo_root = (tmp / "repo").resolve()
+                    src = (repo_root / entry.get("subdir", "")).resolve()
+                    # Bound subdir inside the clone (no ../ escape).
+                    if repo_root != src and repo_root not in src.parents:
+                        raise RuntimeError("skill subdir escapes the cloned repo")
+                    if not (src / "SKILL.md").exists():
+                        raise RuntimeError(f"SKILL.md not found in {entry.get('subdir','')}")
+                    shutil.copytree(src, dest)
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+            _register_upgrade(entry, {"path": str(dest)})
+
+        elif kind == "knowledge":
+            _mark(20, "preparing knowledge pack…")
+            dest = KNOWLEDGE_DIR / entry["id"]
+            dest.mkdir(parents=True, exist_ok=True)
+            url = entry.get("url")
+            if url:
+                _mark(40, "downloading…")
+                # Derive a safe filename: basename of the URL path only, stripped
+                # to a safe charset so it cannot traverse out of dest.
+                raw = os.path.basename(urllib.parse.urlsplit(url).path)
+                fname = re.sub(r"[^A-Za-z0-9._-]", "_", raw).lstrip(".") or "pack.md"
+                out = (dest / fname).resolve()
+                if dest.resolve() not in out.parents:
+                    raise RuntimeError("knowledge filename escapes the pack folder")
+                req = urllib.request.Request(url, headers={"User-Agent": "DATA-upgrades"})
+                with urllib.request.urlopen(req, timeout=300) as r:
+                    out.write_bytes(r.read())
+            if not any(dest.iterdir()):
+                (dest / "README.md").write_text(
+                    f"# {entry['name']}\n\nDrop `.md` / `.txt` reference files in this folder. "
+                    f"Data reads them offline for grounding.\n", encoding="utf-8")
+            _register_upgrade(entry, {"path": str(dest)})
+
+        else:
+            raise RuntimeError(f"no installer for kind '{kind}'")
+
+        with _install_lock:
+            j = _install_jobs.get(job_id)
+            if j:
+                j["state"] = "done"; j["pct"] = 100.0; j["status_text"] = "complete"
+        log.info(f"[upgrades] installed {entry['id']} ({kind})")
+    except Exception as e:
+        log.warning(f"[upgrades] install {entry['id']} failed: {e}")
+        with _install_lock:
+            j = _install_jobs.get(job_id)
+            if j:
+                j["state"] = "error"; j["error"] = str(e)
+
+
+def _start_upgrade_install(entry: dict) -> dict:
+    """Kick off a background install job for a catalog entry (non-feature kinds)."""
+    import uuid
+    job_id = uuid.uuid4().hex[:12]
+    job = {"id": job_id, "kind": entry["kind"], "target": entry["id"],
+           "state": "running", "pct": 0.0, "status_text": "starting", "error": "", "log": ""}
+    with _install_lock:
+        _install_jobs[job_id] = job
+    threading.Thread(target=_upgrade_install_job, args=(job_id, entry), daemon=True).start()
+    return job
+
+
+# ════════════════════════════════════════════════════════════════════════
+# INSTALL SECURITY GATE  (Worf) - screens installs before external code runs.
+# ────────────────────────────────────────────────────────────────────────
+# Policy (DATA_INSTALL_GATE env, default "non_bundled"):
+#   "non_bundled"  gate ONLY items that are not part of the vetted DATA-core
+#                  set. Bundled/curated items install straight through. This is
+#                  the shipped default: buyers are protected from arbitrary
+#                  external code without friction on the tools we vetted.
+#   "all"          gate every non-feature install, bundled or not.
+#   "off"          no gate (buyer opted out entirely).
+#
+# The gate is a STATIC risk scan (no LLM, safe to run headless in the install
+# path). Verdict levels:
+#   clear    known-safe source -> installs automatically.
+#   caution  external/unknown source -> HELD until the buyer confirms.
+#   block    matches a dangerous pattern -> refused outright.
+# ════════════════════════════════════════════════════════════════════════
+
+INSTALL_GATE_POLICY = os.environ.get("DATA_INSTALL_GATE", "non_bundled").strip().lower()
+if INSTALL_GATE_POLICY not in ("non_bundled", "all", "off"):
+    INSTALL_GATE_POLICY = "non_bundled"
+
+# Every catalog entry compiled into this build, keyed by id. Trust is granted
+# by OBJECT IDENTITY against these vetted objects (see _upgrade_is_bundled),
+# never by a field the caller can assert - so a look-alike entry that reuses an
+# id cannot certify itself once the catalog becomes user-extensible.
+_BUILTIN_BY_ID = {e["id"]: e for e in UPGRADES_CATALOG}
+
+# First-party git repositories: exact host github.com + a clean single-repo
+# path under a trusted org (checked after urlsplit, so userinfo/host/path
+# smuggling like /anthropics/@evil.com/repo cannot spoof a first-party verdict).
+_GATE_TRUSTED_GIT_PATH_RE = re.compile(
+    r"^/(anthropics|anthropic-ai|modelcontextprotocol)/[A-Za-z0-9._-]+(?:\.git)?/?$",
+    re.IGNORECASE)
+_GATE_TRUSTED_MCP_SCOPES = ("@modelcontextprotocol/",)
+_GATE_TRUSTED_MCP_RUNNERS = ("npx", "uvx")
+# npx/uvx flags that redirect which package is resolved or run arbitrary code.
+_GATE_MCP_BAD_FLAGS = ("--registry", "--package", "-p", "-c", "-e")
+_GATE_TRUSTED_PIP = frozenset({
+    "sentence-transformers", "faiss-cpu", "ddgs", "yt-dlp", "faster-whisper",
+    "numpy", "pandas", "pillow", "requests", "beautifulsoup4",
+})
+# Executable / active-content extensions a knowledge download must never write.
+_GATE_BAD_EXT = re.compile(
+    r"\.(py|exe|sh|ps1|bat|cmd|dll|scr|js|jse|jar|vbs|vbe|wsf|lnk|msi|com|pyc)(\?|#|$)",
+    re.IGNORECASE)
+# Patterns that force an outright refusal wherever they appear in a target.
+_GATE_DANGER = re.compile(
+    r"(?:[;&|`$\n\r]|\brm\s+-rf\b|\b(?:curl|wget)\b.*\|\s*(?:sh|bash)\b|"
+    r"\bpowershell\b|\bcertutil\b|-urlcache|\bInvoke-Expression\b|\biex\b|"
+    r"\beval\b|\bsource\b|python\s+-c|node\s+-e|>\s*/dev/|base64\s+-d)",
+    re.IGNORECASE)
+
+
+def _upgrade_is_bundled(entry: dict) -> bool:
+    """True only when this entry IS a compiled-in catalog object - vetted by the
+    maintainer and shipped in the product. Trust is decided by OBJECT IDENTITY
+    against the compiled catalog, never by a field the entry declares about
+    itself. A dict that merely reuses a builtin id, sets `bundled: true`, or
+    spoofs a `target` is a different object and therefore NOT bundled, so it is
+    scanned like any other external install once the catalog is user-extensible."""
+    return entry is _BUILTIN_BY_ID.get(entry.get("id"))
+
+
+def _install_gate_scan(entry: dict) -> dict:
+    """Static risk scan of one install target. Returns {level, reasons, source}."""
+    kind = entry.get("kind", "")
+    reasons: list[str] = []
+
+    def _blob(*vals) -> str:
+        out = []
+        for v in vals:
+            if isinstance(v, (list, tuple)):
+                out.append(" ".join(str(x) for x in v))
+            elif v:
+                out.append(str(v))
+        return " ".join(out)
+
+    if kind == "skill":
+        repo = (entry.get("repo") or "").strip()
+        source = repo or "(no repo)"
+        if repo:
+            parts = urllib.parse.urlsplit(repo)
+            if parts.scheme != "https":
+                return {"level": "block", "source": source,
+                        "reasons": ["skill repo is not fetched over HTTPS"]}
+            netloc = parts.netloc.lower()
+            if "@" in netloc:
+                return {"level": "block", "source": source,
+                        "reasons": ["skill repo host carries userinfo/credentials"]}
+            if netloc == "github.com" and _GATE_TRUSTED_GIT_PATH_RE.match(parts.path):
+                return {"level": "clear", "source": source,
+                        "reasons": ["first-party skill repository"]}
+        reasons.append("skill cloned from a third-party git repository")
+        level = "caution"
+
+    elif kind == "mcp":
+        args = entry.get("mcp_args") or []
+        source = " ".join(str(a) for a in args) or entry.get("mcp_name", "(mcp)")
+        runner = str(args[0]).lower() if args else ""
+        has_bad_flag = any(isinstance(a, str) and a in _GATE_MCP_BAD_FLAGS for a in args)
+        pkg = next((a for a in args if isinstance(a, str) and a and not a.startswith("-")
+                    and a not in ("npx", "node", "python", "uvx", "-y")), "")
+        if _GATE_DANGER.search(source):
+            return {"level": "block", "source": source,
+                    "reasons": ["MCP command contains a shell/exec pattern"]}
+        if has_bad_flag:
+            return {"level": "block", "source": source,
+                    "reasons": ["MCP args include package-resolution/exec control flags"]}
+        if (any(str(pkg).startswith(s) for s in _GATE_TRUSTED_MCP_SCOPES)
+                and runner in _GATE_TRUSTED_MCP_RUNNERS):
+            return {"level": "clear", "source": source,
+                    "reasons": ["official Model Context Protocol server"]}
+        reasons.append("MCP server runs a third-party package")
+        level = "caution"
+
+    elif kind == "pip":
+        pkg = (entry.get("package") or "").strip()
+        source = pkg or "(no package)"
+        if _GATE_DANGER.search(pkg) or "/" in pkg or "\\" in pkg:
+            return {"level": "block", "source": source,
+                    "reasons": ["pip target is not a plain PyPI package name"]}
+        if pkg.lower() in _GATE_TRUSTED_PIP:
+            return {"level": "clear", "source": source,
+                    "reasons": ["vetted PyPI package"]}
+        reasons.append("installs an unvetted PyPI package")
+        level = "caution"
+
+    elif kind == "knowledge":
+        url = (entry.get("url") or "").strip()
+        source = url or "(local seed)"
+        if not url:
+            return {"level": "clear", "source": source,
+                    "reasons": ["local knowledge folder, no download"]}
+        if not url.lower().startswith("https://"):
+            return {"level": "block", "source": source,
+                    "reasons": ["knowledge pack is not downloaded over HTTPS"]}
+        if _GATE_BAD_EXT.search(url):
+            return {"level": "block", "source": source,
+                    "reasons": ["knowledge URL points at an executable/active-content file"]}
+        reasons.append("downloads a file from an external URL")
+        level = "caution"
+
+    else:
+        return {"level": "caution", "source": _blob(entry.get("id")),
+                "reasons": [f"unrecognized install kind '{kind}'"]}
+
+    if _GATE_DANGER.search(_blob(entry.get("repo"), entry.get("package"),
+                                 entry.get("mcp_args"), entry.get("url"),
+                                 entry.get("subdir"), entry.get("mcp_name"),
+                                 entry.get("target"))):
+        return {"level": "block", "source": source,
+                "reasons": reasons + ["target contains a shell/exec pattern"]}
+    return {"level": level, "source": source, "reasons": reasons}
+
+
+def _install_gate_check(entry: dict, confirm: bool = False) -> dict:
+    """Apply the gate policy to one entry. Returns:
+       {allowed, needs_confirmation, verdict:{level,reasons,source,policy,bundled}}."""
+    bundled = _upgrade_is_bundled(entry)
+    verdict = {"level": "clear", "reasons": [], "source": entry.get("id", ""),
+               "policy": INSTALL_GATE_POLICY, "bundled": bundled}
+
+    if INSTALL_GATE_POLICY == "off":
+        verdict["reasons"] = ["gate disabled (DATA_INSTALL_GATE=off)"]
+        return {"allowed": True, "needs_confirmation": False, "verdict": verdict}
+
+    if INSTALL_GATE_POLICY == "non_bundled" and bundled:
+        verdict["reasons"] = ["bundled DATA-core item, trusted by policy"]
+        return {"allowed": True, "needs_confirmation": False, "verdict": verdict}
+
+    scan = _install_gate_scan(entry)
+    verdict.update(scan)
+    level = scan["level"]
+    if level == "clear":
+        return {"allowed": True, "needs_confirmation": False, "verdict": verdict}
+    if level == "block":
+        log.warning(f"[gate] BLOCK {entry.get('id')} ({scan['source']}): {scan['reasons']}")
+        return {"allowed": False, "needs_confirmation": False, "verdict": verdict}
+    # caution: allowed only with an explicit buyer confirmation
+    if confirm:
+        log.info(f"[gate] CONFIRMED {entry.get('id')} ({scan['source']})")
+        return {"allowed": True, "needs_confirmation": False, "verdict": verdict}
+    log.info(f"[gate] HOLD {entry.get('id')} ({scan['source']}): needs confirmation")
+    return {"allowed": False, "needs_confirmation": True, "verdict": verdict}
+
+
+def _upgrades_catalog_payload() -> dict:
+    """Unified payload for the Upgrades page: the AI-model/connector machinery
+    folded in, plus every new-kind catalog entry stamped with installed state."""
+    state = _load_upgrades_state()
+    llm = _llm_catalog_payload()   # hardware + models + connectors + recommendation
+    sections: dict = {"feature": [], "pip": [], "mcp": [], "skill": [], "knowledge": []}
+    for e in UPGRADES_CATALOG:
+        item = {k: v for k, v in e.items() if k not in ("prompt", "mcp_args")}
+        item["installed"] = _upgrade_installed(e, state)
+        if e["kind"] == "feature":
+            item["enabled"] = bool(state["features"].get(e["id"], e.get("default_on", False)))
+        sections.setdefault(e["kind"], []).append(item)
+    return {
+        "hardware":       llm.get("hardware"),
+        "models":         llm.get("models"),
+        "connectors":     llm.get("connectors"),
+        "recommendation": llm.get("recommendation"),
+        "ollama_installed": llm.get("ollama_installed"),
+        "sections":       sections,
+    }
+
+
 # File extensions → node type + colour category
 EXT_TYPE = {
     '.md':   'memory',
@@ -2595,6 +3091,19 @@ def _load_soul(mode: str = "api") -> str:
     manifest = _build_skills_manifest()
     if manifest:
         soul += f"\n\n{manifest}"
+
+    # Installed upgrades — feature-flag behaviours + offline knowledge packs.
+    # Read fresh per request so anything installed from the Upgrades page takes
+    # effect on Data's very next message with no restart.
+    try:
+        feat = _active_feature_prompts()
+        if feat:
+            soul += f"\n\n{feat}"
+        kb = _installed_knowledge_block()
+        if kb:
+            soul += f"\n\n{kb}"
+    except Exception as _e:
+        log.warning(f"[upgrades] system-prompt injection skipped: {_e}")
 
     bridge_path = str(Path(__file__).resolve())
 
@@ -9087,6 +9596,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/llm/catalog":
             self._json(_llm_catalog_payload())
 
+        elif path == "/upgrades/catalog":
+            # Unified Upgrades store: models + connectors + skills/mcp/pip/
+            # knowledge/features, each stamped with its installed state.
+            self._json(_upgrades_catalog_payload())
+
         elif path == "/llm/install_status":
             _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             job_id = _q.get("job", [""])[0]
@@ -10414,6 +10928,40 @@ class Handler(BaseHTTPRequestHandler):
             job = _start_install_job(kind, target, connect=connect)
             self._json(job)
 
+        elif path == "/upgrades/install":
+            # Install one catalog entry by id. Features flip instantly; every
+            # other kind starts a background job polled via /llm/install_status.
+            uid   = (data.get("id") or "").strip()
+            entry = _upgrade_entry(uid)
+            if not entry:
+                self._json({"error": f"unknown upgrade '{uid}'"}, 400); return
+            if entry["kind"] == "feature":
+                on = _set_feature(uid, True)
+                self._json({"id": uid, "kind": "feature", "enabled": on, "state": "done"})
+            else:
+                # Security gate (Worf): screen the install before any external
+                # code runs. Bundled DATA-core items pass straight through under
+                # the default policy; non-bundled ones are scanned and may be
+                # held for confirmation or blocked outright.
+                gate = _install_gate_check(entry, confirm=bool(data.get("confirm")))
+                if not gate["allowed"]:
+                    state = "needs_confirmation" if gate["needs_confirmation"] else "blocked"
+                    self._json({"id": uid, "kind": entry["kind"], "state": state,
+                                "gate": gate["verdict"]})
+                    return
+                job = _start_upgrade_install(entry)
+                job = {**job, "gate": gate["verdict"]}
+                self._json(job)
+
+        elif path == "/upgrades/toggle":
+            # Flip a feature flag on/off. Body: {id, on}.
+            uid = (data.get("id") or "").strip()
+            entry = _upgrade_entry(uid)
+            if not entry or entry["kind"] != "feature":
+                self._json({"error": f"'{uid}' is not a toggleable feature"}, 400); return
+            on = _set_feature(uid, bool(data.get("on", True)))
+            self._json({"id": uid, "enabled": on})
+
         elif path == "/agents":
             # Save one officer's personality file. Body: {id, content}.
             oid     = (data.get("id") or "").strip().lower()
@@ -11013,23 +11561,15 @@ if __name__ == "__main__":
     _load_active_provider()
     # Standing orders: load from disk, recompute next_run for each, start scheduler
     _load_standing_orders()
-    # Auto-seed the daily Potential Upgrades scan if it doesn't exist yet.
+    # The Potential Upgrades scan was retired by the Captain — purge any copy a
+    # prior version auto-seeded so it never runs or reappears. (The page lives
+    # under Settings > UPGRADES now; the manual REFRESH button still works.)
     with _orders_lock:
-        if not any(o.get("id") == "so-upgrades-refresh" for o in _standing_orders):
-            _standing_orders.append({
-                "id":       "so-upgrades-refresh",
-                "name":     "Potential Upgrades scan",
-                "cron":     "0 8 * * *",                 # daily 08:00
-                "prompt":   "(internal — scans the web for new AI tools, MCP servers, Claude skills)",
-                "provider": "claude-cli",                # placeholder, unused with action
-                "enabled":  False,                       # paused by default — Captain enables on the Standing Orders page
-                "action":   "refresh_upgrades",
-                "next_run": 0,
-                "last_run": 0,
-                "last_result": "",
-                "notify_telegram": False,
-            })
-            log.info("[orders] auto-seeded so-upgrades-refresh (daily 08:00)")
+        _before = len(_standing_orders)
+        _standing_orders[:] = [o for o in _standing_orders if o.get("id") != "so-upgrades-refresh"]
+        if len(_standing_orders) != _before:
+            _save_standing_orders()
+            log.info("[orders] removed retired so-upgrades-refresh")
         # Auto-seed the daily dashboard self-update scan. Harmless on the dev
         # git clone (self_update.py self-guards and no-ops there); on a retail
         # install it scans GitHub and downloads any changed dashboard files.

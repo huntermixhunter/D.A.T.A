@@ -303,14 +303,13 @@ function showPanel(name) {
 
   document.getElementById(`panel-${name}`).classList.add('active');
 
-  const btnMap = { chat: 0, matrix: 1, orders: 2, briefing: 3, widgets: 4 };
+  const btnMap = { chat: 0, matrix: 1, orders: 2, widgets: 3 };
   const idx = btnMap[name];
   if (idx !== undefined) document.querySelectorAll('.data-btn')[idx].classList.add('active');
 
   // Lazy-init panels
   if (name === 'matrix' && !matrixInitialized) initMatrix();
   if (name === 'orders') refreshStandingOrders();
-  if (name === 'briefing') loadBriefing();
   if (name === 'widgets') renderWidgetsGrid();
 }
 
@@ -5745,14 +5744,14 @@ async function loadProviders() {
       });
       menu.appendChild(item);
     }
-    // Footer link into the connector manager
+    // Footer link into the unified Upgrades store
     const add = document.createElement('button');
     add.type = 'button';
     add.className = 'provider-menu-item provider-menu-add';
     add.textContent = '+ Add / manage models…';
     add.addEventListener('click', () => {
       document.getElementById('provider-menu')?.classList.add('hidden');
-      openSettingsTab('connectors');
+      openSettingsTab('upgrades');
     });
     menu.appendChild(add);
     if (!activeProvider) activeProvider = connected.find(p => p.id === data.active) || null;
@@ -5906,6 +5905,113 @@ async function loadConnectors(force = false) {
   }
 }
 
+// ── Unified Upgrades store ───────────────────────────────────
+// One fetch drives the whole page: hardware + local models + CLI providers
+// (reusing the connector renderers) PLUS the new kinds — feature unlocks,
+// skills, MCP tools, python packages, knowledge packs. Installing anything
+// writes the backend registry so the dashboard uses it going forward.
+async function loadUpgrades(force = false) {
+  const btn = document.getElementById('connectors-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'SCANNING…'; }
+  try {
+    if (force) await fetch(`${API_BASE}/hardware?force=1`).catch(() => {});
+    const res  = await fetch(`${API_BASE}/upgrades/catalog`);
+    const data = await res.json();
+    // Reuse the existing connector renderers for the shared sections
+    _renderHardware(data.hardware);
+    _renderRecommendation(data);
+    _renderModels(data.models, data.ollama_installed);
+    _renderConnectors(data.connectors);
+    const pill = document.getElementById('connectors-active-pill');
+    if (pill) pill.textContent = (_lastKnownActiveProvider || '—').toUpperCase();
+    // New-kind sections
+    const s = data.sections || {};
+    _renderFeatures(s.feature || []);
+    _renderUpgradeCards('upg-skills',    s.skill     || [], 'skill');
+    _renderUpgradeCards('upg-mcp',       s.mcp       || [], 'mcp');
+    _renderUpgradeCards('upg-pip',       s.pip       || [], 'pip');
+    _renderUpgradeCards('upg-knowledge', s.knowledge || [], 'knowledge');
+    _connectorsLoaded = true;
+  } catch (e) {
+    addLog(`Upgrades load failed: ${e.message || e}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'RESCAN'; }
+  }
+}
+
+function _renderFeatures(features) {
+  const el = document.getElementById('upg-features');
+  if (!el) return;
+  if (!features.length) { el.innerHTML = '<div class="briefing-empty">No feature unlocks available.</div>'; return; }
+  el.innerHTML = features.map(f => {
+    const on = !!f.enabled;
+    const toggle = `<button class="data-btn-sm ${on ? 'green' : ''}" onclick="toggleFeature('${f.id}', ${on ? 'false' : 'true'})">${on ? 'ON ✓' : 'ENABLE'}</button>`;
+    return `
+      <div class="conn-card" id="card-${_cssId(f.id)}">
+        <div class="conn-card-main">
+          <div class="conn-card-title">${_esc(f.name)} ${on ? '<span class="conn-pill green">ENABLED</span>' : ''}</div>
+          <div class="conn-card-blurb">${_esc(f.blurb || '')}</div>
+        </div>
+        <div class="conn-card-action" id="action-${_cssId(f.id)}">${toggle}</div>
+      </div>`;
+  }).join('');
+}
+
+// Generic card renderer for skill / mcp / pip / knowledge entries.
+function _renderUpgradeCards(containerId, items, kind) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!items.length) { el.innerHTML = '<div class="briefing-empty">Nothing here yet.</div>'; return; }
+  el.innerHTML = items.map(it => {
+    const action = it.installed
+      ? `<span class="conn-pill green">INSTALLED</span>`
+      : `<button class="data-btn-sm orange" id="install-btn-${_cssId(it.id)}" onclick="installUpgrade('${it.id}')">INSTALL</button>`;
+    const meta = [it.size, it.package, it.mcp_name].filter(Boolean).map(_esc).join(' · ');
+    return `
+      <div class="conn-card" id="card-${_cssId(it.id)}">
+        <div class="conn-card-main">
+          <div class="conn-card-title">${_esc(it.name)}${it.installed ? ' <span class="conn-pill teal">INSTALLED</span>' : ''}</div>
+          <div class="conn-card-blurb">${_esc(it.blurb || '')}</div>
+          ${meta ? `<div class="conn-card-meta">${meta}</div>` : ''}
+        </div>
+        <div class="conn-card-action" id="action-${_cssId(it.id)}">${action}</div>
+      </div>`;
+  }).join('');
+}
+
+async function toggleFeature(id, on) {
+  try {
+    const res = await fetch(`${API_BASE}/upgrades/toggle`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, on: (on === true || on === 'true') }),
+    });
+    const j = await res.json();
+    if (j.error) { addLog(`Toggle failed: ${j.error}`); return; }
+    addLog(`Feature ${id} → ${j.enabled ? 'ON' : 'OFF'}`);
+    loadUpgrades();
+  } catch (e) { addLog(`Toggle failed: ${e.message || e}`); }
+}
+
+async function installUpgrade(id) {
+  const actionEl = document.getElementById(`action-${_cssId(id)}`);
+  if (actionEl) actionEl.innerHTML = `<span class="conn-progress-txt">installing…</span>`;
+  try {
+    const res = await fetch(`${API_BASE}/upgrades/install`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const job = await res.json();
+    if (job.error) { _installFailed(id, job.error); return; }
+    if (job.state === 'done') {            // features install instantly
+      addLog(`Enabled ${id} ✓`);
+      loadUpgrades();
+      return;
+    }
+    addLog(`Installing ${id}…`);
+    _pollInstall(job.id, id, false);       // reuse the connector poller
+  } catch (e) { _installFailed(id, e.message || e); }
+}
+
 function _renderHardware(hw) {
   const el = document.getElementById('conn-hw-grid');
   if (!el || !hw) return;
@@ -6055,7 +6161,10 @@ function _pollInstall(jobId, key, isModel) {
         clearInterval(_installPolls[key]); delete _installPolls[key];
         addLog(`Installed ${key} ✓`);
         loadProviders();              // refresh the selector with the new model
-        loadConnectors();             // refresh this page
+        // Repaint the store — loadUpgrades is the superset (also renders the
+        // skills/tools/pip/knowledge sections); fall back to loadConnectors.
+        if (typeof loadUpgrades === 'function') loadUpgrades();
+        else loadConnectors();
       } else if (j.state === 'error') {
         clearInterval(_installPolls[key]); delete _installPolls[key];
         _installFailed(key, j.error || 'install failed');
@@ -6075,7 +6184,8 @@ async function useModel(providerId) {
   addLog(`Active model → ${providerId}`);
   const pill = document.getElementById('connectors-active-pill');
   if (pill) pill.textContent = providerId.toUpperCase();
-  loadConnectors();
+  if (typeof loadUpgrades === 'function') loadUpgrades();
+  else loadConnectors();
 }
 
 // CSS-safe id from a model name (qwen2.5:3b → qwen2-5_3b)
@@ -8339,8 +8449,12 @@ function settingsTab(name) {
     t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.settings-pane').forEach(p =>
     p.classList.toggle('active', p.dataset.pane === name));
-  // Lazy-load the AI connectors scan the first time its tab is opened
-  if (name === 'connectors' && typeof loadConnectors === 'function') loadConnectors();
+  // Lazy-load the unified Upgrades store (hardware + models + providers +
+  // skills/tools/pip/knowledge/features) and the discovery briefing.
+  if (name === 'upgrades') {
+    if (typeof loadUpgrades === 'function') loadUpgrades();
+    if (typeof loadBriefing === 'function') loadBriefing();
+  }
 }
 
 // Open Settings directly on a given tab (e.g. from the provider menu)

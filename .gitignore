@@ -46,6 +46,9 @@ dashboard_demo.py
 # Secrets
 .env
 
+# Local-only MCP registrations (third-party servers; never ship in retail zip)
+.mcp.json
+
 # Release artifacts
 dist/
 preview_*/
