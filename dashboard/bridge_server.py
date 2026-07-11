@@ -4042,6 +4042,37 @@ def _fire_standing_order(order: dict) -> None:
         except Exception as e:
             log.exception(f"[orders] upgrades refresh failed: {e}")
             response = f"(Potential Upgrades refresh failed: {e})"
+    elif action == "update_dashboard":
+        # Retail self-update: scan GitHub and download any changed dashboard
+        # files in place. No-ops on the developer git clone (self-guarded).
+        try:
+            import importlib
+            import self_update as _su
+            importlib.reload(_su)
+            auto = bool(order.get("auto_restart"))
+            summary = _su.run_update(dry_run=False)
+            response = summary.get("message", "Self-update finished.")
+            if summary.get("updated"):
+                log.info(f"[orders] self-update applied {len(summary['updated'])} file(s); "
+                         f"backup={summary.get('backup_dir') or 'n/a'}")
+            if summary.get("errors"):
+                log.warning(f"[orders] self-update errors: {summary['errors'][:5]}")
+            _push_ui_event("dashboard_update", summary)
+            # Relaunch the bridge so downloaded .py changes take effect. Gated
+            # on this order's auto_restart flag (seeded True): writing the files
+            # is the apply, the in-place re-exec activates them live.
+            if auto and summary.get("restart_required") and summary.get("status") in ("ok", "partial"):
+                log.info("[orders] auto_restart set — scheduling bridge relaunch after self-update")
+
+                def _restart_soon():
+                    time.sleep(2.0)   # let the UI event + last_result flush first
+                    _do_reboot()      # re-execs the bridge in place, then exits
+
+                threading.Thread(target=_restart_soon, daemon=True).start()
+                response += " Auto-restarting to activate."
+        except Exception as e:
+            log.exception(f"[orders] dashboard self-update failed: {e}")
+            response = f"(Dashboard self-update failed: {e})"
     else:
         try:
             response = _dispatch_with_provider(
@@ -10966,6 +10997,25 @@ if __name__ == "__main__":
                 "notify_telegram": False,
             })
             log.info("[orders] auto-seeded so-upgrades-refresh (daily 08:00)")
+        # Auto-seed the daily dashboard self-update scan. Harmless on the dev
+        # git clone (self_update.py self-guards and no-ops there); on a retail
+        # install it scans GitHub and downloads any changed dashboard files.
+        if not any(o.get("id") == "so-dashboard-update" for o in _standing_orders):
+            _standing_orders.append({
+                "id":       "so-dashboard-update",
+                "name":     "Dashboard self-update",
+                "cron":     "0 4 * * *",                  # daily 04:00, off-peak
+                "prompt":   "(internal — scans GitHub and downloads dashboard updates)",
+                "provider": "claude-cli",                 # placeholder, unused with action
+                "enabled":  True,
+                "action":   "update_dashboard",
+                "auto_restart": True,                     # download+apply, then relaunch the bridge to activate
+                "next_run": 0,
+                "last_run": 0,
+                "last_result": "",
+                "notify_telegram": False,
+            })
+            log.info("[orders] auto-seeded so-dashboard-update (daily 04:00)")
         for _o in _standing_orders:
             _recompute_next_run(_o)
         _save_standing_orders()
