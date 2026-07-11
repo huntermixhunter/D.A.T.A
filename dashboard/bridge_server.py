@@ -5984,15 +5984,26 @@ def _mail_llm_json(prompt: str, system: str, tier: str = "claude-cli-haiku",
     raw = _mail_llm(prompt, system, tier, timeout)
     if not raw:
         return None
-    # Strip code fences and locate the first JSON value.
+    # Strip code fences.
     txt = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
-    for opener, closer in (("[", "]"), ("{", "}")):
+    # Fast path: the whole reply is already valid JSON.
+    try:
+        return json.loads(txt)
+    except Exception:
+        pass
+    # Otherwise locate the OUTERMOST JSON value: whichever of { or [ opens
+    # first wins. (Trying [ first would slice an inner array out of an object
+    # like {"actions":[...]} and wrongly return a list.)
+    candidates = []
+    for opener, closer in (("{", "}"), ("[", "]")):
         i, j = txt.find(opener), txt.rfind(closer)
         if i != -1 and j != -1 and j > i:
-            try:
-                return json.loads(txt[i:j + 1])
-            except Exception:
-                continue
+            candidates.append((i, txt[i:j + 1]))
+    for _, chunk in sorted(candidates):   # earliest opener = outermost value
+        try:
+            return json.loads(chunk)
+        except Exception:
+            continue
     return None
 
 
@@ -10838,6 +10849,12 @@ class Handler(BaseHTTPRequestHandler):
                          "actions array with a report explaining why.")
                 usr = (f"Instruction: {command}\n\nInbox:\n" + "\n".join(snapshot or ["(empty)"]))
                 plan = _mail_llm_json(usr, sys_p, tier="claude-cli-sonnet") or {}
+                # The model may return the object {"report","actions"} OR, if it
+                # skips the wrapper, a bare array of action dicts. Accept both.
+                if isinstance(plan, list):
+                    plan = {"actions": plan}
+                elif not isinstance(plan, dict):
+                    plan = {}
                 actions = plan.get("actions") or []
                 applied, errors = [], []
                 for act in actions[:60]:

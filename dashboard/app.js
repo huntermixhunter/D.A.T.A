@@ -9486,13 +9486,17 @@ function ecShellHtml() {
         <div class="ec-empty">Select a message to read. Data can summarize it or draft a reply — and you can flag, move, or delete it. Use the agent bar below to organize the whole inbox at once.</div>
       </div>
     </div>
-    <div class="ec-agent">
-      <span class="ec-agent-icon">DATA ▸</span>
-      <input id="ec-agent-input" type="text"
-        placeholder="Tell Data to organize your inbox — e.g. 'archive all newsletters, flag anything from my bank, mark receipts read'"
-        onkeydown="if(event.key==='Enter')ecAgent()" />
-      <button class="data-btn-sm teal" onclick="ecAgent()">RUN</button>
-      <span class="ec-agent-report" id="ec-agent-report"></span>
+    <div class="ec-agent" id="ec-agent">
+      <div class="ec-agent-row">
+        <span class="ec-agent-icon">DATA ▸</span>
+        <textarea id="ec-agent-input" rows="1"
+          placeholder="Tell Data to organize your inbox — e.g. 'archive all newsletters, flag anything from my bank, mark receipts read'"
+          onkeydown="ecAgentKey(event)" oninput="ecAutoGrow(this)"></textarea>
+        <button class="data-btn-sm teal" onclick="ecAgent()">RUN</button>
+        <button class="data-btn-sm ec-agent-expand" id="ec-agent-expand"
+          onclick="ecToggleAgentExpand()" title="Expand the prompt and Data's replies">⤢</button>
+      </div>
+      <div class="ec-agent-report" id="ec-agent-report"></div>
     </div>`;
 }
 
@@ -9783,8 +9787,7 @@ async function ecSendReply() {
 }
 
 async function ecTriage() {
-  const rep = document.getElementById('ec-agent-report');
-  if (rep) rep.textContent = 'Data is triaging…';
+  ecSetReport('Data is triaging…');
   playDataSound && playDataSound('confirm');
   const payload = { folder: EC.folder, limit: 40 };
   if (EC.account) payload.account = EC.account;
@@ -9792,17 +9795,47 @@ async function ecTriage() {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then(r => r.json()).catch(e => ({ error: e.message || e }));
-  if (r.error) { if (rep) rep.textContent = 'Triage failed.'; return; }
+  if (r.error) { ecSetReport('Triage failed.'); return; }
   (r.items || []).forEach(it => { EC.triage[ecKey(it.account, String(it.id))] = it; });
-  if (rep) rep.textContent = `Triaged ${(r.items || []).length} message(s).`;
+  ecSetReport(`Triaged ${(r.items || []).length} message(s).`);
   ecRenderRows();
+}
+
+// Enter runs the agent; Shift+Enter inserts a newline for multi-line commands.
+function ecAgentKey(ev) {
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); ecAgent(); }
+}
+// Grow the prompt textarea to fit its content (bounded by the CSS max-height).
+function ecAutoGrow(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 220) + 'px';
+}
+// Toggle the tall panel — big prompt box + full scrollable reply.
+function ecToggleAgentExpand() {
+  const bar = document.getElementById('ec-agent');
+  const btn = document.getElementById('ec-agent-expand');
+  if (!bar) return;
+  const on = bar.classList.toggle('expanded');
+  if (btn) { btn.textContent = on ? '⤡' : '⤢'; btn.title = on ? 'Collapse' : 'Expand the prompt and Data\'s replies'; }
+  ecAutoGrow(document.getElementById('ec-agent-input'));
+}
+// Write Data's reply into the report panel. Auto-expands for longer replies so
+// the Captain can actually read them without hunting for the toggle.
+function ecSetReport(text) {
+  const rep = document.getElementById('ec-agent-report');
+  if (!rep) return;
+  rep.textContent = text || '';
+  if ((text || '').length > 80) {
+    const bar = document.getElementById('ec-agent');
+    if (bar && !bar.classList.contains('expanded')) ecToggleAgentExpand();
+  }
 }
 
 async function ecAgent() {
   const inp = document.getElementById('ec-agent-input'); if (!inp) return;
   const command = (inp.value || '').trim(); if (!command) return;
-  const rep = document.getElementById('ec-agent-report');
-  if (rep) rep.textContent = 'Data is working the inbox…';
+  ecSetReport('Data is working the inbox…');
   playDataSound && playDataSound('confirm');
   const payload = { folder: EC.folder, command };
   if (EC.account) payload.account = EC.account;
@@ -9810,10 +9843,10 @@ async function ecAgent() {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then(r => r.json()).catch(e => ({ error: e.message || e }));
-  if (r.error) { if (rep) rep.textContent = 'Agent error: ' + r.error; return; }
-  if (rep) rep.textContent = r.report || `Applied ${r.count || 0} action(s).`;
+  if (r.error) { ecSetReport('Agent error: ' + r.error); return; }
+  ecSetReport(r.report || `Applied ${r.count || 0} action(s).`);
   addLog && addLog(`Inbox agent: ${r.report || ''} (${r.count || 0} applied)`);
-  inp.value = '';
+  inp.value = ''; ecAutoGrow(inp);
   await ecLoad(true);   // reflect the agent's changes live
 }
 
