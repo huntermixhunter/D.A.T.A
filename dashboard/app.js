@@ -8520,14 +8520,6 @@ const WIDGETS = [
       } catch { return 'available'; }
     },
   },
-  {
-    id: 'system-vitals',
-    title: 'System Vitals',
-    icon: '📊',
-    desc: 'CPU, memory, and GPU at a glance.',
-    open: openSystemVitalsWidget,
-    // no probe → defaults to 'available' (second-widget proof: zero shared-code edits)
-  },
 ];
 
 // ── Grid renderer (maps registry → cards; never hard-codes a widget) ──
