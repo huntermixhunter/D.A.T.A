@@ -2353,6 +2353,11 @@ html, body {
   line-height: 1;
 }
 .fullscreen-btn:hover { border-color: var(--data-blue); color: var(--data-blue); }
+/* Momentary confirmation flash after the export pill fires a download. */
+.fullscreen-btn.copied {
+  border-color: var(--data-green);
+  color: var(--data-green);
+}
 
 /* ── Find in conversation ─────────────────────────────────
    Slim search bar that drops in below the chat panel header. Styled to sit

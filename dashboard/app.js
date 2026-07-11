@@ -8173,6 +8173,86 @@ function toggleChatFullscreen() {
   btn.textContent = panel.classList.contains('fullscreen') ? '⊡' : '⛶';
 }
 
+// ── Export conversation ──────────────────────────────────
+// Walks the main channel's rendered messages and builds a plain-text Markdown
+// transcript, then triggers a browser download. Reads straight from the DOM so
+// it captures every message type (Captain, Data, streamed, system notices)
+// without needing a parallel data store. The in-flight "thinking" bubble and
+// any interactive option cards carry no real transcript text and are skipped.
+function exportConversation(btn) {
+  const win = document.getElementById('chat-window');
+  if (!win) return;
+
+  const msgs = win.querySelectorAll('.chat-message');
+  const lines = [];
+  let exported = 0;
+
+  msgs.forEach(msg => {
+    if (msg.id === 'thinking-msg') return;                 // live status bubble
+    const textEl = msg.querySelector('.text');
+    if (!textEl) return;
+    const body = (textEl.innerText || textEl.textContent || '').trim();
+    if (!body) return;
+
+    const senderEl = msg.querySelector('.sender');
+    const sender = senderEl
+      ? senderEl.textContent.trim()
+      : (msg.classList.contains('captain') ? 'CAPTAIN' : 'DATA');
+    const tsEl = msg.querySelector('.timestamp');
+    const ts = tsEl ? tsEl.textContent.trim() : '';
+
+    lines.push(ts ? `**${sender}** · ${ts}` : `**${sender}**`);
+    lines.push('');
+    lines.push(body);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    exported++;
+  });
+
+  if (!exported) {
+    if (btn) _flashExportBtn(btn, '∅');
+    return;
+  }
+
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+                `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const header = [
+    `# D.A.T.A. — Conversation Transcript`,
+    ``,
+    `_Exported ${now.toLocaleString('en-US', { hour12: false })} · ${exported} message${exported === 1 ? '' : 's'}_`,
+    ``,
+    `---`,
+    ``,
+  ].join('\n');
+
+  const md = header + lines.join('\n');
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `data-conversation-${stamp}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  playDataSound('confirm');
+  if (btn) _flashExportBtn(btn, '✓');
+}
+
+// Brief visual acknowledgement on the export pill, mirroring the copy-button
+// pattern so the click always produces feedback even though the download itself
+// is handled by the browser chrome.
+function _flashExportBtn(btn, glyph) {
+  const original = '⭳';
+  btn.textContent = glyph;
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1400);
+}
+
 // ── Find in conversation ─────────────────────────────────
 // Client-side search over the main channel's rendered messages. Matches are
 // wrapped in <mark class="chat-find-hl"> spans (walking text nodes only, so the
