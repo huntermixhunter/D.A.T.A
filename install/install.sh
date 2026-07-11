@@ -39,6 +39,20 @@ else
     fi
 fi
 
+# 2b. Optional: pyautogui + pillow for screen control (click/type/scroll).
+#     Without these, DATA can still screenshot but cannot move the mouse or type.
+if "$PYTHON" -c 'import pyautogui' 2>/dev/null; then
+    echo "  [OK] pyautogui already installed (screen control ready)"
+else
+    echo "  [..] Installing pyautogui + pillow (screen control — optional)..."
+    if "$PYTHON" -m pip install --quiet --user pyautogui pillow 2>/dev/null || \
+       "$PYTHON" -m pip install --quiet --user --break-system-packages pyautogui pillow 2>/dev/null; then
+        echo "  [OK] screen control ready"
+    else
+        echo "  [!!] pyautogui install failed — screen control stays off. Re-run later: pip install pyautogui pillow"
+    fi
+fi
+
 # 3. Check for an AI provider CLI
 FOUND=""
 for p in claude codex gemini ollama; do

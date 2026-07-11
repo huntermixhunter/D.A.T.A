@@ -303,7 +303,7 @@ function showPanel(name) {
 
   document.getElementById(`panel-${name}`).classList.add('active');
 
-  const btnMap = { chat: 0, matrix: 1, orders: 2, briefing: 3, connectors: 4 };
+  const btnMap = { chat: 0, matrix: 1, orders: 2, briefing: 3, connectors: 4, widgets: 5 };
   const idx = btnMap[name];
   if (idx !== undefined) document.querySelectorAll('.data-btn')[idx].classList.add('active');
 
@@ -312,6 +312,7 @@ function showPanel(name) {
   if (name === 'orders') refreshStandingOrders();
   if (name === 'briefing') loadBriefing();
   if (name === 'connectors') loadConnectors();
+  if (name === 'widgets') renderWidgetsGrid();
 }
 
 // ── Open a path in Windows Explorer ──────────────────────
@@ -1512,7 +1513,7 @@ function _inlineMd(text) {
   const slots = [];
   const stash = (html) => {
     slots.push(html);
-    return ` L${slots.length - 1} `;
+    return `L${slots.length - 1}`;
   };
 
   // 0. ![alt](path) — markdown image embed. Two forms:
@@ -1559,13 +1560,13 @@ function _inlineMd(text) {
   });
 
   // 4. Now run bold / italic on the placeholderized text. Placeholders are
-  //     L<idx>  — no markdown chars, won't be touched.
+  //    L<idx> — no markdown chars, won't be touched.
   text = text
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
 
   // 5. Restore the link/code placeholders.
-  return text.replace(/ L(\d+) /g, (_m, i) => slots[+i]);
+  return text.replace(/L(\d+)/g, (_m, i) => slots[+i]);
 }
 
 function renderMarkdown(raw) {
@@ -4112,12 +4113,17 @@ function _restartWakeIfEnabled() {
 }
 
 // Restore wake state on page load.
-//   - Desktop: defaults to ON (must explicitly disable to keep off).
-//   - Mobile/tablet: defaults to OFF. Phones keep the mic open for wake-word
+//   - Everyone defaults to OFF (push-to-talk). Ambient always-on mic listening
+//     is surprising on a fresh machine — after a dictation the wake listener
+//     used to re-arm itself and reopen the mic, so it looked like the app
+//     "started listening again on its own." Voice input now happens ONLY when
+//     the Captain taps the mic/WAKE button. Tap the WAKE pill to opt into
+//     hands-free wake-word listening.
+//   - Mobile/tablet: also OFF. Phones keep the mic open for wake-word
 //     recognition, which makes Android show constant "site using microphone"
-//     system notifications. Captain can still tap the WAKE pill manually.
-// Either way, an explicit user choice (localStorage 'wake-enabled' = '0' or '1')
-// overrides the default.
+//     system notifications.
+// An explicit user choice (localStorage 'wake-enabled' = '0' or '1') overrides
+// the default, so anyone who turned wake ON keeps it across reloads.
 function _isMobileDevice() {
   return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
          (window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
@@ -4134,8 +4140,9 @@ function _isMobileDevice() {
     if (_isMobileDevice()) enabled = false;
     else if (stored === '0') enabled = false;
     else if (stored === '1') enabled = true;
-    // No explicit choice yet: desktop defaults ON.
-    else enabled = true;
+    // No explicit choice yet: default OFF (push-to-talk). The mic only opens
+    // when the Captain taps a voice button; it never re-arms on its own.
+    else enabled = false;
     if (enabled) {
       WAKE.enabled = true;
       _startWakeListener();
@@ -8415,3 +8422,992 @@ function _flashSaved(btn) {
     }
   } catch (e) {}
 })();
+
+// ═══════════════════════════════════════════════════════════════
+//  CONNECTIONS HUB — data-driven widget grid + reusable slide-in
+//  (panel id stays "widgets"; visible caption is "CONNECTIONS")
+// ═══════════════════════════════════════════════════════════════
+
+// Small local HTML escaper (avoids depending on escapeHtml's arg name).
+function _wEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── Widget registry (append entries here; nothing else changes) ──
+const WIDGETS = [
+  {
+    id: 'email-inboxes',
+    title: 'Email Inboxes',
+    icon: '✉',
+    desc: 'Connect and manage your email accounts.',
+    open: openEmailInboxesWidget,
+    statusProbe: async () => {
+      try {
+        const r = await fetch(`${API_BASE}/mail/accounts`);
+        const d = await r.json();
+        return (d.accounts && d.accounts.length) ? 'connected' : 'available';
+      } catch { return 'available'; }
+    },
+  },
+  {
+    id: 'system-vitals',
+    title: 'System Vitals',
+    icon: '📊',
+    desc: 'CPU, memory, and GPU at a glance.',
+    open: openSystemVitalsWidget,
+    // no probe → defaults to 'available' (second-widget proof: zero shared-code edits)
+  },
+];
+
+// ── Grid renderer (maps registry → cards; never hard-codes a widget) ──
+async function renderWidgetsGrid(force = false) {
+  const grid = document.getElementById('widgets-grid');
+  if (!grid) return;
+  if (force) playDataSound && playDataSound('confirm');
+
+  // Resolve statuses in parallel; default 'available'.
+  const statuses = await Promise.all(WIDGETS.map(async w => {
+    if (typeof w.statusProbe === 'function') {
+      try { return await w.statusProbe(); } catch { return 'available'; }
+    }
+    return 'available';
+  }));
+
+  const label = { connected: 'Connected', available: 'Available', setup: 'Needs setup' };
+  const builtinCards = WIDGETS.map((w, i) => {
+    const st = statuses[i] || 'available';
+    return `<button class="widget-card" data-widget-id="${_wEsc(w.id)}" onclick="openWidget('${_wEsc(w.id)}')">
+      <span class="widget-card-icon">${_wEsc(w.icon)}</span>
+      <span class="widget-card-title">${_wEsc(w.title)}</span>
+      <span class="widget-card-desc">${_wEsc(w.desc)}</span>
+      <span class="widget-card-status status-${st}">${label[st] || 'Available'}</span>
+    </button>`;
+  }).join('');
+
+  // Custom (user-defined) app launchers — stored locally, added by the Captain.
+  const customs = loadCustomApps();
+  const customCards = customs.map(c => `
+    <button class="widget-card" data-widget-id="custom:${_wEsc(c.id)}" onclick="openCustomApp('${_wEsc(c.id)}')">
+      <span class="widget-card-icon">${_wEsc(c.icon || '🔗')}</span>
+      <span class="widget-card-title">${_wEsc(c.title)}</span>
+      <span class="widget-card-desc">${_wEsc(c.desc || c.url)}</span>
+      <span class="widget-card-status status-connected">Custom</span>
+    </button>`).join('');
+
+  // Always-last "add your own" tile.
+  const addCard = `
+    <button class="widget-card widget-card-add" onclick="openCustomAppForm()">
+      <span class="widget-card-icon">➕</span>
+      <span class="widget-card-title">Add your own</span>
+      <span class="widget-card-desc">Create a custom app that opens any link or tool you use.</span>
+      <span class="widget-card-status status-available">New</span>
+    </button>`;
+
+  grid.innerHTML = builtinCards + customCards + addCard;
+
+  const connected = statuses.filter(s => s === 'connected').length + customs.length;
+  const total = WIDGETS.length + customs.length;
+  const pill = document.getElementById('widgets-count-pill');
+  if (pill) pill.textContent = `${connected}/${total} connected`;
+}
+
+// ── Custom apps (user-defined launchers, persisted in localStorage) ──
+function loadCustomApps() {
+  try { return JSON.parse(localStorage.getItem('data-custom-apps') || '[]'); }
+  catch { return []; }
+}
+function saveCustomApps(list) {
+  localStorage.setItem('data-custom-apps', JSON.stringify(list));
+}
+function openCustomApp(id) {
+  const c = loadCustomApps().find(x => x.id === id);
+  if (!c) return;
+  playDataSound && playDataSound('confirm');
+  openSlideIn(c.title || 'Custom app',
+    `<div class="widget-section-label">Custom app</div>
+     <div class="inbox-row"><span class="widget-card-icon" style="font-size:22px">${_wEsc(c.icon || '🔗')}</span>
+       <div class="inbox-row-main">
+         <div class="inbox-row-label">${_wEsc(c.title)}</div>
+         <div class="inbox-row-addr">${_wEsc(c.url)}</div>
+         ${c.desc ? `<div class="inbox-row-host">${_wEsc(c.desc)}</div>` : ''}
+       </div>
+     </div>
+     <div class="widget-actions">
+       <a class="data-btn-sm teal" href="${_wEsc(c.url)}" target="_blank" rel="noopener">OPEN ↗</a>
+       <button class="data-btn-sm orange" onclick="removeCustomApp('${_wEsc(c.id)}')">REMOVE</button>
+     </div>`);
+}
+function openCustomAppForm() {
+  playDataSound && playDataSound('confirm');
+  openSlideIn('Add a custom app',
+    `<form class="widget-form" id="custom-app-form" onsubmit="return addCustomAppSubmit(event)">
+       <label>App name</label>
+       <input id="ca-title" type="text" autocomplete="off" placeholder="e.g. Notion" required />
+       <label>Link (URL)</label>
+       <input id="ca-url" type="text" autocomplete="off" placeholder="https://…" required />
+       <label>Icon <span style="opacity:.6">(an emoji, optional)</span></label>
+       <input id="ca-icon" type="text" maxlength="4" autocomplete="off" placeholder="🔗" />
+       <label>Description <span style="opacity:.6">(optional)</span></label>
+       <input id="ca-desc" type="text" autocomplete="off" placeholder="What this app is for" />
+       <div class="widget-error" id="ca-error"></div>
+       <div class="widget-actions">
+         <button type="submit" class="data-btn-sm teal">ADD APP</button>
+       </div>
+     </form>`);
+}
+function addCustomAppSubmit(ev) {
+  ev.preventDefault();
+  const err = document.getElementById('ca-error');
+  err.textContent = '';
+  const val = id => (document.getElementById(id).value || '').trim();
+  const title = val('ca-title');
+  let url = val('ca-url');
+  if (!title || !url) { err.textContent = 'Name and link are both required.'; return false; }
+  if (!/^[a-z]+:\/\//i.test(url)) url = 'https://' + url;
+  const list = loadCustomApps();
+  list.push({ id: 'ca_' + Date.now().toString(36), title, url, icon: val('ca-icon') || '🔗', desc: val('ca-desc') });
+  saveCustomApps(list);
+  addLog && addLog(`Custom app added: ${title}`);
+  closeSlideIn();
+  renderWidgetsGrid();
+  return false;
+}
+function removeCustomApp(id) {
+  if (!confirm('Remove this custom app?')) return;
+  saveCustomApps(loadCustomApps().filter(x => x.id !== id));
+  addLog && addLog('Custom app removed');
+  closeSlideIn();
+  renderWidgetsGrid();
+}
+
+// ── Reusable slide-in open/close API (any widget calls these) ──
+function openSlideIn(title, bodyHtml) {
+  document.getElementById('slidein-title').textContent = title;
+  document.getElementById('slidein-body').innerHTML = bodyHtml;
+  document.getElementById('slidein').classList.add('open');
+  document.getElementById('slidein-backdrop').classList.add('open');
+  document.getElementById('slidein').setAttribute('aria-hidden', 'false');
+}
+function closeSlideIn() {
+  const el = document.getElementById('slidein');
+  if (!el || !el.classList.contains('open')) return;
+  el.classList.remove('open');
+  document.getElementById('slidein-backdrop').classList.remove('open');
+  el.setAttribute('aria-hidden', 'true');
+}
+function openWidget(id) {
+  const w = WIDGETS.find(x => x.id === id);
+  if (!w) return;
+  playDataSound && playDataSound('confirm');
+  openSlideIn(w.title, '<div class="slidein-loading">Loading…</div>');
+  try { w.open(); } catch (e) {
+    document.getElementById('slidein-body').innerHTML =
+      `<div class="widget-error">Failed to open: ${_wEsc(e.message || e)}</div>`;
+  }
+}
+// "+ ADD" → picker of registry widgets (connect the ones not yet connected).
+async function openAddWidgetPicker() {
+  playDataSound && playDataSound('confirm');
+  openSlideIn('Add a connection', '<div class="slidein-loading">Loading…</div>');
+  const rows = await Promise.all(WIDGETS.map(async w => {
+    let st = 'available';
+    if (typeof w.statusProbe === 'function') { try { st = await w.statusProbe(); } catch (e) {} }
+    return { w, st };
+  }));
+  const items = rows.map(({ w, st }) => `
+    <div class="inbox-row">
+      <span class="widget-card-icon" style="font-size:20px">${_wEsc(w.icon)}</span>
+      <div class="inbox-row-main">
+        <div class="inbox-row-label">${_wEsc(w.title)}</div>
+        <div class="inbox-row-addr">${_wEsc(w.desc)}</div>
+      </div>
+      <button class="data-btn-sm ${st === 'connected' ? 'teal' : 'orange'}"
+        onclick="openWidget('${_wEsc(w.id)}')">${st === 'connected' ? 'MANAGE' : 'CONNECT'}</button>
+    </div>`).join('');
+  document.getElementById('slidein-body').innerHTML =
+    `<div class="widget-section-label">Available connections</div>${items}`;
+}
+// One slide-in only → Esc closes it. (Registered once.)
+if (!window.__slideinEscBound) {
+  window.__slideinEscBound = true;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSlideIn(); });
+}
+
+// ── Widget #1: Email Inboxes ────────────────────────────────────
+const MAIL_PRESETS = {
+  gmail:    { imap_host: 'imap.gmail.com',      imap_port: 993, smtp_host: 'smtp.gmail.com',      smtp_port: 465 },
+  icloud:   { imap_host: 'imap.mail.me.com',    imap_port: 993, smtp_host: 'smtp.mail.me.com',    smtp_port: 587 },
+  fastmail: { imap_host: 'imap.fastmail.com',   imap_port: 993, smtp_host: 'smtp.fastmail.com',   smtp_port: 465 },
+  yahoo:    { imap_host: 'imap.mail.yahoo.com', imap_port: 993, smtp_host: 'smtp.mail.yahoo.com', smtp_port: 465 },
+  outlook:  { unsupported: true },
+  custom:   { imap_host: '', imap_port: 993, smtp_host: '', smtp_port: 465 },
+};
+
+// Entry point from the CONNECTIONS grid. If ≥1 inbox is connected we open
+// straight into the reader (real messages); otherwise we open the manage view
+// so the Captain can connect one.
+function openEmailInboxesWidget() {
+  // Full-screen cockpit (unified inboxes, triage, read/reply, agent overlay).
+  openEmailCockpit();
+}
+
+async function emailHome() {
+  const body = document.getElementById('slidein-body');
+  let accts = [];
+  try {
+    const r = await fetch(`${API_BASE}/mail/accounts`);
+    accts = (await r.json()).accounts || [];
+  } catch (e) {
+    body.innerHTML = `<div class="widget-error">Could not reach the bridge: ${_wEsc(e.message || e)}
+      (is the server running on :7777?)</div>`;
+    return;
+  }
+  if (!accts.length) { emailManageView(); return; }
+  emailInboxView(accts[0].label);
+}
+
+// ── Reader: unread message list for one account ──────────────────
+async function emailInboxView(account) {
+  const body = document.getElementById('slidein-body');
+  // Re-fetch accounts so the selector is always accurate (cheap local read).
+  let accts = [];
+  try { accts = (await (await fetch(`${API_BASE}/mail/accounts`)).json()).accounts || []; } catch (e) {}
+  if (!account && accts[0]) account = accts[0].label;
+  window.__emailActiveAcct = account;
+  document.getElementById('slidein-title').textContent = `Email — ${account || ''}`;
+
+  const selector = (accts.length > 1)
+    ? `<select id="email-acct-sel" onchange="emailInboxView(this.value)">` +
+      accts.map(a => `<option value="${_wEsc(a.label)}" ${a.label === account ? 'selected' : ''}>${_wEsc(a.label)}</option>`).join('') +
+      `</select>`
+    : `<span class="email-acct-name">${_wEsc(account || '')}</span>`;
+
+  body.innerHTML =
+    `<div class="email-toolbar">
+       ${selector}
+       <div class="email-toolbar-actions">
+         <button class="data-btn-sm yellow" title="Refresh" onclick="emailInboxView('${_wEsc(account)}')">↻</button>
+         <button class="data-btn-sm blue" onclick="emailManageView()">Manage</button>
+       </div>
+     </div>
+     <div id="email-list"><div class="slidein-loading">Loading inbox…</div></div>`;
+
+  const list = document.getElementById('email-list');
+  try {
+    const r = await fetch(`${API_BASE}/mail/unread?account=${encodeURIComponent(account)}&limit=30`);
+    const d = await r.json();
+    const all = d.messages || [];
+    const msgs = all.filter(m => !m.error);
+    const errs = all.filter(m => m.error);
+    if (!msgs.length && errs.length) {
+      list.innerHTML = `<div class="widget-error">Could not open this inbox: ${_wEsc(errs[0].error)}</div>`;
+      return;
+    }
+    if (!msgs.length) {
+      list.innerHTML = `<div class="widget-empty">No unread messages. Inbox zero, Captain. ✨</div>`;
+      return;
+    }
+    list.innerHTML = `<div class="widget-section-label">${msgs.length} unread</div>` + msgs.map(m => `
+      <button class="email-msg" onclick="emailReadView('${_wEsc(account)}','${_wEsc(m.id)}')">
+        <div class="email-msg-top">
+          <span class="email-msg-from">${_wEsc(_emailName(m.from))}</span>
+          <span class="email-msg-date">${_wEsc(_emailDate(m.date))}</span>
+        </div>
+        <div class="email-msg-subj">${_wEsc(m.subject || '(no subject)')}</div>
+      </button>`).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="widget-error">Could not load inbox: ${_wEsc(e.message || e)}</div>`;
+  }
+}
+
+// ── Reader: one message body ─────────────────────────────────────
+async function emailReadView(account, id) {
+  const body = document.getElementById('slidein-body');
+  document.getElementById('slidein-title').textContent = `Email — ${account}`;
+  body.innerHTML =
+    `<div class="email-toolbar">
+       <button class="data-btn-sm blue" onclick="emailInboxView('${_wEsc(account)}')">← Inbox</button>
+     </div>
+     <div id="email-read"><div class="slidein-loading">Opening message…</div></div>`;
+  const box = document.getElementById('email-read');
+  try {
+    const r = await fetch(`${API_BASE}/mail/read?account=${encodeURIComponent(account)}&id=${encodeURIComponent(id)}`);
+    const m = await r.json();
+    if (m.error) { box.innerHTML = `<div class="widget-error">${_wEsc(m.error)}</div>`; return; }
+    const replyAddr = _emailAddr(m.from);
+    const replySubj = /^re:/i.test(m.subject || '') ? m.subject : `Re: ${m.subject || ''}`;
+    const mailto = replyAddr
+      ? `mailto:${encodeURIComponent(replyAddr)}?subject=${encodeURIComponent(replySubj)}`
+      : '';
+    box.innerHTML =
+      `<div class="email-read-subj">${_wEsc(m.subject || '(no subject)')}</div>
+       <div class="email-read-meta"><span class="email-k">From</span><span>${_wEsc(m.from || '')}</span></div>
+       ${m.to ? `<div class="email-read-meta"><span class="email-k">To</span><span>${_wEsc(m.to)}</span></div>` : ''}
+       ${m.cc ? `<div class="email-read-meta"><span class="email-k">Cc</span><span>${_wEsc(m.cc)}</span></div>` : ''}
+       <div class="email-read-meta"><span class="email-k">Date</span><span>${_wEsc(m.date || '')}</span></div>
+       <div class="email-read-body">${_wEsc(m.body || '(no readable text body)')}</div>
+       ${m.truncated ? `<div class="widget-note">Message truncated for display.</div>` : ''}
+       ${mailto ? `<div class="widget-actions"><a class="data-btn-sm teal" href="${mailto}">REPLY ↗</a></div>` : ''}`;
+  } catch (e) {
+    box.innerHTML = `<div class="widget-error">Could not open message: ${_wEsc(e.message || e)}</div>`;
+  }
+}
+
+// ── Manage view: connected inboxes + add form (the old default) ──
+function emailManageView() {
+  const body = document.getElementById('slidein-body');
+  document.getElementById('slidein-title').textContent = 'Email — Manage inboxes';
+  body.innerHTML =
+    `<div class="email-toolbar">
+       <button class="data-btn-sm blue" onclick="emailHome()">← Back to inbox</button>
+     </div>
+     <div id="inbox-list"><div class="slidein-loading">Loading inboxes…</div></div>
+     <div class="widget-section-label">Add an inbox</div>
+     ${_inboxFormHtml()}`;
+  refreshInboxList();
+  _bindPreset();
+}
+
+// Pull a friendly display name out of a "Name <addr>" From header.
+function _emailName(from) {
+  if (!from) return '(unknown sender)';
+  const m = from.match(/^\s*"?([^"<]+?)"?\s*<[^>]+>\s*$/);
+  if (m && m[1].trim()) return m[1].trim();
+  return from.trim();
+}
+// Pull the bare address out of a "Name <addr>" From header.
+function _emailAddr(from) {
+  if (!from) return '';
+  const m = from.match(/<([^>]+)>/);
+  if (m) return m[1].trim();
+  const bare = from.match(/[^\s<>@]+@[^\s<>@]+/);
+  return bare ? bare[0] : '';
+}
+// Compact date: keep the "Wed, 2 Jul 2026 14:33" part, drop the timezone tail.
+function _emailDate(d) {
+  if (!d) return '';
+  const s = String(d).replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const parts = s.split(/\s+/);
+  if (parts.length >= 5) return `${parts.slice(0, 4).join(' ')} ${parts[4].slice(0, 5)}`;
+  return s;
+}
+
+function _inboxFormHtml() {
+  return `<form class="widget-form" id="inbox-form" onsubmit="return addInboxSubmit(event)">
+    <label>Provider</label>
+    <select id="inbox-preset">
+      <option value="gmail">Gmail</option>
+      <option value="icloud">iCloud</option>
+      <option value="fastmail">Fastmail</option>
+      <option value="yahoo">Yahoo</option>
+      <option value="outlook">Outlook / Microsoft 365</option>
+      <option value="custom">Custom (other)</option>
+    </select>
+    <div id="inbox-outlook-note"></div>
+    <label>Label <span style="opacity:.6">(a short name, e.g. "personal")</span></label>
+    <input id="inbox-label" type="text" autocomplete="off" placeholder="personal" required />
+    <label>Email address</label>
+    <input id="inbox-address" type="email" autocomplete="off" placeholder="you@example.com" required />
+    <label>App password</label>
+    <input id="inbox-password" type="password" autocomplete="new-password" placeholder="app-specific password" required />
+    <div class="widget-form-hint">This is <strong>not</strong> your normal login password. It is an app-specific
+      password you generate in your email provider's security settings. For Gmail:
+      <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a></div>
+    <label>Display name <span style="opacity:.6">(optional)</span></label>
+    <input id="inbox-name" type="text" autocomplete="off" placeholder="Your Name" />
+    <div class="form-row2">
+      <div><label>IMAP host</label><input id="inbox-imap-host" type="text" /></div>
+      <div><label>IMAP port</label><input id="inbox-imap-port" type="number" value="993" /></div>
+    </div>
+    <div class="form-row2">
+      <div><label>SMTP host</label><input id="inbox-smtp-host" type="text" /></div>
+      <div><label>SMTP port</label><input id="inbox-smtp-port" type="number" value="465" /></div>
+    </div>
+    <div class="widget-error" id="inbox-error"></div>
+    <div class="widget-actions">
+      <button type="submit" class="data-btn-sm teal" id="inbox-submit">CONNECT INBOX</button>
+    </div>
+  </form>`;
+}
+
+function _bindPreset() {
+  const sel = document.getElementById('inbox-preset');
+  if (!sel) return;
+  const apply = () => {
+    const p = MAIL_PRESETS[sel.value] || MAIL_PRESETS.custom;
+    const note = document.getElementById('inbox-outlook-note');
+    const submit = document.getElementById('inbox-submit');
+    if (p.unsupported) {
+      note.innerHTML = `<div class="widget-note">Outlook / Microsoft 365 is not supported here — it requires
+        OAuth (XOAUTH2), which this connector does not do. Use a provider that allows app passwords.</div>`;
+      if (submit) submit.disabled = true;
+      return;
+    }
+    note.innerHTML = '';
+    if (submit) submit.disabled = false;
+    const ih = document.getElementById('inbox-imap-host');
+    const ip = document.getElementById('inbox-imap-port');
+    const sh = document.getElementById('inbox-smtp-host');
+    const sp = document.getElementById('inbox-smtp-port');
+    if (sel.value !== 'custom') {
+      ih.value = p.imap_host; ip.value = p.imap_port;
+      sh.value = p.smtp_host; sp.value = p.smtp_port;
+    } else {
+      ih.value = ''; sh.value = '';
+    }
+  };
+  sel.addEventListener('change', apply);
+  apply();
+}
+
+async function refreshInboxList() {
+  const box = document.getElementById('inbox-list');
+  if (!box) return;
+  try {
+    const r = await fetch(`${API_BASE}/mail/accounts`);
+    const d = await r.json();
+    const accts = d.accounts || [];
+    if (!accts.length) {
+      box.innerHTML = `<div class="widget-section-label">Connected inboxes</div>
+        <div class="widget-empty">No inboxes connected yet — add one below.</div>`;
+      return;
+    }
+    box.innerHTML = `<div class="widget-section-label">Connected inboxes</div>` + accts.map(a => `
+      <div class="inbox-row">
+        <div class="inbox-row-main">
+          <div class="inbox-row-label">${_wEsc(a.label)} <span class="conn-pill green">Connected</span></div>
+          <div class="inbox-row-addr">${_wEsc(a.address || '')}</div>
+          <div class="inbox-row-host">${_wEsc(a.imap_host || '')}</div>
+        </div>
+        <button class="data-btn-sm orange" onclick="removeInbox('${_wEsc(a.label)}')">REMOVE</button>
+      </div>`).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="widget-error">Could not load inboxes: ${_wEsc(e.message || e)}
+      (is the bridge running?)</div>`;
+  }
+}
+
+async function addInboxSubmit(ev) {
+  ev.preventDefault();
+  const err = document.getElementById('inbox-error');
+  err.textContent = '';
+  const val = id => (document.getElementById(id).value || '').trim();
+  const imapHost = val('inbox-imap-host');
+  const account = {
+    label:     val('inbox-label'),
+    address:   val('inbox-address'),
+    imap_user: val('inbox-address'),
+    password:  document.getElementById('inbox-password').value,  // not trimmed
+    imap_host: imapHost,
+    imap_port: parseInt(val('inbox-imap-port') || '993', 10),
+    smtp_host: val('inbox-smtp-host') || imapHost.replace('imap', 'smtp'),
+    smtp_port: parseInt(val('inbox-smtp-port') || '465', 10),
+  };
+  const dispName = val('inbox-name');
+  if (dispName) {
+    account.send_as = [{ name: dispName, address: account.address }];
+    account.default_send_as = account.address;
+  }
+  if (!account.label || !account.address || !account.password || !account.imap_host) {
+    err.textContent = 'Label, email, app password, and IMAP host are all required.';
+    return false;
+  }
+  const submit = document.getElementById('inbox-submit');
+  if (submit) { submit.disabled = true; submit.textContent = 'CONNECTING…'; }
+  try {
+    const r = await fetch(`${API_BASE}/mail/accounts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'add', account }),
+    });
+    const d = await r.json();
+    if (d.error) {
+      err.textContent = d.error;                       // keep the app-password field intact
+    } else {
+      addLog && addLog(`Inbox connected: ${account.label}`);
+      ['inbox-label', 'inbox-address', 'inbox-password', 'inbox-name'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
+      await refreshInboxList();
+      renderWidgetsGrid();   // flip the card status to Connected
+    }
+  } catch (e) {
+    err.textContent = `Request failed: ${e.message || e}`;
+  } finally {
+    if (submit) { submit.disabled = false; submit.textContent = 'CONNECT INBOX'; }
+  }
+  return false;
+}
+
+async function removeInbox(label) {
+  if (!confirm(`Remove inbox "${label}"? You can re-add it anytime.`)) return;
+  try {
+    const r = await fetch(`${API_BASE}/mail/accounts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'remove', label }),
+    });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    addLog && addLog(`Inbox removed: ${label}`);
+    await refreshInboxList();
+    renderWidgetsGrid();   // update the card status pill
+  } catch (e) {
+    alert(`Request failed: ${e.message || e}`);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// EMAIL COCKPIT — full-screen 3-pane mail client + Data agent overlay
+// Unified multi-inbox view · priority triage · read/reply · move/delete
+// · summarize · agent overlay that organizes the inbox (reflected live).
+// ════════════════════════════════════════════════════════════════
+const EC = {
+  account: null,     // null = all inboxes (unified view)
+  folder: 'INBOX',
+  messages: [],
+  errors: [],
+  triage: {},        // "acct|id" -> {priority,category,reason}
+  accounts: [],
+  selected: null,    // {account,id}
+  current: null,     // full read message
+  draft: null,       // {account,id,to,subject,body}
+  filter: 'all',
+  search: '',
+  folders: {},       // account -> [folder names]
+};
+function ecKey(account, id) { return account + '|' + id; }
+
+async function openEmailCockpit() {
+  const host = document.getElementById('email-cockpit');
+  if (!host) return;
+  playDataSound && playDataSound('confirm');
+  host.classList.add('open');
+  host.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  host.innerHTML = ecShellHtml();
+  try {
+    EC.accounts = (await (await fetch(`${API_BASE}/mail/accounts`)).json()).accounts || [];
+  } catch { EC.accounts = []; }
+  ecPopulateAccountSelect();
+  if (!EC.accounts.length) {
+    const rows = document.getElementById('ec-rows');
+    if (rows) rows.innerHTML = `<div class="ec-spin">No inboxes connected yet.<br>Add one on the right to get started. →</div>`;
+    ecShowManage();
+    return;
+  }
+  await ecLoad();
+}
+
+function ecClose() {
+  const host = document.getElementById('email-cockpit');
+  if (!host) return;
+  host.classList.remove('open');
+  host.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+  host.innerHTML = '';
+  EC.selected = null; EC.current = null;
+}
+
+function ecShellHtml() {
+  return `
+    <div class="ec-head">
+      <span class="ec-title">✉ EMAIL</span>
+      <select id="ec-acct" onchange="ecSetAccount(this.value)" title="Inbox"></select>
+      <input class="ec-search" id="ec-search" type="search" placeholder="Filter messages…"
+        oninput="ecSearch(this.value)" />
+      <div class="ec-head-actions">
+        <button class="data-btn-sm yellow" onclick="ecLoad(true)" title="Refresh">↻</button>
+        <button class="data-btn-sm teal" onclick="ecTriage()" title="Let Data rank by priority">⚡ TRIAGE</button>
+        <button class="data-btn-sm blue" onclick="ecShowManage()">INBOXES</button>
+        <button class="data-btn-sm orange" onclick="ecClose()">✕ CLOSE</button>
+      </div>
+    </div>
+    <div class="ec-body" id="ec-body">
+      <div class="ec-list">
+        <div class="ec-filters" id="ec-filters"></div>
+        <div class="ec-rows" id="ec-rows"><div class="ec-spin">Loading…</div></div>
+      </div>
+      <div class="ec-reader" id="ec-reader">
+        <div class="ec-empty">Select a message to read. Data can summarize it or draft a reply — and you can flag, move, or delete it. Use the agent bar below to organize the whole inbox at once.</div>
+      </div>
+    </div>
+    <div class="ec-agent">
+      <span class="ec-agent-icon">DATA ▸</span>
+      <input id="ec-agent-input" type="text"
+        placeholder="Tell Data to organize your inbox — e.g. 'archive all newsletters, flag anything from my bank, mark receipts read'"
+        onkeydown="if(event.key==='Enter')ecAgent()" />
+      <button class="data-btn-sm teal" onclick="ecAgent()">RUN</button>
+      <span class="ec-agent-report" id="ec-agent-report"></span>
+    </div>`;
+}
+
+function ecPopulateAccountSelect() {
+  const sel = document.getElementById('ec-acct');
+  if (!sel) return;
+  sel.innerHTML = [`<option value="__all__">All inboxes</option>`]
+    .concat(EC.accounts.map(a => `<option value="${_wEsc(a.label)}">${_wEsc(a.label)}</option>`))
+    .join('');
+  sel.value = EC.account || '__all__';
+}
+function ecSetAccount(v) {
+  EC.account = (v === '__all__') ? null : v;
+  EC.selected = null;
+  ecLoad(true);
+}
+function ecSearch(v) { EC.search = (v || '').toLowerCase().trim(); ecRenderRows(); }
+function ecSetFilter(k) { EC.filter = k; ecRenderFilters(); ecRenderRows(); }
+
+async function ecLoad(force) {
+  const rows = document.getElementById('ec-rows');
+  if (rows) rows.innerHTML = `<div class="ec-spin">Loading messages…</div>`;
+  if (force) playDataSound && playDataSound('confirm');
+  const acctQ = EC.account ? `account=${encodeURIComponent(EC.account)}&` : '';
+  try {
+    const r = await fetch(`${API_BASE}/mail/messages?${acctQ}folder=${encodeURIComponent(EC.folder)}&limit=60`);
+    const d = await r.json();
+    const all = d.messages || [];
+    EC.errors = all.filter(m => m.error);
+    EC.messages = all.filter(m => !m.error);
+  } catch (e) {
+    EC.messages = []; EC.errors = [{ error: e.message || e }];
+  }
+  ecRenderFilters();
+  ecRenderRows();
+}
+
+function ecRenderFilters() {
+  const f = document.getElementById('ec-filters');
+  if (!f) return;
+  const chips = [['all', 'All'], ['unread', 'Unread'], ['high', 'High'], ['medium', 'Med'], ['low', 'Low'], ['flagged', '★']];
+  f.innerHTML = chips.map(([k, lbl]) =>
+    `<button class="ec-chip ${EC.filter === k ? 'active' : ''}" onclick="ecSetFilter('${k}')">${lbl}</button>`).join('');
+}
+
+function ecFilteredMessages() {
+  let ms = EC.messages.slice();
+  if (EC.search) ms = ms.filter(m => ((m.from || '') + ' ' + (m.subject || '')).toLowerCase().includes(EC.search));
+  const f = EC.filter;
+  if (f === 'unread') ms = ms.filter(m => !m.seen);
+  else if (f === 'flagged') ms = ms.filter(m => m.flagged);
+  else if (f === 'high' || f === 'medium' || f === 'low')
+    ms = ms.filter(m => (EC.triage[ecKey(m.account, m.id)] || {}).priority === f);
+  return ms;
+}
+
+function ecRenderRows() {
+  const box = document.getElementById('ec-rows');
+  if (!box) return;
+  const ms = ecFilteredMessages();
+  if (!ms.length) {
+    box.innerHTML = (EC.errors && EC.errors.length)
+      ? `<div class="ec-spin" style="color:var(--data-red)">Could not open inbox: ${_wEsc(EC.errors[0].error)}</div>`
+      : `<div class="ec-spin">No messages match.</div>`;
+    return;
+  }
+  box.innerHTML = ms.map(m => {
+    const t = EC.triage[ecKey(m.account, m.id)] || {};
+    const sel = EC.selected && EC.selected.account === m.account && EC.selected.id === m.id;
+    const pri = t.priority ? `<span class="ec-pri ${_wEsc(t.priority)}" title="${_wEsc(t.reason || '')}">${_wEsc(t.priority)}</span>` : '';
+    const cat = t.category ? `<span class="ec-cat">${_wEsc(t.category)}</span>` : '';
+    const acctTag = (!EC.account && EC.accounts.length > 1) ? `<span class="ec-acct-tag">${_wEsc(m.account)}</span>` : '';
+    const flagStar = m.flagged ? `<span class="ec-cat" style="color:var(--data-yellow)">★</span>` : '';
+    const dot = m.seen ? '' : `<span class="ec-dot"></span> `;
+    return `<button class="ec-row ${m.seen ? '' : 'unseen'} ${sel ? 'sel' : ''}"
+      onclick="ecSelect('${_wEsc(m.account)}','${_wEsc(m.id)}')">
+      <div class="ec-row-top">
+        <span class="ec-row-from">${dot}${_wEsc(_emailName(m.from))}</span>
+        <span class="ec-row-date">${_wEsc(_emailDate(m.date))}</span>
+      </div>
+      <div class="ec-row-subj">${_wEsc(m.subject || '(no subject)')}</div>
+      ${(pri || cat || flagStar || acctTag) ? `<div class="ec-row-badges">${pri}${cat}${flagStar}${acctTag}</div>` : ''}
+    </button>`;
+  }).join('');
+}
+
+async function ecSelect(account, id) {
+  EC.selected = { account, id };
+  document.getElementById('ec-body') && document.getElementById('ec-body').classList.add('reading');
+  ecRenderRows();
+  const reader = document.getElementById('ec-reader');
+  reader.innerHTML = `<div class="ec-spin">Opening message…</div>`;
+  let m;
+  try {
+    m = await (await fetch(`${API_BASE}/mail/read?account=${encodeURIComponent(account)}&id=${encodeURIComponent(id)}`)).json();
+  } catch (e) { reader.innerHTML = `<div class="ec-empty">Could not open: ${_wEsc(e.message || e)}</div>`; return; }
+  if (m.error) { reader.innerHTML = `<div class="ec-empty">${_wEsc(m.error)}</div>`; return; }
+  EC.current = m;
+  reader.innerHTML = ecReaderHtml(m);
+  ecLoadFolders(account);
+  // Mark read (server + local) so the list reflects it live.
+  const msg = EC.messages.find(x => x.account === account && x.id === id);
+  if (msg && !msg.seen) {
+    msg.seen = true;
+    ecRenderRows();
+    fetch(`${API_BASE}/mail/mark`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account, id, seen: true }),
+    }).catch(() => { });
+  }
+}
+
+function ecReaderHtml(m) {
+  return `
+    <div class="ec-actionrail">
+      <button class="data-btn-sm blue" onclick="ecBack()" title="Back">←</button>
+      <button class="data-btn-sm teal" onclick="ecSummarize()">✦ SUMMARIZE</button>
+      <button class="data-btn-sm teal" onclick="ecReply()">✎ DRAFT REPLY</button>
+      <button class="data-btn-sm yellow" onclick="ecToggleSeen()">MARK UNREAD</button>
+      <button class="data-btn-sm yellow" onclick="ecToggleFlag()">★ FLAG</button>
+      <select class="data-btn-sm" id="ec-move-sel" onchange="ecMove(this.value)">
+        <option value="">Move to…</option></select>
+      <button class="data-btn-sm orange" onclick="ecDelete()">🗑 DELETE</button>
+    </div>
+    <div class="ec-reader-scroll">
+      <div class="ec-subj">${_wEsc(m.subject || '(no subject)')}</div>
+      <div class="ec-meta"><span class="k">From</span><span class="v">${_wEsc(m.from || '')}</span></div>
+      ${m.to ? `<div class="ec-meta"><span class="k">To</span><span class="v">${_wEsc(m.to)}</span></div>` : ''}
+      ${m.cc ? `<div class="ec-meta"><span class="k">Cc</span><span class="v">${_wEsc(m.cc)}</span></div>` : ''}
+      <div class="ec-meta"><span class="k">Date</span><span class="v">${_wEsc(m.date || '')}</span></div>
+      <div id="ec-ai-slot"></div>
+      <div class="ec-msgbody">${_wEsc(m.body || '(no readable text body)')}</div>
+      ${m.truncated ? `<div class="ec-cat" style="margin-top:12px">Message truncated for display.</div>` : ''}
+    </div>`;
+}
+
+async function ecLoadFolders(account) {
+  const sel = document.getElementById('ec-move-sel');
+  if (!sel) return;
+  let folders = EC.folders[account];
+  if (!folders) {
+    try {
+      folders = (await (await fetch(`${API_BASE}/mail/folders?account=${encodeURIComponent(account)}`)).json()).folders || [];
+    } catch { folders = []; }
+    EC.folders[account] = folders;
+  }
+  const hide = /^(INBOX)$/i;
+  sel.innerHTML = `<option value="">Move to…</option>` +
+    folders.filter(f => !hide.test(f)).map(f => `<option value="${_wEsc(f)}">${_wEsc(f)}</option>`).join('');
+}
+
+async function ecBack() {
+  EC.selected = null; EC.current = null;
+  const body = document.getElementById('ec-body');
+  if (body) body.classList.remove('reading');
+  // Refresh accounts (in case Manage changed them), then reload.
+  try { EC.accounts = (await (await fetch(`${API_BASE}/mail/accounts`)).json()).accounts || []; } catch { }
+  ecPopulateAccountSelect();
+  if (!EC.accounts.length) {
+    const rows = document.getElementById('ec-rows');
+    if (rows) rows.innerHTML = `<div class="ec-spin">No inboxes connected yet.<br>Add one on the right to get started. →</div>`;
+    ecShowManage();
+    return;
+  }
+  await ecLoad();
+}
+
+function ecRemoveFromList(account, id) {
+  EC.messages = EC.messages.filter(x => !(x.account === account && x.id === id));
+}
+
+async function ecToggleSeen() {
+  const s = EC.selected; if (!s) return;
+  const msg = EC.messages.find(x => x.account === s.account && x.id === s.id);
+  const newSeen = msg ? !msg.seen : false;
+  if (msg) { msg.seen = newSeen; ecRenderRows(); }
+  await fetch(`${API_BASE}/mail/mark`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account: s.account, id: s.id, seen: newSeen }),
+  }).catch(() => { });
+}
+async function ecToggleFlag() {
+  const s = EC.selected; if (!s) return;
+  const msg = EC.messages.find(x => x.account === s.account && x.id === s.id);
+  const on = msg ? !msg.flagged : true;
+  if (msg) { msg.flagged = on; ecRenderRows(); }
+  await fetch(`${API_BASE}/mail/flag`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account: s.account, id: s.id, on }),
+  }).catch(() => { });
+}
+async function ecMove(dest) {
+  if (!dest) return;
+  const s = EC.selected; if (!s) return;
+  const r = await fetch(`${API_BASE}/mail/move`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account: s.account, id: s.id, dest }),
+  }).then(r => r.json()).catch(e => ({ error: e.message || e }));
+  if (r.error) { alert('Move failed: ' + r.error); return; }
+  ecRemoveFromList(s.account, s.id);
+  addLog && addLog(`Email moved to ${dest}`);
+  EC.selected = null; EC.current = null;
+  const body = document.getElementById('ec-body'); if (body) body.classList.remove('reading');
+  const reader = document.getElementById('ec-reader');
+  if (reader) reader.innerHTML = `<div class="ec-empty">Moved to ${_wEsc(dest)}. ✅</div>`;
+  ecRenderRows();
+}
+async function ecDelete() {
+  const s = EC.selected; if (!s) return;
+  if (!confirm('Move this message to Trash?')) return;
+  const r = await fetch(`${API_BASE}/mail/delete`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account: s.account, id: s.id }),
+  }).then(r => r.json()).catch(e => ({ error: e.message || e }));
+  if (r.error) { alert('Delete failed: ' + r.error); return; }
+  ecRemoveFromList(s.account, s.id);
+  addLog && addLog('Email moved to Trash');
+  EC.selected = null; EC.current = null;
+  const body = document.getElementById('ec-body'); if (body) body.classList.remove('reading');
+  const reader = document.getElementById('ec-reader');
+  if (reader) reader.innerHTML = `<div class="ec-empty">Moved to Trash. 🗑</div>`;
+  ecRenderRows();
+}
+
+async function ecSummarize() {
+  const s = EC.selected; if (!s) return;
+  const slot = document.getElementById('ec-ai-slot'); if (!slot) return;
+  slot.innerHTML = `<div class="ec-ai"><div class="ec-ai-label">Data · Summary</div><div class="ec-ai-body ec-spin">Reading and summarizing…</div></div>`;
+  const r = await fetch(`${API_BASE}/mail/summarize`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account: s.account, id: s.id }),
+  }).then(r => r.json()).catch(e => ({ error: e.message || e }));
+  slot.innerHTML = `<div class="ec-ai"><div class="ec-ai-label">Data · Summary</div>
+    <div class="ec-ai-body">${_wEsc(r.summary || r.error || 'No summary available.')}</div></div>`;
+}
+
+function ecReply() {
+  const s = EC.selected; if (!s) return;
+  const slot = document.getElementById('ec-ai-slot'); if (!slot) return;
+  slot.innerHTML = `<div class="ec-ai"><div class="ec-ai-label">Data · Draft reply</div>
+    <input id="ec-reply-instr" type="text" placeholder="Optional — how should I reply? (e.g. 'politely decline', 'confirm and ask for a date')"
+      style="width:100%;margin-bottom:10px;background:var(--data-bg);color:var(--data-text);border:1px solid var(--min-border,rgba(255,153,0,.3));border-radius:var(--radius-sm);padding:9px 11px;font-size:13px" />
+    <div class="ec-ai-actions"><button class="data-btn-sm teal" onclick="ecReplyGenerate()">GENERATE DRAFT</button></div></div>`;
+}
+async function ecReplyGenerate() {
+  const s = EC.selected; if (!s) return;
+  const instr = (document.getElementById('ec-reply-instr') && document.getElementById('ec-reply-instr').value || '').trim();
+  const slot = document.getElementById('ec-ai-slot');
+  slot.innerHTML = `<div class="ec-ai"><div class="ec-ai-label">Data · Draft reply</div><div class="ec-ai-body ec-spin">Drafting a reply…</div></div>`;
+  const r = await fetch(`${API_BASE}/mail/reply`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account: s.account, id: s.id, instructions: instr }),
+  }).then(r => r.json()).catch(e => ({ error: e.message || e }));
+  if (r.error || !r.draft) {
+    slot.innerHTML = `<div class="ec-ai"><div class="ec-ai-body" style="color:var(--data-red)">${_wEsc(r.error || 'Could not draft a reply.')}</div></div>`;
+    return;
+  }
+  EC.draft = Object.assign({}, r.draft, { account: s.account, id: s.id });
+  slot.innerHTML = `<div class="ec-ai"><div class="ec-ai-label">Data · Draft reply to ${_wEsc(r.draft.to)}</div>
+    <textarea id="ec-draft-body">${_wEsc(r.draft.body)}</textarea>
+    <div class="ec-ai-actions">
+      <button class="data-btn-sm blue" onclick="ecSaveDraft()">SAVE TO DRAFTS</button>
+      <button class="data-btn-sm teal" onclick="ecSendReply()">SEND ↗</button>
+      <button class="data-btn-sm yellow" onclick="ecReplyGenerate()">↻ REGENERATE</button>
+    </div></div>`;
+}
+async function ecSaveDraft() {
+  const d = EC.draft; if (!d) return;
+  const body = document.getElementById('ec-draft-body').value;
+  const r = await fetch(`${API_BASE}/mail/draft`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account: d.account, to: d.to, subject: d.subject, body, in_reply_to: EC.current && EC.current.message_id }),
+  }).then(r => r.json()).catch(e => ({ error: e.message || e }));
+  alert(r.error ? ('Draft failed: ' + r.error) : 'Saved to your Drafts folder.');
+}
+async function ecSendReply() {
+  const d = EC.draft; if (!d) return;
+  if (!confirm('Send this reply to ' + d.to + '?')) return;
+  const body = document.getElementById('ec-draft-body').value;
+  const r = await fetch(`${API_BASE}/mail/send`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account: d.account, to: d.to, subject: d.subject, body, in_reply_to: EC.current && EC.current.message_id }),
+  }).then(r => r.json()).catch(e => ({ error: e.message || e }));
+  if (r.error) { alert('Send failed: ' + r.error); return; }
+  addLog && addLog('Reply sent to ' + d.to);
+  const slot = document.getElementById('ec-ai-slot');
+  if (slot) slot.innerHTML = `<div class="ec-ai"><div class="ec-ai-body">✓ Reply sent to ${_wEsc(d.to)}.</div></div>`;
+}
+
+async function ecTriage() {
+  const rep = document.getElementById('ec-agent-report');
+  if (rep) rep.textContent = 'Data is triaging…';
+  playDataSound && playDataSound('confirm');
+  const payload = { folder: EC.folder, limit: 40 };
+  if (EC.account) payload.account = EC.account;
+  const r = await fetch(`${API_BASE}/mail/triage`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(r => r.json()).catch(e => ({ error: e.message || e }));
+  if (r.error) { if (rep) rep.textContent = 'Triage failed.'; return; }
+  (r.items || []).forEach(it => { EC.triage[ecKey(it.account, String(it.id))] = it; });
+  if (rep) rep.textContent = `Triaged ${(r.items || []).length} message(s).`;
+  ecRenderRows();
+}
+
+async function ecAgent() {
+  const inp = document.getElementById('ec-agent-input'); if (!inp) return;
+  const command = (inp.value || '').trim(); if (!command) return;
+  const rep = document.getElementById('ec-agent-report');
+  if (rep) rep.textContent = 'Data is working the inbox…';
+  playDataSound && playDataSound('confirm');
+  const payload = { folder: EC.folder, command };
+  if (EC.account) payload.account = EC.account;
+  const r = await fetch(`${API_BASE}/mail/agent`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(r => r.json()).catch(e => ({ error: e.message || e }));
+  if (r.error) { if (rep) rep.textContent = 'Agent error: ' + r.error; return; }
+  if (rep) rep.textContent = r.report || `Applied ${r.count || 0} action(s).`;
+  addLog && addLog(`Inbox agent: ${r.report || ''} (${r.count || 0} applied)`);
+  inp.value = '';
+  await ecLoad(true);   // reflect the agent's changes live
+}
+
+function ecShowManage() {
+  const reader = document.getElementById('ec-reader');
+  const body = document.getElementById('ec-body');
+  if (body) body.classList.add('reading');
+  if (!reader) return;
+  reader.innerHTML = `<div class="ec-reader-scroll">
+    <div class="ec-actionrail" style="border-top:0;padding-left:0;padding-right:0;background:transparent">
+      <button class="data-btn-sm blue" onclick="ecBack()">← Back to inbox</button>
+    </div>
+    <div class="ec-subj">Connected inboxes</div>
+    <div id="inbox-list"><div class="ec-spin">Loading…</div></div>
+    <div class="ec-subj" style="font-size:15px;margin-top:24px">Add an inbox</div>
+    ${_inboxFormHtml()}
+  </div>`;
+  refreshInboxList();
+  _bindPreset();
+}
+
+// Esc: back out of a message, else close the cockpit.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const host = document.getElementById('email-cockpit');
+  if (!host || !host.classList.contains('open')) return;
+  e.stopPropagation();
+  if (EC.selected) ecBack(); else ecClose();
+}, true);
+
+// ── Widget #2: System Vitals (second-widget proof, reuses /hardware) ──
+async function openSystemVitalsWidget() {
+  openSlideIn('System Vitals', '<div class="slidein-loading">Reading hardware…</div>');
+  const body = document.getElementById('slidein-body');
+  try {
+    const r = await fetch(`${API_BASE}/hardware`);
+    const h = await r.json();
+    const row = (k, v) => `<div class="inbox-row"><div class="inbox-row-main">
+      <div class="inbox-row-label">${_wEsc(k)}</div>
+      <div class="inbox-row-addr">${_wEsc(v)}</div></div></div>`;
+    body.innerHTML =
+      `<div class="widget-section-label">This machine</div>` +
+      row('CPU', h.cpu || '—') +
+      row('Cores / threads', `${h.cpu_cores ?? '—'} cores · ${h.cpu_threads ?? '—'} threads`) +
+      row('Memory', `${h.ram_available_gb ?? '—'} GB free of ${h.ram_total_gb ?? '—'} GB`) +
+      row('GPU', h.has_gpu ? `${h.gpu_name || 'Detected'}${h.vram_total_gb ? ` · ${h.vram_total_gb} GB VRAM` : ''}` : 'None detected') +
+      row('OS', `${h.os || '—'} ${h.os_release || ''}`.trim());
+  } catch (e) {
+    body.innerHTML = `<div class="widget-error">Could not read hardware: ${_wEsc(e.message || e)}</div>`;
+  }
+}

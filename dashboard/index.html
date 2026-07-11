@@ -81,6 +81,9 @@
           <button class="data-btn green" onclick="showPanel('connectors')">
             AI CONNECTORS
           </button>
+          <button class="data-btn teal" onclick="showPanel('widgets')">
+            CONNECTIONS
+          </button>
         </div>
 
         <div class="sidebar-divider"></div>
@@ -439,6 +442,23 @@
                 <div class="briefing-empty">Loading connectors…</div>
               </div>
             </section>
+          </div>
+        </div>
+
+        <!-- PANEL: CONNECTIONS (widget hub) -->
+        <div class="panel" id="panel-widgets">
+          <div class="panel-header">
+            <div class="panel-title-bar">
+              <span class="panel-title">CONNECTIONS — YOUR CONNECTED APPS &amp; ACCOUNTS</span>
+              <div class="panel-pills">
+                <span class="pill teal" id="widgets-count-pill">—</span>
+                <button class="data-btn-sm yellow" onclick="renderWidgetsGrid(true)">↻ REFRESH</button>
+                <button class="data-btn-sm orange" onclick="openAddWidgetPicker()">+ ADD</button>
+              </div>
+            </div>
+          </div>
+          <div class="widgets-grid" id="widgets-grid">
+            <div class="briefing-empty">Loading connections…</div>
           </div>
         </div>
 
@@ -939,6 +959,20 @@
     </div>
   </div>
 
+  <!-- REUSABLE SLIDE-IN (shared by every Connections widget) -->
+  <div id="slidein-backdrop" class="slidein-backdrop" onclick="closeSlideIn()"></div>
+  <aside id="slidein" class="slidein" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="slidein-title">
+    <div class="slidein-head">
+      <h3 id="slidein-title">Widget</h3>
+      <button class="slidein-close" onclick="closeSlideIn()" aria-label="Close">✕</button>
+    </div>
+    <div id="slidein-body" class="slidein-body"><!-- widget fills this --></div>
+  </aside>
+
+  <!-- Email Cockpit — full-screen 3-pane mail client with a Data agent overlay.
+       Built by openEmailCockpit() in app.js; hidden until the Email app is opened. -->
+  <div id="email-cockpit" class="email-cockpit" aria-hidden="true"><!-- cockpit fills this --></div>
+
   <script>
     // Theme bootstrap — runs before app.js to avoid flash-of-wrong-theme
     // ── Themes: MINIMAL (default) ↔ CYBER ─────────────────────────
@@ -972,6 +1006,6 @@
     // MSD metric-card placement (defined in app.js).
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
   </script>
-  <script src="app.js?v=retail6"></script>
+  <script src="app.js?v=retail7"></script>
 </body>
 </html>

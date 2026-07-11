@@ -5327,6 +5327,55 @@ def _mail_call(action_fn) -> str:
         return f"Mail action failed: {e}"
 
 
+def _mail_llm(prompt: str, system: str, tier: str = "claude-cli-haiku",
+              timeout: int = 150) -> str:
+    """One-shot LLM completion for mail tasks (summarize / triage / reply / agent).
+
+    Deliberately does NOT load the full Data soul + tool docs — a tiny task
+    system prompt keeps it fast and cheap. `tier` selects the model via PROVIDERS.
+    Returns the raw text (empty string on failure — callers handle gracefully).
+    """
+    exe = _provider_executable("claude-cli")
+    if not exe:
+        return ""
+    model = (PROVIDERS.get(tier) or PROVIDERS.get("claude-cli") or {}).get("model", "claude-opus-4-8")
+    sf = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+    sf.write(system); sf.close()
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
+    try:
+        r = subprocess.run(
+            [exe, "--print", "--output-format", "text", "--model", model,
+             "--dangerously-skip-permissions", "--system-prompt-file", sf.name],
+            input=prompt, capture_output=True, text=True, encoding="utf-8",
+            env=env, timeout=timeout)
+        return (r.stdout or "").strip()
+    except Exception as e:
+        log.warning(f"[MAIL-LLM] {e}")
+        return ""
+    finally:
+        try: os.unlink(sf.name)
+        except OSError: pass
+
+
+def _mail_llm_json(prompt: str, system: str, tier: str = "claude-cli-haiku",
+                   timeout: int = 180):
+    """Like _mail_llm but parses a JSON object/array out of the reply."""
+    raw = _mail_llm(prompt, system, tier, timeout)
+    if not raw:
+        return None
+    # Strip code fences and locate the first JSON value.
+    txt = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
+    for opener, closer in (("[", "]"), ("{", "}")):
+        i, j = txt.find(opener), txt.rfind(closer)
+        if i != -1 and j != -1 and j > i:
+            try:
+                return json.loads(txt[i:j + 1])
+            except Exception:
+                continue
+    return None
+
+
 # Lazy-load the Google Calendar module. Surfaces a clear error if google-auth
 # libs aren't installed, or if the OAuth flow hasn't been completed yet.
 _gcal_mod = None
@@ -8869,6 +8918,82 @@ class Handler(BaseHTTPRequestHandler):
             m = _get_mail()
             self._json({"accounts": m.list_accounts() if m else []})
 
+        elif path == "/mail/unread":
+            # Read-only inbox listing for the Connections email panel.
+            # ?account=<label> (optional; omit for all)  &limit=<n>
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable", "messages": []}, 500)
+                return
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            account = (_q.get("account", [None])[0] or None)
+            try:
+                limit = int(_q.get("limit", ["20"])[0])
+            except (TypeError, ValueError):
+                limit = 20
+            limit = max(1, min(limit, 100))
+            try:
+                self._json({"messages": m.list_unread(account, limit)})
+            except Exception as e:
+                log.exception("/mail/unread failed")
+                self._json({"error": str(e), "messages": []}, 500)
+
+        elif path == "/mail/read":
+            # Read one message body.  ?account=<label>&id=<imap-uid>
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500)
+                return
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            account = (_q.get("account", [None])[0] or None)
+            msg_id  = (_q.get("id", [None])[0] or None)
+            if not account or not msg_id:
+                self._json({"error": "account and id are both required"}, 400)
+                return
+            try:
+                self._json(m.read_message(account, msg_id))
+            except Exception as e:
+                log.exception("/mail/read failed")
+                self._json({"error": str(e)}, 500)
+
+        elif path == "/mail/messages":
+            # Unified cockpit list. ?account=<label|omit-for-all>&folder=INBOX
+            #   &limit=<n>&unread=<0|1>
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable", "messages": []}, 500)
+                return
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            account = (_q.get("account", [None])[0] or None)
+            folder = (_q.get("folder", ["INBOX"])[0] or "INBOX")
+            unread = (_q.get("unread", ["0"])[0] in ("1", "true", "yes"))
+            try:
+                limit = int(_q.get("limit", ["40"])[0])
+            except (TypeError, ValueError):
+                limit = 40
+            limit = max(1, min(limit, 100))
+            try:
+                self._json({"messages": m.list_messages(account, folder, limit, unread)})
+            except Exception as e:
+                log.exception("/mail/messages failed")
+                self._json({"error": str(e), "messages": []}, 500)
+
+        elif path == "/mail/folders":
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable", "folders": []}, 500)
+                return
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            account = (_q.get("account", [None])[0] or None)
+            if not account:
+                self._json({"error": "account required", "folders": []}, 400)
+                return
+            try:
+                self._json(m.list_folders(account))
+            except Exception as e:
+                log.exception("/mail/folders failed")
+                self._json({"error": str(e), "folders": []}, 500)
+
         elif path == "/calendar/auth_status":
             g = _get_gcal()
             self._json({
@@ -9875,6 +10000,247 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 log.exception("/mail/accounts failed")
                 self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/mark":
+            # {account, id, seen:bool, folder?}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            try:
+                self._json(m.mark(data.get("account"), str(data.get("id")),
+                                  bool(data.get("seen", True)),
+                                  data.get("folder", "INBOX")))
+            except Exception as e:
+                log.exception("/mail/mark failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/flag":
+            # {account, id, on:bool, folder?}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            try:
+                self._json(m.flag(data.get("account"), str(data.get("id")),
+                                  bool(data.get("on", True)),
+                                  data.get("folder", "INBOX")))
+            except Exception as e:
+                log.exception("/mail/flag failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/move":
+            # {account, id, dest, folder?}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            dest = data.get("dest")
+            if not dest:
+                self._json({"error": "dest required"}, 400); return
+            try:
+                self._json(m.move(data.get("account"), str(data.get("id")), dest,
+                                  data.get("folder", "INBOX")))
+            except Exception as e:
+                log.exception("/mail/move failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/delete":
+            # {account, id, folder?}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            try:
+                self._json(m.delete(data.get("account"), str(data.get("id")),
+                                    data.get("folder", "INBOX")))
+            except Exception as e:
+                log.exception("/mail/delete failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/summarize":
+            # {account, id} → {summary}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            try:
+                msg = m.read_message(data.get("account"), str(data.get("id")))
+                if msg.get("error"):
+                    self._json({"error": msg["error"]}, 500); return
+                body = (msg.get("body") or "")[:8000]
+                sys_p = ("You are Data, an email triage assistant. Summarize the email "
+                         "in 2-3 tight sentences, then on a new line list any action "
+                         "items as '- ' bullets (or 'No action needed.'). Be concise "
+                         "and factual. No preamble.")
+                usr = (f"From: {msg.get('from','')}\nSubject: {msg.get('subject','')}\n"
+                       f"Date: {msg.get('date','')}\n\n{body}")
+                summary = _mail_llm(usr, sys_p, tier="claude-cli-haiku")
+                self._json({"summary": summary or "Could not generate a summary."})
+            except Exception as e:
+                log.exception("/mail/summarize failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/reply":
+            # {account, id, instructions?, save_draft?} → {draft:{to,subject,body}, saved}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            try:
+                msg = m.read_message(data.get("account"), str(data.get("id")))
+                if msg.get("error"):
+                    self._json({"error": msg["error"]}, 500); return
+                body = (msg.get("body") or "")[:6000]
+                instr = (data.get("instructions") or "").strip()
+                sys_p = ("You are Data, drafting an email reply on the Captain's behalf. "
+                         "Write only the reply body — no subject line, no 'Draft:' label, "
+                         "no commentary. Match a warm, clear, professional tone. Keep it "
+                         "concise. Do not invent facts or commitments. End with a simple sign-off.")
+                usr = (f"Reply to this email.\n\nFrom: {msg.get('from','')}\n"
+                       f"Subject: {msg.get('subject','')}\n\n{body}\n\n"
+                       f"---\nExtra instructions from the Captain: {instr or '(none)'}")
+                reply_body = _mail_llm(usr, sys_p, tier="claude-cli-sonnet")
+                if not reply_body:
+                    self._json({"error": "Could not draft a reply."}, 500); return
+                to_addr = ""
+                _fm = re.search(r"<([^>]+)>", msg.get("from", "") or "")
+                to_addr = _fm.group(1) if _fm else (msg.get("from", "") or "")
+                subj = msg.get("subject", "") or ""
+                subj = subj if subj.lower().startswith("re:") else f"Re: {subj}"
+                draft = {"to": to_addr, "subject": subj, "body": reply_body}
+                saved = False
+                if data.get("save_draft"):
+                    dr = m.draft(to_addr, subj, reply_body,
+                                 from_account=data.get("account"),
+                                 in_reply_to=msg.get("message_id"))
+                    saved = bool(dr.get("ok"))
+                self._json({"draft": draft, "saved": saved})
+            except Exception as e:
+                log.exception("/mail/reply failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/triage":
+            # {account?, folder?, limit?} → {items:[{account,id,priority,category,reason}]}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            try:
+                limit = int(data.get("limit", 30))
+                limit = max(1, min(limit, 60))
+                msgs = [x for x in m.list_messages(data.get("account"),
+                        data.get("folder", "INBOX"), limit, True) if not x.get("error")]
+                if not msgs:
+                    self._json({"items": []}); return
+                lines = [f"{i}. [acct={x['account']} id={x['id']}] From: {x.get('from','')} | "
+                         f"Subject: {x.get('subject','')}" for i, x in enumerate(msgs)]
+                sys_p = ("You are Data, triaging an inbox. For EACH email assign a priority "
+                         "(high|medium|low) and a short category (e.g. personal, work, "
+                         "finance, newsletter, promo, security, social, receipt), plus a "
+                         "brief reason (<=8 words). High = needs a human response or is "
+                         "time-sensitive/important. Low = promo/newsletter/automated. "
+                         "Return ONLY a JSON array of objects: "
+                         '[{"account":"","id":"","priority":"","category":"","reason":""}] '
+                         "using the exact account and id values given. No prose.")
+                usr = "Emails:\n" + "\n".join(lines)
+                items = _mail_llm_json(usr, sys_p, tier="claude-cli-haiku") or []
+                # Keep only valid, known (account,id) pairs.
+                valid = {(x["account"], x["id"]) for x in msgs}
+                items = [it for it in items if isinstance(it, dict)
+                         and (it.get("account"), str(it.get("id"))) in
+                         {(a, str(i)) for a, i in valid}]
+                self._json({"items": items})
+            except Exception as e:
+                log.exception("/mail/triage failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/agent":
+            # {command, account?, folder?} → LLM plans inbox actions, bridge executes.
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            command = (data.get("command") or "").strip()
+            if not command:
+                self._json({"error": "command required"}, 400); return
+            try:
+                msgs = [x for x in m.list_messages(data.get("account"),
+                        data.get("folder", "INBOX"), 40, False) if not x.get("error")]
+                snapshot = [f"[acct={x['account']} id={x['id']} seen={x.get('seen')} "
+                            f"flagged={x.get('flagged')}] {x.get('from','')} | "
+                            f"{x.get('subject','')}" for x in msgs]
+                sys_p = ("You are Data, an inbox agent with authority to organize the "
+                         "Captain's mail. You are given the current inbox and an "
+                         "instruction. Decide the actions. Allowed ops: "
+                         "mark_read, mark_unread, flag, unflag, move (needs dest folder), "
+                         "delete. Use the exact account and id from the snapshot. "
+                         "NEVER delete unless the instruction clearly asks to delete or "
+                         "trash. Return ONLY JSON: "
+                         '{"report":"one-line summary of what you did", '
+                         '"actions":[{"op":"","account":"","id":"","dest":""}]}. '
+                         "dest only for move. If nothing should be done, return an empty "
+                         "actions array with a report explaining why.")
+                usr = (f"Instruction: {command}\n\nInbox:\n" + "\n".join(snapshot or ["(empty)"]))
+                plan = _mail_llm_json(usr, sys_p, tier="claude-cli-sonnet") or {}
+                actions = plan.get("actions") or []
+                applied, errors = [], []
+                for act in actions[:60]:
+                    if not isinstance(act, dict):
+                        continue
+                    op = (act.get("op") or "").lower()
+                    acct = act.get("account"); mid = str(act.get("id"))
+                    try:
+                        if op == "mark_read":
+                            r = m.mark(acct, mid, True)
+                        elif op == "mark_unread":
+                            r = m.mark(acct, mid, False)
+                        elif op == "flag":
+                            r = m.flag(acct, mid, True)
+                        elif op == "unflag":
+                            r = m.flag(acct, mid, False)
+                        elif op == "move":
+                            r = m.move(acct, mid, act.get("dest") or "")
+                        elif op == "delete":
+                            r = m.delete(acct, mid)
+                        else:
+                            continue
+                        (applied if r.get("ok") or r.get("deleted") else errors).append(
+                            {"op": op, "id": mid, **({} if r.get("ok") else {"error": r.get("error")})})
+                    except Exception as ex:
+                        errors.append({"op": op, "id": mid, "error": str(ex)})
+                report = plan.get("report") or f"Applied {len(applied)} action(s)."
+                self._json({"report": report, "applied": applied,
+                            "errors": errors, "count": len(applied)})
+            except Exception as e:
+                log.exception("/mail/agent failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/send":
+            # {account, to, subject, body, cc?, bcc?, in_reply_to?, from_identity?}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            if not data.get("to") or not data.get("body"):
+                self._json({"error": "to and body are required"}, 400); return
+            try:
+                self._json(m.send(
+                    data.get("to"), data.get("subject", ""), data.get("body", ""),
+                    from_account=data.get("account"),
+                    from_identity=data.get("from_identity"),
+                    cc=data.get("cc"), bcc=data.get("bcc"),
+                    in_reply_to=data.get("in_reply_to")))
+            except Exception as e:
+                log.exception("/mail/send failed"); self._json({"error": str(e)}, 500)
+            return
+
+        elif path == "/mail/draft":
+            # {account, to, subject, body, cc?, in_reply_to?, from_identity?}
+            m = _get_mail()
+            if m is None:
+                self._json({"error": "mail module unavailable"}, 500); return
+            try:
+                self._json(m.draft(
+                    data.get("to", ""), data.get("subject", ""), data.get("body", ""),
+                    from_account=data.get("account"),
+                    from_identity=data.get("from_identity"),
+                    cc=data.get("cc"),
+                    in_reply_to=data.get("in_reply_to")))
+            except Exception as e:
+                log.exception("/mail/draft failed"); self._json({"error": str(e)}, 500)
             return
 
         elif path == "/youtube/upload":

@@ -1,5 +1,10 @@
 # Runtime state — created by the bridge, stays local
 users/
+# Local memory — private notes, never ships in the retail package
+DATA_MEMORY.md
+# chrome-cdp runtime state (debug profile + output dumps) — local only
+chrome-debug-profile/
+chrome-cdp-output/
 dashboard/.data_offline
 screenshots/
 bridge.log

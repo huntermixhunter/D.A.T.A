@@ -35,6 +35,19 @@ try {
     else { Write-Host "  [!!] psutil install failed - vitals will read zero. Continuing." -ForegroundColor Yellow }
 }
 
+# 2b. Optional: pyautogui + pillow for screen control (click/type/scroll).
+#     Without these, DATA can still screenshot but cannot move the mouse or type.
+try {
+    & $python -c "import pyautogui" 2>$null
+    if ($LASTEXITCODE -eq 0) { Write-Host "  [OK] pyautogui already installed (screen control ready)" }
+    else { throw "missing" }
+} catch {
+    Write-Host "  [..] Installing pyautogui + pillow (screen control - optional)..."
+    & $python -m pip install --quiet pyautogui pillow
+    if ($LASTEXITCODE -eq 0) { Write-Host "  [OK] screen control ready" }
+    else { Write-Host "  [!!] pyautogui install failed - screen control stays off. Re-run later: pip install pyautogui pillow" -ForegroundColor Yellow }
+}
+
 # 3. Check for an AI provider CLI
 $providers = @()
 foreach ($p in @("claude", "codex", "gemini", "ollama")) {

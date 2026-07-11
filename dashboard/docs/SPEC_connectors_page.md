@@ -1,9 +1,11 @@
-# Implementation Spec — Widgets Hub ("Connectors" page)
-Stardate 2026.07.06 · Status: **HOLD STATION** (one naming decision to confirm)
+# Implementation Spec — Connections Hub (widgets page)
+Stardate 2026.07.06 · Status: **CLEARED TO BUILD** (naming confirmed 2026.07.07)
 
-> One naming decision must be confirmed before build begins — see **Open
-> Questions §0** and the **Naming Collision** note below. Everything else is
-> build-ready once that call is made.
+> **Name confirmed (Captain, 2026.07.07): the page is titled "CONNECTIONS."**
+> Visible caption/nav button = **CONNECTIONS**; internal panel id stays
+> **`widgets`** so it does not collide with the existing green **Connectors**
+> (model/hardware) hub. "CONNECTIONS" ≠ "Connectors" — distinct word, distinct
+> id, no collision. Everything else in this spec is build-ready.
 
 ---
 
@@ -325,7 +327,7 @@ Rule enforced by the pattern: a widget mapping to an *existing* endpoint is near
 
 ## Open Questions
 
-- **§0 (must confirm): the name.** This spec uses panel id **`widgets`** to avoid the existing "connectors" collision. Confirm: keep it "WIDGETS," or use a different visible caption (id stays `widgets`). Recommendation: keep "WIDGETS" — one name, one id, least confusion.
+- **§0 — RESOLVED (Captain, 2026.07.07):** visible caption/nav button = **CONNECTIONS**; internal panel id = **`widgets`** (unchanged). Distinct from the existing green "Connectors" model/hardware hub, so no collision. Every "WIDGETS" caption in the markup snippets above renders as **CONNECTIONS**; panel/registry/function ids stay `widgets`.
 - **§1:** Auto-detect IMAP/SMTP hosts from the address domain, or is the preset dropdown enough for v1? (Recommend preset dropdown; auto-detect later.)
 - **§2:** Is per-widget persistence (e.g. Quick Links) wanted in v1? If yes, that adds one small bridge endpoint (ask-first).
 - **§3:** User-authored custom widgets — v1 or later? This spec treats it as later; v1's "+ ADD WIDGET" connects *known* registry widgets.
