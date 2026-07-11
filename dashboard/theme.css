@@ -5052,6 +5052,38 @@ body.theme-cyberpunk .header-title .ship-name {
 }
 .conn-sub { color: var(--data-blue); font-weight: 400; font-size: 10px; letter-spacing: 0.05em; text-transform: none; }
 
+/* Desktop Takeover (clawdcursor) — arm/disarm card + switch */
+.clawd-card {
+  display: flex; align-items: center; gap: 14px;
+  background: #0a0a14; border: 1px solid rgba(255,153,0,0.22);
+  border-radius: 8px; padding: 13px 15px;
+}
+.clawd-card.armed { border-color: var(--data-red); box-shadow: 0 0 16px rgba(255,64,64,0.20); }
+.clawd-card.unavailable { opacity: 0.75; }
+.clawd-card-main { flex: 1; min-width: 0; }
+.clawd-card-title { color: var(--data-yellow); font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.clawd-card-desc { color: #c8c8e0; font-size: 11px; margin-top: 5px; line-height: 1.4; }
+.clawd-card-note { color: var(--data-blue); font-size: 10px; margin-top: 6px; letter-spacing: 0.03em; min-height: 12px; }
+.clawd-card-note.warn { color: var(--data-red); }
+
+.clawd-switch {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: none; border: none; cursor: pointer; padding: 4px;
+}
+.clawd-switch:disabled { cursor: not-allowed; opacity: 0.5; }
+.clawd-switch-track {
+  width: 52px; height: 26px; border-radius: 20px; background: #1a1a2e;
+  border: 1px solid rgba(153,153,255,0.35); position: relative; transition: background 0.18s, border-color 0.18s;
+}
+.clawd-switch-thumb {
+  position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%;
+  background: #7a7a9a; transition: transform 0.18s, background 0.18s;
+}
+.clawd-switch[aria-checked="true"] .clawd-switch-track { background: rgba(255,64,64,0.35); border-color: var(--data-red); }
+.clawd-switch[aria-checked="true"] .clawd-switch-thumb { transform: translateX(26px); background: var(--data-red); }
+.clawd-switch-label { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: #7a7a9a; }
+.clawd-switch[aria-checked="true"] .clawd-switch-label { color: var(--data-red); }
+
 /* Hardware grid */
 .conn-hw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
 .conn-hw-cell {

@@ -149,6 +149,25 @@ foreach ($id in $toInstall) {
     }
 }
 
+# clawdcursor — the desktop-takeover MCP server (last-mile GUI automation).
+# Installs alongside the provider CLIs since Node/npm is already present here.
+# Registered in .mcp.json but stays DISARMED until armed in Settings, so this is
+# safe to install by default. Never hard-fails the wizard.
+if ($npm) {
+    if (Find-Cmd "clawdcursor") {
+        Say "clawdcursor already installed (desktop takeover -- arm it in Settings)." "Green"
+    } else {
+        Say "Installing clawdcursor (desktop-takeover MCP server)..."
+        & $npm install -g clawdcursor 2>&1 | ForEach-Object { Add-Content -Path $log -Value $_ }
+        $npmBin = & $npm prefix -g 2>$null
+        if ((Find-Cmd "clawdcursor") -or ($npmBin -and (Test-Path (Join-Path $npmBin "clawdcursor.cmd")))) {
+            Say "clawdcursor installed (stays disarmed until you flip the switch in Settings > Upgrades)." "Green"
+        } else {
+            Say "clawdcursor install did not complete. Run later:  npm install -g clawdcursor" "Yellow"
+        }
+    }
+}
+
 # Final guidance — each installed CLI still needs an interactive sign-in.
 if ($ok.Count -gt 0) {
     Write-Host ""

@@ -5,7 +5,7 @@ description: >
   growth analysis PDF (vitals, top-post signal map, root-cause diagnosis, a
   six-directive fix protocol, and a 14-day flight plan). Use when the Captain
   says "run a debrief on @handle", "analyze this instagram", "field debrief",
-  "IG recon", "break down [someone]'s instagram", or for a weekly auto-debrief
+  "IG recon", "break down [someone]'s instagram", or for the weekly auto-debrief
   of the Captain's own accounts. Produces a print-perfect PDF + page PNGs + a
   warm DM draft (for friends) or a gameplan note (for the Captain's own pages).
 ---
@@ -14,18 +14,19 @@ description: >
 
 A repeatable pipeline that turns any public Instagram account into a polished,
 spaceship-console "field debrief" PDF with a real, actionable growth plan.
-The gold-standard reference output is `assets/reference_bthewizardart.html` —
-open it to see the exact look, voice, and density to match.
+First built for @bthewizardart (2026-06-11). The gold-standard reference output
+is `assets/reference_bthewizardart.html` — open it to see the exact look, voice,
+and density to match.
 
 ## When to use
 - **One-off recon** — "run a debrief on @somehandle", "analyze @x's instagram".
-- **Weekly self-audit** — a standing order that debriefs the Captain's own
+- **Weekly self-audit** — the standing order that debriefs the Captain's own
   accounts and produces a gameplan (see "Weekly mode" at the bottom).
 - Friends, prospects, clients, or the Captain himself — same pipeline.
 
 ## Output location
-- One-off for someone else: `%USERPROFILE%\Documents\<handle>_DATA_debrief\`
-- Weekly self-audit: `%USERPROFILE%\Documents\IG_Debriefs\<YYYY-MM-DD>_<handle>\`
+- One-off for someone else: `C:\Users\mixma\Documents\<handle>_DATA_debrief\`
+- Weekly self-audit: `C:\Users\mixma\Documents\IG_Debriefs\<YYYY-MM-DD>_<handle>\`
 
 Each run produces: `debrief.html`, `DATA_Debrief_<handle>.pdf`,
 `page_1..6.png`, and either `DM_to_<name>.md` (friend) or `gameplan.md` (own).
@@ -41,7 +42,7 @@ metric can't be confirmed, label it as an estimate and say so.
 Use the least-friction source that works, in this order:
 1. **chrome-cdp** (best for logged-in fidelity) — drive the Captain's real Chrome
    to the profile, scroll the grid, open recent posts, read like/comment counts.
-   Launch `%USERPROFILE%\Documents\DATA\chrome_debug_launch.bat` if port 9222
+   Launch `C:\Users\mixma\Documents\LCARS\chrome_debug_launch.bat` if port 9222
    isn't up, then use the `chrome-cdp` skill helper.
 2. **Clean Playwright** (`webapp-testing` skill) for public, unauthenticated
    scraping/screens of the profile + recent posts.
@@ -54,12 +55,14 @@ Pull at minimum:
   (reel / photo / carousel) and apparent topic/pillar.
 
 ### B. The Captain's own account
-- If the account has a live IG Graph API token configured (see the
-  `instagram`/Graph API setup in your install), use it for the media list +
-  per-post insights (views, reach, saves, shares, follows) where scope allows.
-- If the Captain has a prior insights/analysis note for the account, read it
-  first for baseline + any locked content rules; the debrief must build on it,
-  not contradict it.
+- **@auramaxxingacademy** — has a live IG Graph API token at
+  `%LOCALAPPDATA%\hermes\instagram_auramaxxingacademy_token.json`
+  (`ig_user_id 27003100635998969`). Use `ginstagram.py` / the Graph API for
+  media list + per-post insights (views, reach, saves, shares, follows) where
+  scope allows. Prior analysis lives in
+  `C:\Users\mixma\Documents\AuramaxxingAcademy\IG_INSIGHTS_2026-06-10.md` —
+  read it first for baseline + locked content rules; the debrief must build on
+  it, not contradict it.
 - **Owner insights** (views, saves, shares, follows-from-post, % non-follower
   reach) are the gold metrics for the Captain's own pages — prioritize them over
   likes. If the API scope can't return insights headlessly, fall back to
@@ -101,8 +104,8 @@ Voice & stance:
   underneath is real social-media strategy, not theatrics.
 - Generous and on-the-creator's-side. The recurring thesis: *"You're not short
   on talent or material — the only fix is aim."* Diagnose problems as fixable.
-- Honor solid short-form fundamentals: first-person high-stakes hooks, build
-  every post to earn a SAVE or SHARE, hook = a promise/stake not scenery.
+- Honor the locked content rules in memory: first-person high-stakes hooks,
+  build every post to earn a SAVE or SHARE, hook = a promise/stake not scenery.
 
 ---
 
@@ -126,30 +129,31 @@ Voice & stance:
    not overflowing a page.
 
 ## STEP 4 — Render
-From the skill dir (`%USERPROFILE%\.claude\skills\ig-field-debrief`):
+From the skill dir (`C:\Users\mixma\.claude\skills\ig-field-debrief`):
 ```
 python render.py "<work_dir>"                 # -> DATA_Debrief.pdf
 python shot.py   "<work_dir>"                 # -> page_1..6.png
 ```
-Requires Playwright Chromium. Rename the PDF to `DATA_Debrief_<handle>.pdf`.
-Embed the page PNGs in chat so the Captain can see them (markdown image syntax,
-absolute paths).
+Requires Playwright Chromium (already installed). Rename the PDF to
+`DATA_Debrief_<handle>.pdf`. Embed the page PNGs in chat so the Captain can see
+them (markdown image syntax, absolute paths).
 
 ## STEP 5 — Deliver
 - **Friend/prospect:** write `DM_to_<name>.md` — a warm, casual, first-person DM
   in the Captain's voice (short + long version), explaining the gift and the one
   or two headline findings. Note that IG DMs don't take PDFs, so send the text
-  then the PDF via email/text or as page screenshots.
+  then the PDF via email/text or as page screenshots. Model on
+  `DM_to_brandon.md` from the first run.
 - **Captain's own account:** write `gameplan.md` — the same findings distilled
   into this week's concrete posting plan (what to post, which hooks, what to
-  stop), tied to any locked content rules for the account.
+  stop), tied to the locked Auramaxxing content rules.
 
 ---
 
 ## Weekly mode (standing order)
 When invoked as the weekly self-audit:
 1. For each target handle, run STEPS 1–4 and save under
-   `%USERPROFILE%\Documents\IG_Debriefs\<YYYY-MM-DD>_<handle>\`.
+   `C:\Users\mixma\Documents\IG_Debriefs\<YYYY-MM-DD>_<handle>\`.
 2. Compare against the **prior week's** debrief in `IG_Debriefs\` — call out
    what moved (followers, engagement rate, best/worst format) and whether last
    week's directives were followed and worked.

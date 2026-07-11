@@ -53,6 +53,26 @@ else
     fi
 fi
 
+# 2c. Optional: clawdcursor — the desktop-takeover MCP server (last-mile GUI
+#     automation for the CLI brain). Registered in .mcp.json (seeded below) but
+#     stays DISARMED until you flip the switch in Settings > UPGRADES > Desktop
+#     Takeover. Installed globally via npm; needs Node.js. Skipped cleanly if npm
+#     is absent — DATA runs fine without it and you can install it later.
+if command -v npm >/dev/null 2>&1; then
+    if npm ls -g clawdcursor >/dev/null 2>&1; then
+        echo "  [OK] clawdcursor already installed (desktop takeover available — arm it in Settings)"
+    else
+        echo "  [..] Installing clawdcursor (desktop-takeover MCP server — optional)..."
+        if npm install -g clawdcursor >/dev/null 2>&1; then
+            echo "  [OK] clawdcursor installed (stays disarmed until you flip the switch in Settings)"
+        else
+            echo "  [!!] clawdcursor install failed — desktop takeover stays off. Re-run later: npm install -g clawdcursor"
+        fi
+    fi
+else
+    echo "  [--] npm not found — skipping clawdcursor (desktop takeover). Install Node.js then: npm install -g clawdcursor"
+fi
+
 # 3. Check for an AI provider CLI
 FOUND=""
 for p in claude codex gemini ollama; do
@@ -78,6 +98,15 @@ fi
 if [ ! -f "$ROOT/.env" ]; then
     cp "$ROOT/.env.example" "$ROOT/.env"
     echo "  [OK] Created .env (edit it to set weather coords, port, etc.)"
+fi
+
+# 4a. Seed .mcp.json from the example if missing. This registers the bundled
+#     MCP servers (clawdcursor — desktop takeover) with the CLI brain. The file
+#     is local-only (gitignored) so your own edits never travel; the .example is
+#     the shipped default. clawdcursor stays disarmed until you flip the switch.
+if [ ! -f "$ROOT/.mcp.json" ] && [ -f "$ROOT/.mcp.json.example" ]; then
+    cp "$ROOT/.mcp.json.example" "$ROOT/.mcp.json"
+    echo "  [OK] Created .mcp.json (registers clawdcursor — stays disarmed until armed in Settings)"
 fi
 
 # 4b. Install the bundled DATA-core skills (idempotent; never clobbers your own copies)

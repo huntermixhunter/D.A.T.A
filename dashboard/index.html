@@ -620,6 +620,25 @@
               </div>
               <div class="connectors-body" id="upgrades-body">
 
+                <!-- Desktop Takeover (clawdcursor) — arm/disarm switch -->
+                <section class="conn-section" id="clawd-section">
+                  <div class="conn-section-label">DESKTOP TAKEOVER <span class="conn-sub">(let DATA drive your real mouse &amp; keyboard — off by default)</span></div>
+                  <div class="clawd-card" id="clawd-card">
+                    <div class="clawd-card-main">
+                      <div class="clawd-card-title">clawdcursor <span class="pill" id="clawd-state-pill">—</span></div>
+                      <div class="clawd-card-desc" id="clawd-card-desc">
+                        The last-mile GUI automation tool. When armed, DATA can click, type, and read what is on your screen to finish tasks that have no API or CLI. Stays disarmed until you flip this switch — nothing touches your desktop until you do.
+                      </div>
+                      <div class="clawd-card-note" id="clawd-card-note"></div>
+                    </div>
+                    <button class="clawd-switch" id="clawd-switch" role="switch" aria-checked="false"
+                            onclick="toggleClawd()" title="Arm or disarm desktop takeover">
+                      <span class="clawd-switch-track"><span class="clawd-switch-thumb"></span></span>
+                      <span class="clawd-switch-label" id="clawd-switch-label">DISARMED</span>
+                    </button>
+                  </div>
+                </section>
+
                 <!-- Hardware readout -->
                 <section class="conn-section">
                   <div class="conn-section-label">THIS MACHINE <span class="pill teal" id="connectors-active-pill">—</span></div>

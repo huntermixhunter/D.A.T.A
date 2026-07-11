@@ -40,7 +40,7 @@ A `.md` file that Data reads via the `load_skill` tool. It provides detailed wor
 ### File location
 
 ```
-%LOCALAPPDATA%\hermes\skills\<category>\<skill-name>\SKILL.md
+C:\Users\mixma\AppData\Local\hermes\skills\<category>\<skill-name>\SKILL.md
 ```
 
 Categories that already exist: `autonomous-ai-agents`, `creative`, `data-system`
@@ -118,13 +118,13 @@ Anything Data should know that isn't obvious from the steps.
 3. Save it:
    ```
    write_file(
-     path="%LOCALAPPDATA%/hermes/skills/<category>/<skill-name>/SKILL.md",
+     path="C:/Users/mixma/AppData/Local/hermes/skills/<category>/<skill-name>/SKILL.md",
      content="<full skill content>"
    )
    ```
 4. Verify it exists:
    ```
-   list_directory(path="%LOCALAPPDATA%/hermes/skills/<category>/")
+   list_directory(path="C:/Users/mixma/AppData/Local/hermes/skills/<category>/")
    ```
 5. Test loading it:
    ```
@@ -134,7 +134,7 @@ Anything Data should know that isn't obvious from the steps.
 
 ### What makes a good skill file
 
-- **Be specific about file paths.** Use exact Windows paths like `%USERPROFILE%/Documents/DATA/`.
+- **Be specific about file paths.** Use exact Windows paths like `C:/Users/mixma/Documents/DATA/`.
 - **Include real examples.** Show actual commands, not pseudocode.
 - **Anticipate failure.** Include troubleshooting sections for the two or three most likely errors.
 - **Keep it scannable.** Data reads this in the middle of a task. Headers and tables beat prose.
@@ -151,7 +151,7 @@ Adds a new native tool function to `bridge_server.py` — the Python server that
 ### Bridge file location
 
 ```
-%USERPROFILE%\Documents\DATA\dashboard\bridge_server.py
+C:\Users\mixma\Documents\DATA\lcars-dashboard\bridge_server.py
 ```
 
 ### Three places to edit
@@ -213,7 +213,7 @@ Use `inp.get("key", default)` for optional params.
 
 1. Read the current bridge file:
    ```
-   read_file(path="%USERPROFILE%/Documents/DATA/dashboard/bridge_server.py")
+   read_file(path="C:/Users/mixma/Documents/DATA/lcars-dashboard/bridge_server.py")
    ```
 
 2. Find the three insertion points by searching for:
@@ -232,12 +232,12 @@ Use `inp.get("key", default)` for optional params.
 If the new tool needs a package not already imported, add the import near the top of `bridge_server.py` in the existing import block. If the package is not in the standard library, check if it is installed first:
 
 ```
-terminal(command="python -c \"import package_name; print('ok')\"")
+terminal(command="C:/Users/mixma/AppData/Local/Python/bin/python.exe -c \"import package_name; print('ok')\"")
 ```
 
 If it is not installed:
 ```
-terminal(command="python -m pip install package_name")
+terminal(command="C:/Users/mixma/AppData/Local/Python/bin/python.exe -m pip install package_name")
 ```
 
 ### Current imports already available (no install needed)
@@ -271,7 +271,7 @@ Goal: Create a skill for summarizing YouTube videos.
 
 ```
 write_file(
-  path="%LOCALAPPDATA%/hermes/skills/media/youtube-summarizer/SKILL.md",
+  path="C:/Users/mixma/AppData/Local/hermes/skills/media/youtube-summarizer/SKILL.md",
   content="""---
 name: youtube-summarizer
 description: "Extract and summarize content from YouTube videos using transcript APIs."

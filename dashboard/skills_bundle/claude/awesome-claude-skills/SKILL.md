@@ -1,39 +1,25 @@
 ---
 name: awesome-claude-skills
-description: Search and install skills from ComposioHQ's awesome-claude-skills catalog. Clones the catalog on first use, then searches and installs individual skills on request.
+description: Search and install skills from the local ComposioHQ awesome-claude-skills catalog cloned at C:\Users\mixma\src\awesome-claude-skills.
 ---
 
 # Awesome Claude Skills Catalog
 
 Use this skill when the user asks to find, inspect, or install a skill from ComposioHQ's `awesome-claude-skills` repository.
 
-## Source & local clone
-
-The catalog is a public GitHub repo. It is **not bundled** with DATA — clone it on first use.
+## Local Source
 
 - Repository: `https://github.com/ComposioHQ/awesome-claude-skills`
-- Local clone (created on first use): `%USERPROFILE%\src\awesome-claude-skills`
-- Installed Claude Code skills directory: `%USERPROFILE%\.claude\skills`
-- Hermes skills directory: `%LOCALAPPDATA%\hermes\skills`
-
-If the local clone does not exist yet, create it first:
-
-```powershell
-$catalog = "$env:USERPROFILE\src\awesome-claude-skills"
-if (-not (Test-Path -LiteralPath $catalog)) {
-  New-Item -ItemType Directory -Force -Path (Split-Path $catalog) | Out-Null
-  git clone https://github.com/ComposioHQ/awesome-claude-skills $catalog
-} else {
-  git -C $catalog pull --ff-only
-}
-```
+- Local clone: `C:\Users\mixma\src\awesome-claude-skills`
+- Installed Claude Code skills directory: `C:\Users\mixma\.claude\skills`
+- Hermes skills directory: `C:\Users\mixma\AppData\Local\hermes\skills`
 
 ## Search Workflow
 
 1. Search the local catalog before browsing:
 
 ```powershell
-rg -n "query terms" "$env:USERPROFILE\src\awesome-claude-skills\README.md" "$env:USERPROFILE\src\awesome-claude-skills\**\SKILL.md"
+rg -n "query terms" "C:\Users\mixma\src\awesome-claude-skills\README.md" "C:\Users\mixma\src\awesome-claude-skills\**\SKILL.md"
 ```
 
 2. Prefer direct top-level skills and `document-skills/*` when they fit.
@@ -46,8 +32,8 @@ rg -n "query terms" "$env:USERPROFILE\src\awesome-claude-skills\README.md" "$env
 To install a specific skill folder into Claude Code:
 
 ```powershell
-$source = "$env:USERPROFILE\src\awesome-claude-skills\path\to\skill"
-$target = "$env:USERPROFILE\.claude\skills\skill-name"
+$source = "C:\Users\mixma\src\awesome-claude-skills\path\to\skill"
+$target = "C:\Users\mixma\.claude\skills\skill-name"
 if (-not (Test-Path -LiteralPath $target)) {
   Copy-Item -LiteralPath $source -Destination $target -Recurse
 }
@@ -60,13 +46,13 @@ Do not overwrite an existing skill without explicit user approval.
 The repository includes a local Claude Code plugin at:
 
 ```text
-%USERPROFILE%\src\awesome-claude-skills\connect-apps-plugin
+C:\Users\mixma\src\awesome-claude-skills\connect-apps-plugin
 ```
 
 It is valid with a warning about a missing version field. Use it with:
 
 ```powershell
-claude --plugin-dir "$env:USERPROFILE\src\awesome-claude-skills\connect-apps-plugin"
+claude --plugin-dir "C:\Users\mixma\src\awesome-claude-skills\connect-apps-plugin"
 ```
 
 Full app actions require Composio setup and credentials.

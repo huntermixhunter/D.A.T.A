@@ -334,6 +334,86 @@ STANDING_ORDERS_FILE = PROJECT_DIR / "standing_orders.json"   # shared across us
 POWER_CORE_BASELINE_FILE = PROJECT_DIR / "power_core_baseline.json"
 
 # ════════════════════════════════════════════════════════════════
+# CLAWDCURSOR — desktop-takeover MCP server (arm/disarm)
+# ════════════════════════════════════════════════════════════════
+# clawdcursor gives the CLI brain a real cursor + keyboard on the desktop. It is
+# registered in .mcp.json but stays DISARMED until the user opts in. "Armed" ==
+# the consent file ~/.clawdcursor/consent exists with {"accepted": true}; the
+# server refuses to act without it. The Settings > UPGRADES > Desktop Takeover
+# switch flips this file on/off. Registration in .mcp.json alone does nothing
+# until armed, so shipping it enabled-by-default is safe.
+CLAWD_CONSENT_FILE = Path.home() / ".clawdcursor" / "consent"
+
+def _clawd_installed() -> bool:
+    """True when the clawdcursor CLI is on PATH (npm global install)."""
+    import shutil as _sh
+    return _sh.which("clawdcursor") is not None
+
+def _clawd_registered() -> bool:
+    """True when .mcp.json registers a clawdcursor server for the CLI brain."""
+    try:
+        mcp = PROJECT_DIR / ".mcp.json"
+        if not mcp.exists():
+            return False
+        data = json.loads(mcp.read_text(encoding="utf-8"))
+        return "clawdcursor" in (data.get("mcpServers") or {})
+    except Exception:
+        return False
+
+def _clawd_armed() -> bool:
+    """True when the consent file exists and accepts desktop takeover."""
+    try:
+        if not CLAWD_CONSENT_FILE.exists():
+            return False
+        return bool(json.loads(CLAWD_CONSENT_FILE.read_text(encoding="utf-8")).get("accepted"))
+    except Exception:
+        return False
+
+def _clawd_version() -> str:
+    """Best-effort installed version, read from the npm package.json."""
+    try:
+        import shutil as _sh
+        exe = _sh.which("clawdcursor")
+        if exe:
+            # npm global layout: <prefix>/node_modules/clawdcursor/package.json
+            base = Path(exe).resolve().parent
+            for cand in (base / "node_modules" / "clawdcursor" / "package.json",
+                         base.parent / "lib" / "node_modules" / "clawdcursor" / "package.json"):
+                if cand.exists():
+                    return str(json.loads(cand.read_text(encoding="utf-8")).get("version") or "unknown")
+    except Exception:
+        pass
+    return "unknown"
+
+def _clawd_set_armed(on: bool) -> bool:
+    """Write or remove the consent file. Returns the resulting armed state."""
+    if on:
+        CLAWD_CONSENT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "accepted":  True,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc)
+                             .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "platform":  sys.platform,
+            "version":   _clawd_version(),
+        }
+        CLAWD_CONSENT_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return True
+    try:
+        if CLAWD_CONSENT_FILE.exists():
+            CLAWD_CONSENT_FILE.unlink()
+    except Exception:
+        pass
+    return False
+
+def _clawd_status() -> dict:
+    return {
+        "installed":  _clawd_installed(),
+        "registered": _clawd_registered(),
+        "armed":      _clawd_armed(),
+        "version":    _clawd_version(),
+    }
+
+# ════════════════════════════════════════════════════════════════
 # USER PROFILES — multi-user state isolation
 # ════════════════════════════════════════════════════════════════
 # Each Captain (user profile) has their own COMPUTER_MEMORY.md,
@@ -9432,6 +9512,10 @@ class Handler(BaseHTTPRequestHandler):
                 "provider_active": _provider_supports_native_computer(_current_provider_id()),
             })
 
+        elif path == "/clawdcursor/status":
+            # Desktop-takeover MCP server: installed? registered? armed?
+            self._json(_clawd_status())
+
         elif path == "/computer/info":
             # CLI-mode helper. Returns screen size, cursor position, and
             # whether the kill switch is armed. Use BEFORE clicking so the
@@ -10961,6 +11045,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": f"'{uid}' is not a toggleable feature"}, 400); return
             on = _set_feature(uid, bool(data.get("on", True)))
             self._json({"id": uid, "enabled": on})
+
+        elif path == "/clawdcursor/arm":
+            # Arm / disarm desktop takeover. Body: {armed: bool}. Writes or
+            # removes ~/.clawdcursor/consent; the MCP server refuses to act
+            # until the consent file is present.
+            want = bool(data.get("armed", True))
+            try:
+                armed = _clawd_set_armed(want)
+                log.info(f"[CLAWD] desktop takeover {'ARMED' if armed else 'DISARMED'} by user")
+                st = _clawd_status()
+                st["armed"] = armed
+                self._json(st)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
 
         elif path == "/agents":
             # Save one officer's personality file. Body: {id, content}.

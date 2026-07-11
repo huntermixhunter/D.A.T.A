@@ -5937,6 +5937,72 @@ async function loadUpgrades(force = false) {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'RESCAN'; }
   }
+  // Desktop-takeover arm switch reflects its own live state.
+  if (typeof refreshClawd === 'function') refreshClawd();
+}
+
+// ── Desktop Takeover (clawdcursor) — arm/disarm ─────────────────────────────
+let _clawdBusy = false;
+function _paintClawd(st) {
+  const card   = document.getElementById('clawd-card');
+  const sw      = document.getElementById('clawd-switch');
+  const pill    = document.getElementById('clawd-state-pill');
+  const label   = document.getElementById('clawd-switch-label');
+  const note    = document.getElementById('clawd-card-note');
+  if (!card || !sw) return;
+  const installed = !!(st && st.installed);
+  const armed     = !!(st && st.armed);
+  sw.setAttribute('aria-checked', armed ? 'true' : 'false');
+  card.classList.toggle('armed', armed);
+  card.classList.toggle('unavailable', !installed);
+  if (label) label.textContent = armed ? 'ARMED' : 'DISARMED';
+  if (pill) {
+    pill.textContent = installed ? (armed ? 'ARMED' : 'READY') : 'NOT INSTALLED';
+    pill.className = 'pill ' + (installed ? (armed ? 'orange' : 'teal') : 'blue');
+  }
+  if (note) {
+    if (!installed) {
+      note.textContent = 'clawdcursor is not installed. Install Node.js, then run  npm install -g clawdcursor  and reopen this panel.';
+      note.className = 'clawd-card-note warn';
+    } else if (armed) {
+      note.textContent = 'ARMED — DATA can now control your mouse and keyboard. Disarm when you are done.';
+      note.className = 'clawd-card-note warn';
+    } else {
+      note.textContent = st && st.version && st.version !== 'unknown' ? `Installed v${st.version} · disarmed.` : 'Installed · disarmed.';
+      note.className = 'clawd-card-note';
+    }
+  }
+  sw.disabled = !installed || _clawdBusy;
+}
+async function refreshClawd() {
+  try {
+    const res = await fetch(`${API_BASE}/clawdcursor/status`);
+    _paintClawd(await res.json());
+  } catch (e) { /* panel just shows last state */ }
+}
+async function toggleClawd() {
+  if (_clawdBusy) return;
+  const sw = document.getElementById('clawd-switch');
+  const want = !(sw && sw.getAttribute('aria-checked') === 'true');
+  if (want && !confirm('Arm desktop takeover?\n\nWhen ARMED, DATA can move your mouse, type, and read your screen to finish GUI tasks. Only arm this when you want DATA acting on your desktop. You can disarm any time.')) return;
+  _clawdBusy = true;
+  if (sw) sw.disabled = true;
+  try {
+    const res = await fetch(`${API_BASE}/clawdcursor/arm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ armed: want }),
+    });
+    const st = await res.json();
+    if (st.error) { addLog(`Desktop takeover: ${st.error}`); }
+    else { addLog(`Desktop takeover ${st.armed ? 'ARMED' : 'DISARMED'}.`); }
+    _clawdBusy = false;
+    _paintClawd(st);
+  } catch (e) {
+    _clawdBusy = false;
+    addLog(`Desktop takeover toggle failed: ${e.message || e}`);
+    refreshClawd();
+  }
 }
 
 function _renderFeatures(features) {

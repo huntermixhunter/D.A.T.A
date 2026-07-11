@@ -105,10 +105,12 @@ Type: files; Name: "{app}\start_data.vbs"
 Type: files; Name: "{app}\stop_data.bat"
 
 [Code]
-{ Seed .env from .env.example on first install only — never clobber an existing one. }
+{ Seed .env and .mcp.json from their .example templates on first install only —
+  never clobber an existing one. .mcp.json registers the clawdcursor desktop-
+  takeover MCP server (which stays disarmed until armed in Settings). }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  EnvPath, ExamplePath: string;
+  EnvPath, ExamplePath, McpPath, McpExamplePath: string;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -116,6 +118,11 @@ begin
     ExamplePath := ExpandConstant('{app}\.env.example');
     if (not FileExists(EnvPath)) and FileExists(ExamplePath) then
       CopyFile(ExamplePath, EnvPath, False);
+
+    McpPath        := ExpandConstant('{app}\.mcp.json');
+    McpExamplePath := ExpandConstant('{app}\.mcp.json.example');
+    if (not FileExists(McpPath)) and FileExists(McpExamplePath) then
+      CopyFile(McpExamplePath, McpPath, False);
   end;
 end;
 

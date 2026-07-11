@@ -48,6 +48,26 @@ try {
     else { Write-Host "  [!!] pyautogui install failed - screen control stays off. Re-run later: pip install pyautogui pillow" -ForegroundColor Yellow }
 }
 
+# 2c. Optional: clawdcursor - the desktop-takeover MCP server (last-mile GUI
+#     automation for the CLI brain). Registered in .mcp.json (seeded below) but
+#     stays DISARMED until you flip the switch in Settings > UPGRADES > Desktop
+#     Takeover. Installed globally via npm; needs Node.js. Skipped cleanly if npm
+#     is absent - DATA runs fine without it and you can install it later.
+if (Get-Command npm -ErrorAction SilentlyContinue) {
+    try {
+        & npm ls -g clawdcursor 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK] clawdcursor already installed (desktop takeover available - arm it in Settings)" }
+        else { throw "missing" }
+    } catch {
+        Write-Host "  [..] Installing clawdcursor (desktop-takeover MCP server - optional)..."
+        & npm install -g clawdcursor 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Host "  [OK] clawdcursor installed (stays disarmed until you flip the switch in Settings)" }
+        else { Write-Host "  [!!] clawdcursor install failed - desktop takeover stays off. Re-run later: npm install -g clawdcursor" -ForegroundColor Yellow }
+    }
+} else {
+    Write-Host "  [--] npm not found - skipping clawdcursor (desktop takeover). Install Node.js then: npm install -g clawdcursor" -ForegroundColor Yellow
+}
+
 # 3. Check for an AI provider CLI
 $providers = @()
 foreach ($p in @("claude", "codex", "gemini", "ollama")) {
@@ -73,6 +93,15 @@ if ($providers.Count -gt 0) {
 if (-not (Test-Path "$root\.env")) {
     Copy-Item "$root\.env.example" "$root\.env"
     Write-Host "  [OK] Created .env (edit it to set weather coords, port, etc.)"
+}
+
+# 4a. Seed .mcp.json from the example if missing. This registers the bundled
+#     MCP servers (clawdcursor - desktop takeover) with the CLI brain. The file
+#     is local-only (gitignored) so your own edits never travel; the .example is
+#     the shipped default. clawdcursor stays disarmed until you flip the switch.
+if (-not (Test-Path "$root\.mcp.json") -and (Test-Path "$root\.mcp.json.example")) {
+    Copy-Item "$root\.mcp.json.example" "$root\.mcp.json"
+    Write-Host "  [OK] Created .mcp.json (registers clawdcursor - stays disarmed until armed in Settings)"
 }
 
 # 4b. Install the bundled DATA-core skills (idempotent; never clobbers your own copies)

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "clawdcursor": {
+      "type": "stdio",
+      "command": "clawdcursor",
+      "args": [
+        "mcp",
+        "--compact"
+      ],
+      "env": {}
+    }
+  }
+}

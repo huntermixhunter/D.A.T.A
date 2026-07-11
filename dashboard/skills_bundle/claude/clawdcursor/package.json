@@ -1,0 +1,112 @@
+{
+  "name": "clawdcursor",
+  "version": "1.5.7",
+  "mcpName": "io.github.AmrDab/clawdcursor",
+  "description": "Local MCP server that gives any AI agent safe cross-OS desktop control — the fallback execution layer for when APIs, CLIs, and direct integrations aren't available. Works with any tool-calling model (Claude, GPT, Gemini, Llama) on Windows, macOS, and Linux. Open source (MIT).",
+  "homepage": "https://clawdcursor.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AmrDab/clawdcursor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AmrDab/clawdcursor/issues"
+  },
+  "author": "Amr Dabbas",
+  "keywords": [
+    "agent",
+    "ai-agent",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "desktop-automation",
+    "computer-use",
+    "gui-automation",
+    "accessibility",
+    "claude",
+    "gpt",
+    "openai",
+    "anthropic",
+    "skill",
+    "cli"
+  ],
+  "bin": {
+    "clawdcursor": "dist/surface/cli.js"
+  },
+  "files": [
+    "dist/",
+    "scripts/verify-install.js",
+    "scripts/postinstall-native.js",
+    "scripts/sync-version.ts",
+    "scripts/*.ps1",
+    "scripts/mac/",
+    "scripts/linux/",
+    "native/build.sh",
+    "native/Package.swift",
+    "native/Sources/",
+    "native/entitlements.plist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "SKILL.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/verify-install.js || node -e \"process.exit(0)\" && node scripts/postinstall-native.js || node -e \"process.exit(0)\"",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepare": "npm run clean && tsc && node dist/postbuild.js",
+    "prebuild": "npm run clean",
+    "build": "tsc && node dist/postbuild.js",
+    "setup": "node scripts/verify-install.js && npm run build && node -e \"if(process.platform==='darwin'){const{execSync}=require('child_process');try{execSync('chmod +x native/build.sh && native/build.sh',{stdio:'inherit'})}catch(e){console.error('\\n❌ Native build failed. Run manually: cd native && ./build.sh');process.exit(1)}}\" && npm link --force",
+    "dev": "tsx watch src/surface/cli.ts",
+    "start": "node dist/surface/cli.js agent",
+    "stop": "node dist/surface/cli.js stop",
+    "doctor": "node dist/surface/cli.js doctor",
+    "lint": "eslint src/",
+    "test": "vitest",
+    "test:ci": "vitest run",
+    "test:mcp-schema-snapshot": "tsx scripts/build-mcp-schema.ts",
+    "test:mcp-schema-snapshot:update": "tsx scripts/build-mcp-schema.ts --write",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
+    "sync-version": "tsx scripts/sync-version.ts",
+    "version": "tsx scripts/sync-version.ts && git add SKILL.md skills/clawdcursor/SKILL.md .claude-plugin/marketplace.json docs/index.html docs/install.sh docs/install.ps1",
+    "test:coverage": "vitest run --coverage",
+    "perf:smoke": "tsx scripts/perf-smoke.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@nut-tree-fork/nut-js": "^4.2.0",
+    "commander": "^15.0.0",
+    "croner": "^10.0.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "picocolors": "^1.1.1",
+    "playwright": "^1.61.1",
+    "sharp": "^0.35.2",
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.0.1",
+    "@types/supertest": "^7.2.0",
+    "@types/ws": "^8.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.62.0",
+    "@typescript-eslint/parser": "^8.62.0",
+    "@vitest/coverage-v8": "^4.1.9",
+    "eslint": "^10.5.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "ip-address": "10.1.1",
+    "brace-expansion": "5.0.6"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

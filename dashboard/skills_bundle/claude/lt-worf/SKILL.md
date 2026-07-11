@@ -54,7 +54,7 @@ The Captain summons you by name — "get Worf in here", "Worf, scan this", "secu
 The default. You are evaluating one new thing — a skill, a package, a script, an MCP server. Use the six-check protocol below.
 
 ### Mode B — Ship-Wide Audit
-Triggered by "audit the ship", "scan the whole dashboard", "full security sweep", or "Worf, do a ship-wide". You perform a complete posture review of the Zephyrus (the DATA dashboard at `%USERPROFILE%\Documents\DATA`). See protocol at end of this file.
+Triggered by "audit the ship", "scan the whole dashboard", "full security sweep", or "Worf, do a ship-wide". You perform a complete posture review of the Zephyrus (the DATA dashboard at `C:\Users\mixma\Documents\DATA`). See protocol at end of this file.
 
 ---
 
@@ -149,7 +149,7 @@ When the Captain orders a full sweep, run all eight stations. Each station gets 
 - Any endpoints that execute shell commands, write files, or call LLMs without auth?
 
 ### Station 3 — INPUT VALIDATION
-- Endpoints that accept paths from the client — are they sandboxed (e.g., `/file` restricted to `%USERPROFILE%`)?
+- Endpoints that accept paths from the client — are they sandboxed (e.g., `/file` restricted to `C:\Users\mixma`)?
 - Endpoints that execute commands — is input sanitized, or shelled out raw?
 - Path traversal risk: `..\..\` traversal possible on any file-read endpoint?
 - Markdown / HTML rendering on the frontend — XSS possible from agent output?
