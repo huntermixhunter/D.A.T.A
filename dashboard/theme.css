@@ -5196,6 +5196,22 @@ body.theme-minimal .settings-toggle-cap:hover {
 .settings-pane { display: none; }
 .settings-pane.active { display: block; }
 
+/* Header row for panes that carry an action button (e.g. AI CONNECTORS → RESCAN) */
+.settings-pane-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-pane-head > div { min-width: 0; }
+.settings-pane-head .data-btn-sm { flex: 0 0 auto; margin-top: 2px; }
+/* Inside the settings modal the connectors body should flow, not fight for flex height */
+.settings-pane[data-pane="connectors"] .connectors-body {
+  padding: 8px 0 0;
+  overflow: visible;
+  flex: none;
+}
+
 .settings-h {
   font-family: var(--font-main);
   font-size: 13px;

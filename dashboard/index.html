@@ -78,9 +78,6 @@
           <button class="data-btn purple" id="nav-briefing-btn" onclick="showPanel('briefing')">
             POTENTIAL UPGRADES <span class="briefing-badge" id="briefing-badge" style="display:none">0</span>
           </button>
-          <button class="data-btn green" onclick="showPanel('connectors')">
-            AI CONNECTORS
-          </button>
           <button class="data-btn teal" onclick="showPanel('widgets')">
             CONNECTIONS
           </button>
@@ -297,6 +294,7 @@
             <div class="matrix-controls" style="justify-content:flex-start;gap:8px;">
               <span class="docs-path-label" id="docs-path-label">DATA folder</span>
               <button class="data-btn-sm orange" onclick="loadDocsProjects(true)">↻ REFRESH</button>
+              <button class="data-btn-sm green" onclick="createDocsFolder()" title="Create a new project folder">+ NEW FOLDER</button>
               <button class="data-btn-sm yellow" onclick="addProjectTab()" title="Browse to any folder">BROWSE…</button>
               <button class="data-btn-sm blue" id="docs-view-toggle" onclick="toggleDocsView()" title="Switch between card grid and node graph">VIEW: GRID</button>
             </div>
@@ -401,50 +399,6 @@
         </div>
 
         <!-- AI CONNECTORS -->
-        <div class="panel" id="panel-connectors">
-          <div class="panel-header">
-            <div class="panel-title-bar">
-              <span class="panel-title">AI CONNECTORS — HARDWARE SCAN · LOCAL MODELS · CLI PROVIDERS</span>
-              <div class="panel-pills">
-                <span class="pill teal" id="connectors-active-pill">—</span>
-                <button class="data-btn-sm orange" onclick="loadConnectors(true)" id="connectors-refresh-btn">RESCAN</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="connectors-body" id="connectors-body">
-            <!-- Hardware readout -->
-            <section class="conn-section">
-              <div class="conn-section-label">THIS MACHINE</div>
-              <div class="conn-hw-grid" id="conn-hw-grid">
-                <div class="briefing-empty">Scanning hardware…</div>
-              </div>
-            </section>
-
-            <!-- Recommendation -->
-            <section class="conn-section" id="conn-rec-section" style="display:none">
-              <div class="conn-section-label">RECOMMENDED LOCAL MODEL</div>
-              <div id="conn-rec-card"></div>
-            </section>
-
-            <!-- Local models catalog -->
-            <section class="conn-section">
-              <div class="conn-section-label">LOCAL MODELS <span class="conn-sub">(via Ollama — free, runs on this machine)</span></div>
-              <div class="conn-cards" id="conn-models">
-                <div class="briefing-empty">Loading model catalog…</div>
-              </div>
-            </section>
-
-            <!-- CLI connectors -->
-            <section class="conn-section">
-              <div class="conn-section-label">CLI PROVIDERS <span class="conn-sub">(cloud models via your subscriptions)</span></div>
-              <div class="conn-cards" id="conn-connectors">
-                <div class="briefing-empty">Loading connectors…</div>
-              </div>
-            </section>
-          </div>
-        </div>
-
         <!-- PANEL: CONNECTIONS (widget hub) -->
         <div class="panel" id="panel-widgets">
           <div class="panel-header">
@@ -467,30 +421,6 @@
       <!-- RIGHT PANEL -->
       <aside class="data-right">
         <div class="right-elbow-top"></div>
-
-        <div class="right-section">
-          <div class="section-label">SYSTEM VITALS</div>
-          <div class="vital-grid">
-            <div class="vital-cell">
-              <div class="vital-value orange" id="vitals-turns">—</div>
-              <div class="vital-label">TURNS</div>
-            </div>
-            <div class="vital-cell">
-              <div class="vital-value yellow" id="vitals-memory">—</div>
-              <div class="vital-label">MEM KB</div>
-            </div>
-            <div class="vital-cell">
-              <div class="vital-value blue" id="skill-pct">—</div>
-              <div class="vital-label">SKILLS</div>
-            </div>
-            <div class="vital-cell">
-              <div class="vital-value green" id="vitals-status">—</div>
-              <div class="vital-label">STATUS</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="right-divider"></div>
 
         <div class="right-section">
           <div class="section-label">ACTIVITY LOG</div>
@@ -533,15 +463,10 @@
               title="Open Settings — themes, voice, model, crew personalities, memory">
         <span class="settings-toggle-label" id="settings-toggle-label">⚙ SETTINGS</span>
       </button>
-      <!-- CONVERSATION MODE removed for now (Captain order 2026-06-30). The
+      <!-- CONVERSATION MODE button removed (Captain order 2026-07-10). The
            overlay, CSS, app.js handlers, and bridge endpoints are left intact;
-           only this sole entry point is hidden, so restoring the feature is
-           just deleting the `hidden` attribute below. -->
-      <button class="footer-pill convo-mode-btn" id="convo-mode-btn"
-              onclick="enterConvoMode()" hidden
-              title="Open Conversation Mode — hands-free voice loop">
-        ◉ CONVERSATION
-      </button>
+           only the footer entry point is gone, so restoring the feature is
+           just re-adding a button that calls enterConvoMode(). -->
       <button class="footer-pill wake-toggle-btn" id="wake-toggle-btn"
               onclick="toggleWakeListener()" hidden
               title='Listen for bare "computer", or "hey/hi/hello/ok/okay/yo" + "data"/"computer", or "data start listening" / "wake up".'>
@@ -616,6 +541,7 @@
             <button class="settings-tab active" data-tab="appearance" onclick="settingsTab('appearance')">APPEARANCE</button>
             <button class="settings-tab" data-tab="voice"  onclick="settingsTab('voice')">VOICE</button>
             <button class="settings-tab" data-tab="model"  onclick="settingsTab('model')">MODEL</button>
+            <button class="settings-tab" data-tab="connectors" onclick="settingsTab('connectors')">AI CONNECTORS</button>
             <button class="settings-tab" data-tab="crew"   onclick="settingsTab('crew')">CREW PERSONALITIES</button>
             <button class="settings-tab" data-tab="memory" onclick="settingsTab('memory')">MEMORY</button>
             <button class="settings-tab" data-tab="history" onclick="settingsTab('history')">HISTORY</button>
@@ -654,6 +580,47 @@
               <h3 class="settings-h">Default LLM</h3>
               <p class="settings-sub">Model the main channel uses for new messages.</p>
               <div class="settings-opt-row" id="settings-model-row"></div>
+            </section>
+
+            <section class="settings-pane" data-pane="connectors">
+              <div class="settings-pane-head">
+                <div>
+                  <h3 class="settings-h">AI connectors</h3>
+                  <p class="settings-sub">Hardware scan, local models (Ollama), and CLI providers available on this machine.</p>
+                </div>
+                <button class="data-btn-sm orange" onclick="loadConnectors(true)" id="connectors-refresh-btn">RESCAN</button>
+              </div>
+              <div class="connectors-body" id="connectors-body">
+                <!-- Hardware readout -->
+                <section class="conn-section">
+                  <div class="conn-section-label">THIS MACHINE <span class="pill teal" id="connectors-active-pill">—</span></div>
+                  <div class="conn-hw-grid" id="conn-hw-grid">
+                    <div class="briefing-empty">Scanning hardware…</div>
+                  </div>
+                </section>
+
+                <!-- Recommendation -->
+                <section class="conn-section" id="conn-rec-section" style="display:none">
+                  <div class="conn-section-label">RECOMMENDED LOCAL MODEL</div>
+                  <div id="conn-rec-card"></div>
+                </section>
+
+                <!-- Local models catalog -->
+                <section class="conn-section">
+                  <div class="conn-section-label">LOCAL MODELS <span class="conn-sub">(via Ollama — free, runs on this machine)</span></div>
+                  <div class="conn-cards" id="conn-models">
+                    <div class="briefing-empty">Loading model catalog…</div>
+                  </div>
+                </section>
+
+                <!-- CLI connectors -->
+                <section class="conn-section">
+                  <div class="conn-section-label">CLI PROVIDERS <span class="conn-sub">(cloud models via your subscriptions)</span></div>
+                  <div class="conn-cards" id="conn-connectors">
+                    <div class="briefing-empty">Loading connectors…</div>
+                  </div>
+                </section>
+              </div>
             </section>
 
             <section class="settings-pane" data-pane="crew">

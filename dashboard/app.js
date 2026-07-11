@@ -303,7 +303,7 @@ function showPanel(name) {
 
   document.getElementById(`panel-${name}`).classList.add('active');
 
-  const btnMap = { chat: 0, matrix: 1, orders: 2, briefing: 3, connectors: 4, widgets: 5 };
+  const btnMap = { chat: 0, matrix: 1, orders: 2, briefing: 3, widgets: 4 };
   const idx = btnMap[name];
   if (idx !== undefined) document.querySelectorAll('.data-btn')[idx].classList.add('active');
 
@@ -311,7 +311,6 @@ function showPanel(name) {
   if (name === 'matrix' && !matrixInitialized) initMatrix();
   if (name === 'orders') refreshStandingOrders();
   if (name === 'briefing') loadBriefing();
-  if (name === 'connectors') loadConnectors();
   if (name === 'widgets') renderWidgetsGrid();
 }
 
@@ -794,6 +793,27 @@ function stopTts() {
   if (_ttsBtn)   { _ttsBtn.textContent = '▶'; _ttsBtn.classList.remove('speaking'); _ttsBtn = null; }
 }
 
+// Surface a per-message voice-playback failure where the Captain will actually
+// see it: a warning glyph on the play button (the reason as its tooltip) plus a
+// plain, actionable line in the activity log. The most common cause on a fresh
+// install is the optional voice stack (Kokoro / faster-whisper) not being
+// present, or its native runtime (msvcp140.dll / onnxruntime) failing to load,
+// so detect that and say so instead of dumping a raw error string.
+function _ttsShowError(btn, rawMsg) {
+  const notInstalled = /unavailable|not installed|no module|msvcp|onnxruntime|kokoro|whisper|import/i.test(rawMsg);
+  const friendly = notInstalled
+    ? 'Voice playback unavailable. The voice components are not installed on this machine.'
+    : ('Voice playback failed. ' + rawMsg);
+  addLog('TTS error: ' + friendly);
+  if (btn) {
+    btn.textContent = '⚠';
+    btn.title = friendly;
+    setTimeout(() => {
+      if (btn.textContent === '⚠') { btn.textContent = '▶'; btn.title = 'Speak'; }
+    }, 4000);
+  }
+}
+
 async function toggleTts(btn, text) {
   // If this button is already playing, stop it
   if (_ttsBtn === btn) { stopTts(); return; }
@@ -809,8 +829,13 @@ async function toggleTts(btn, text) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: _ttsClean(text), voice: MAIN_CHAT_CREW }),
     });
-    const data = await res.json();
-    if (!data.audio_b64) throw new Error(data.error || 'no audio');
+    // Parse defensively: a 500 from the voice stack returns JSON {error}, but a
+    // failure further upstream can return a non-JSON body. Never let res.json()
+    // throw a cryptic SyntaxError that masks the real reason.
+    let data = {};
+    try { data = await res.json(); }
+    catch (_) { throw new Error(`voice server returned HTTP ${res.status} ${res.statusText || ''}`.trim()); }
+    if (!res.ok || !data.audio_b64) throw new Error(data.error || `no audio (HTTP ${res.status})`);
 
     const bytes = Uint8Array.from(atob(data.audio_b64), c => c.charCodeAt(0));
     const mime  = data.audio_mime || 'audio/wav';
@@ -840,9 +865,8 @@ async function toggleTts(btn, text) {
     audio.onerror = () => { URL.revokeObjectURL(url); stopTts(); };
     audio.play().catch(() => stopTts());
   } catch (e) {
-    btn.textContent = '▶';
     btn.disabled = false;
-    addLog('TTS error: ' + e.message);
+    _ttsShowError(btn, String((e && e.message) || e));
   }
 }
 
@@ -2590,7 +2614,9 @@ async function initSkills() {
 
   const totalTools = toolList.length;
   document.getElementById('skill-count').textContent = `${totalTools} TOOLS · ${totalCli} CLI`;
-  document.getElementById('skill-pct').textContent = totalTools;
+  // skill-pct lived in the removed right-rail SYSTEM VITALS widget; guard it.
+  const skillPctEl = document.getElementById('skill-pct');
+  if (skillPctEl) skillPctEl.textContent = totalTools;
   addLog(`Skills loaded: ${totalTools} API tools, ${totalCli} CLI skills`);
 }
 
@@ -2978,6 +3004,37 @@ function openDocsProject(path, name) {
   // a project already owns it, every click opens a new window as before.
   const adoptMain = !_mainProjectSet && !_mainChatUsed;
   openProjectWorkspace(path, { forceNewPane: !adoptMain });
+}
+
+// ── DOCUMENTS — create a new project folder from the dashboard ──
+// Prompts for a name, asks the bridge to mkdir it under the Documents scan
+// root, then refreshes the grid and opens the fresh folder as a workspace.
+async function createDocsFolder() {
+  const name = (prompt('New project folder name:') || '').trim();
+  if (!name) return;
+  if (name === '.' || name === '..' || /[/\\:*?"<>|]/.test(name)) {
+    addLog('Invalid folder name — no slashes or special characters.');
+    return;
+  }
+  playDataSound('engage');
+  addLog(`Creating project folder: ${name}`);
+  try {
+    const res = await fetch(`${API_BASE}/create-folder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parent: DOCS_ROOT }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      addLog('Create folder failed: ' + (data.error || `HTTP ${res.status}`));
+      return;
+    }
+    addLog(`Created ${data.path}`);
+    await loadDocsProjects(true);            // refresh grid so the new card shows
+    openDocsProject(data.path, data.name);   // open it as a workspace
+  } catch (e) {
+    addLog('Create folder failed: ' + e.message);
+  }
 }
 
 // Refresh whichever matrix sub-tab is currently active.
@@ -5695,7 +5752,7 @@ async function loadProviders() {
     add.textContent = '+ Add / manage models…';
     add.addEventListener('click', () => {
       document.getElementById('provider-menu')?.classList.add('hidden');
-      showPanel('connectors');
+      openSettingsTab('connectors');
     });
     menu.appendChild(add);
     if (!activeProvider) activeProvider = connected.find(p => p.id === data.active) || null;
@@ -6030,15 +6087,19 @@ function _esc(s) {
 
 // ── Vitals ────────────────────────────────────────────────
 async function fetchVitals() {
+  // Null-safe setter — the right-rail SYSTEM VITALS widget (vitals-turns,
+  // vitals-memory, skill-pct, vitals-status) was removed, so these IDs may
+  // no longer exist. Left-sidebar vitals-uptime is still present.
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   try {
     const res  = await fetch(`${API_BASE}/vitals`);
     const v    = await res.json();
 
-    // Right panel
-    document.getElementById('vitals-turns').textContent  = v.turns;
-    document.getElementById('vitals-memory').textContent = v.memory_kb;
-    document.getElementById('skill-pct').textContent     = `${v.api_tools}+${v.claude_skills}`;
-    document.getElementById('vitals-status').textContent = 'ONLINE';
+    // Right panel (removed widget — guarded)
+    setTxt('vitals-turns',  v.turns);
+    setTxt('vitals-memory', v.memory_kb);
+    setTxt('skill-pct',     `${v.api_tools}+${v.claude_skills}`);
+    setTxt('vitals-status', 'ONLINE');
     document.getElementById('reboot-btn')?.classList.remove('reboot-attention');
 
     // (Left sidebar HISTORY/MEMORY bars were replaced by SYSTEM HEALTH —
@@ -6049,7 +6110,7 @@ async function fetchVitals() {
     // Keep the provider pill / per-pane dropdowns synced from the bridge state
     loadProviders();
   } catch (e) {
-    document.getElementById('vitals-status').textContent = 'OFFLINE';
+    setTxt('vitals-status', 'OFFLINE');
     // Surface the recovery path: pulse the REBOOT button so the user knows how
     // to bring the bridge back without closing the dashboard.
     if (!_rebooting) document.getElementById('reboot-btn')?.classList.add('reboot-attention');
@@ -8149,6 +8210,14 @@ function settingsTab(name) {
     t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.settings-pane').forEach(p =>
     p.classList.toggle('active', p.dataset.pane === name));
+  // Lazy-load the AI connectors scan the first time its tab is opened
+  if (name === 'connectors' && typeof loadConnectors === 'function') loadConnectors();
+}
+
+// Open Settings directly on a given tab (e.g. from the provider menu)
+function openSettingsTab(tab) {
+  openSettings();
+  if (tab) settingsTab(tab);
 }
 
 // ── Appearance — retail 2-theme system (MINIMAL default / CYBER) ────────────

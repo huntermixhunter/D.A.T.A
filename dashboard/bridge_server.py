@@ -9833,6 +9833,39 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"path": str(p), "nodes": nodes, "count": len(nodes)})
             return
 
+        elif path == "/create-folder":
+            # Create a new project folder so the Captain can spin up a project
+            # from the dashboard without leaving it. Body: {"name","parent"?}.
+            # parent defaults to the Documents scan root (same root the docs
+            # launcher browses). The new folder is NOT auto-adopted as cwd —
+            # the frontend opens it as a workspace after this returns.
+            raw_name = (data.get("name") or "").strip()
+            if not raw_name:
+                self._json({"error": "Folder name required"}, 400); return
+            # A project name is a single folder — reject separators / traversal
+            # / characters Windows forbids in a path component.
+            if raw_name in (".", "..") or any(c in raw_name for c in '/\\:*?"<>|'):
+                self._json({"error": "Invalid folder name"}, 400); return
+            parent_raw = (data.get("parent") or "").strip()
+            if parent_raw:
+                parent = Path(os.path.expanduser(os.path.expandvars(parent_raw)))
+            else:
+                _docs = Path.home() / "Documents"
+                parent = _docs if _docs.is_dir() else (Path.home() if Path.home().is_dir() else PROJECT_DIR)
+            if not parent.is_dir():
+                self._json({"error": "Parent folder not found"}, 400); return
+            new_dir = parent / raw_name
+            try:
+                if new_dir.exists():
+                    self._json({"error": "A folder with that name already exists"}, 409); return
+                new_dir.mkdir(parents=False)
+                log.info(f"[create-folder] created {new_dir}")
+                self._json({"path": str(new_dir), "name": raw_name, "created": True})
+            except Exception as e:
+                log.exception(f"[create-folder] failed: {e}")
+                self._json({"error": str(e)}, 500)
+            return
+
         elif path == "/user/switch":
             # Flip the active Captain. Body: {"user": "<uid>"}. The switch
             # flushes outgoing rolling history, repoints the per-user file
@@ -10989,7 +11022,7 @@ if __name__ == "__main__":
                 "cron":     "0 8 * * *",                 # daily 08:00
                 "prompt":   "(internal — scans the web for new AI tools, MCP servers, Claude skills)",
                 "provider": "claude-cli",                # placeholder, unused with action
-                "enabled":  True,
+                "enabled":  False,                       # paused by default — Captain enables on the Standing Orders page
                 "action":   "refresh_upgrades",
                 "next_run": 0,
                 "last_run": 0,
