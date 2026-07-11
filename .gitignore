@@ -24,6 +24,7 @@ dashboard/tunnel_url.txt
 dashboard/retail_bridge.out.log
 dashboard/retail_bridge.err.log
 dashboard/retail_preview.log
+dashboard/retail_view_*.log
 
 # Voice smoke-test artifacts
 dashboard/test_output_*.wav
