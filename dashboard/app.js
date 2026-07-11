@@ -7042,9 +7042,28 @@ function _showPaneHeaders(visible) {
   });
 }
 
-// Drag-resize state for the chat pane grid. Ratios live in [0.1, 0.9].
-let _paneColRatio = 0.5;   // left:right split for any row with 2 columns
-let _paneRowRatio = 0.5;   // top:bottom split between row 1 and row 2
+// Drag-resize state for the chat pane grid. Each axis holds an array of
+// track fractions (they sum to 1), so an arbitrary number of column and
+// row boundaries can each be dragged independently.
+let _paneColFracs = [1];    // width fraction of each grid column
+let _paneRowFracs = [1];    // height fraction of each grid row
+let _paneGridCols = 1;      // current column-track count
+let _paneGridRows = 1;      // current row-track count
+const _PANE_MIN_TRACK = 0.08;   // a track never collapses below 8% of the axis
+
+function _equalFracs(n) { return Array.from({ length: Math.max(1, n) }, () => 1 / Math.max(1, n)); }
+
+// Balanced grid that GROWS COLUMNS as panes are added (landscape-friendly)
+// rather than the old fixed 2-wide stack: cols = ceil(sqrt(N)), rows fill.
+//   2→2×1  3→2×2  4→2×2  5→3×2  6→3×2  7→3×3  9→3×3  10→4×3 …
+function _computeGridDims(count) {
+  if (count <= 1) return { cols: 1, rows: 1 };
+  const cols = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / cols);
+  return { cols, rows };
+}
+
+function _fracsToTemplate(fracs) { return fracs.map(f => `${f}fr`).join(' '); }
 
 function _updateChatGrid() {
   const wrapper = document.getElementById('chats-wrapper');
@@ -7057,48 +7076,30 @@ function _updateChatGrid() {
   // another window to promote in its place — hide it when main stands alone.
   const mainCloseEmpty = document.getElementById('main-close-empty');
   if (mainCloseEmpty) mainCloseEmpty.style.display = count > 1 ? '' : 'none';
-  const c       = _paneColRatio;
-  const r       = _paneRowRatio;
   const isMobile = window.matchMedia('(max-width: 900px)').matches;
 
   // Reset any per-pane grid spans we may have set before
-  panes.forEach(p => { p.style.gridColumn = ''; });
+  panes.forEach(p => { p.style.gridColumn = ''; p.style.gridRow = ''; });
 
-  if (isMobile) {
-    // Vertical stack — single column, N rows. Row ratio resizes the
-    // first row vs the rest so the horizontal splitter has something
-    // to drag against for the 2-pane case.
-    wrapper.style.gridTemplateColumns = '1fr';
-    if (count <= 1)        wrapper.style.gridTemplateRows = '1fr';
-    else if (count === 2)  wrapper.style.gridTemplateRows = `${r}fr ${1 - r}fr`;
-    else                   wrapper.style.gridTemplateRows = `repeat(${count}, 1fr)`;
-  } else if (count <= 1) {
-    wrapper.style.gridTemplateColumns = '1fr';
-    wrapper.style.gridTemplateRows    = '1fr';
-  } else if (count === 2) {
-    wrapper.style.gridTemplateColumns = `${c}fr ${1 - c}fr`;
-    wrapper.style.gridTemplateRows    = '1fr';
-  } else if (count === 3) {
-    // Row 1 = two panes side by side, row 2 = third pane spanning both columns
-    wrapper.style.gridTemplateColumns = `${c}fr ${1 - c}fr`;
-    wrapper.style.gridTemplateRows    = `${r}fr ${1 - r}fr`;
-    if (panes[2]) panes[2].style.gridColumn = '1 / -1';
-  } else if (count === 4) {
-    // 4 panes (2×2) — both ratios drive the split
-    wrapper.style.gridTemplateColumns = `${c}fr ${1 - c}fr`;
-    wrapper.style.gridTemplateRows    = `${r}fr ${1 - r}fr`;
-  } else {
-    // 5+ panes: 2 columns, ceil(count/2) UNIFORM rows. Declaring the exact
-    // number of row tracks stops overflow panes from falling into implicit
-    // auto-rows (the old bug that left the grid ragged past 4). The vertical
-    // splitter still drives the column ratio across every row; the horizontal
-    // splitter is dropped for this case (a single handle can't address one
-    // boundary among many — see _renderChatSplitters).
-    const rows = Math.ceil(count / 2);
-    wrapper.style.gridTemplateColumns = `${c}fr ${1 - c}fr`;
-    wrapper.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
-    // Odd count → last pane spans both columns so there is no empty cell.
-    if (count % 2 === 1 && panes[count - 1]) panes[count - 1].style.gridColumn = '1 / -1';
+  // Mobile: single column, one row per pane (vertical stack).
+  const dims = isMobile ? { cols: 1, rows: Math.max(1, count) } : _computeGridDims(count);
+  const { cols, rows } = dims;
+
+  // Regenerate fractions to equal shares only when a track count changes, so
+  // the Captain's manual sizing survives adding/removing panes when possible.
+  if (cols !== _paneGridCols) { _paneColFracs = _equalFracs(cols); _paneGridCols = cols; }
+  if (rows !== _paneGridRows) { _paneRowFracs = _equalFracs(rows); _paneGridRows = rows; }
+
+  wrapper.style.gridTemplateColumns = _fracsToTemplate(_paneColFracs);
+  wrapper.style.gridTemplateRows    = _fracsToTemplate(_paneRowFracs);
+
+  // When the final row is not completely filled, let the last pane span the
+  // remaining trailing columns so there is never an empty cell.
+  if (!isMobile && cols > 1) {
+    const remainder = count % cols;
+    if (remainder !== 0 && panes[count - 1]) {
+      panes[count - 1].style.gridColumn = `${remainder} / -1`;
+    }
   }
 
   _renderChatSplitters(wrapper, count, isMobile);
@@ -7109,68 +7110,72 @@ function _renderChatSplitters(wrapper, count, isMobile) {
   wrapper.querySelectorAll('.chat-splitter').forEach(el => el.remove());
   if (count < 2) return;
 
-  // Use percentage positioning so splitters render correctly even before
-  // the wrapper has been measured (avoids the "stuck at left: 0" bug).
-  const colPct = (_paneColRatio * 100).toFixed(3) + '%';
-  const rowPct = (_paneRowRatio * 100).toFixed(3) + '%';
-
-  if (isMobile) {
-    // On mobile the panes stack vertically; a horizontal splitter sits
-    // between the first and second pane for the 2-pane case. 3+ panes
-    // auto-distribute equally (no splitter) since fitting N-1 splitters
-    // with proportional sizing on a phone is more UI than it's worth.
-    if (count === 2) {
+  // One horizontal handle at every internal ROW boundary — works for the
+  // mobile stack AND every desktop grid row (this is what was missing past
+  // 4 panes). Positions are percentage-based so they render correctly even
+  // before the wrapper has been measured.
+  const addHorizontals = () => {
+    let acc = 0;
+    for (let i = 0; i < _paneRowFracs.length - 1; i++) {
+      acc += _paneRowFracs[i];
       const h = document.createElement('div');
       h.className = 'chat-splitter horizontal';
-      h.style.top = rowPct;
+      h.style.top = (acc * 100).toFixed(3) + '%';
       wrapper.appendChild(h);
-      _setupSplitterDrag(h, 'horizontal');
+      _setupSplitterDrag(h, 'horizontal', i);
     }
-    return;
+  };
+
+  if (isMobile) { addHorizontals(); return; }
+
+  // One vertical handle at every internal COLUMN boundary. With the grid now
+  // growing to 3+ columns, this yields multiple column resizers instead of a
+  // single mid-line bar.
+  let cacc = 0;
+  for (let i = 0; i < _paneColFracs.length - 1; i++) {
+    cacc += _paneColFracs[i];
+    const v = document.createElement('div');
+    v.className = 'chat-splitter vertical';
+    v.style.left = (cacc * 100).toFixed(3) + '%';
+    wrapper.appendChild(v);
+    _setupSplitterDrag(v, 'vertical', i);
   }
 
-  // Vertical splitter — present for any layout with 2 columns (2+ panes)
-  const v = document.createElement('div');
-  v.className = 'chat-splitter vertical';
-  v.style.left = colPct;
-  wrapper.appendChild(v);
-  _setupSplitterDrag(v, 'vertical');
-
-  // Horizontal splitter — only when the grid is exactly two rows (3–4 panes).
-  // For 5+ panes the rows are uniform (repeat(ceil(N/2), 1fr)); a single
-  // horizontal splitter can't meaningfully resize one boundary among many,
-  // so we omit it and keep the vertical (column) splitter, which still
-  // applies uniformly across every row.
-  if (count === 3 || count === 4) {
-    const h = document.createElement('div');
-    h.className = 'chat-splitter horizontal';
-    h.style.top = rowPct;
-    wrapper.appendChild(h);
-    _setupSplitterDrag(h, 'horizontal');
-  }
+  addHorizontals();
 }
 
-function _setupSplitterDrag(splitter, axis) {
+// A splitter drags the boundary between track `index` and `index + 1` on its
+// axis, redistributing space between just those two neighbours (the rest of
+// the grid holds still). Neither track collapses below _PANE_MIN_TRACK.
+function _setupSplitterDrag(splitter, axis, index) {
   const wrapper = document.getElementById('chats-wrapper');
   splitter.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     splitter.setPointerCapture(e.pointerId);
     splitter.classList.add('dragging');
 
+    const fracs   = axis === 'vertical' ? _paneColFracs : _paneRowFracs;
+    const pairSum = fracs[index] + fracs[index + 1];
+    let startFrac = 0;
+    for (let k = 0; k < index; k++) startFrac += fracs[k];
+
     const onMove = (ev) => {
       const rect = wrapper.getBoundingClientRect();
+      const pos  = axis === 'vertical'
+        ? (ev.clientX - rect.left) / rect.width
+        : (ev.clientY - rect.top)  / rect.height;
+      // Offset within the two-track pair, clamped so neither collapses.
+      let within = pos - startFrac;
+      within = Math.min(pairSum - _PANE_MIN_TRACK, Math.max(_PANE_MIN_TRACK, within));
+      fracs[index]     = within;
+      fracs[index + 1] = pairSum - within;
+
       if (axis === 'vertical') {
-        const x = ev.clientX - rect.left;
-        const ratio = Math.min(0.9, Math.max(0.1, x / rect.width));
-        _paneColRatio = ratio;
-        wrapper.style.gridTemplateColumns = `${ratio}fr ${1 - ratio}fr`;
-        splitter.style.left = (ratio * 100).toFixed(3) + '%';
+        wrapper.style.gridTemplateColumns = _fracsToTemplate(_paneColFracs);
+        splitter.style.left = ((startFrac + within) * 100).toFixed(3) + '%';
       } else {
-        const y = ev.clientY - rect.top;
-        const ratio = Math.min(0.9, Math.max(0.1, y / rect.height));
-        _paneRowRatio = ratio;
-        wrapper.style.gridTemplateRows = `${ratio}fr ${1 - ratio}fr`;
-        splitter.style.top = (ratio * 100).toFixed(3) + '%';
+        wrapper.style.gridTemplateRows = _fracsToTemplate(_paneRowFracs);
+        splitter.style.top = ((startFrac + within) * 100).toFixed(3) + '%';
       }
     };
 
@@ -7194,11 +7199,10 @@ function _setupSplitterDrag(splitter, axis) {
 window.addEventListener('resize', () => {
   const wrapper = document.getElementById('chats-wrapper');
   if (!wrapper) return;
-  // Count only VISIBLE panes — a hidden (closed) main pane must not be
-  // included or the splitter math drifts out of sync with _updateChatGrid.
-  const count = wrapper.querySelectorAll('.chat-pane:not([hidden])').length;
-  const isMobile = window.matchMedia('(max-width: 900px)').matches;
-  _renderChatSplitters(wrapper, count, isMobile);
+  // Recompute the whole grid: a desktop↔mobile crossing changes the column
+  // and row track counts, and the splitter positions follow from those. The
+  // fraction arrays are preserved unless a track count actually changes.
+  _updateChatGrid();
 });
 
 function addProjectTab() {
