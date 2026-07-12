@@ -498,7 +498,7 @@
            just re-adding a button that calls enterConvoMode(). -->
       <button class="footer-pill wake-toggle-btn" id="wake-toggle-btn"
               onclick="toggleWakeListener()" hidden
-              title='Listen for bare "computer", or "hey/hi/hello/ok/okay/yo" + "data"/"computer", or "data start listening" / "wake up".'>
+              title='Listen for bare "computer", or "hey/hi/hello/ok/okay/yo" + "data"/"computer", or "data start listening" / "wake up". Say "computer, what can you do" for the command list, or "computer, voice off" to switch it off.'>
         ◌ WAKE: OFF
       </button>
       <div class="footer-segments">
@@ -587,6 +587,19 @@
             </section>
 
             <section class="settings-pane" data-pane="voice">
+              <h3 class="settings-h">Wake word — talk hands-free</h3>
+              <p class="settings-sub">On desktop Chrome, hands-free listening is <strong>ON by default</strong> — the <strong>◌ WAKE</strong> pill at the bottom of the screen is armed the moment the dashboard loads (it uses the browser's built-in speech recognition, so nothing is sent to us). Tap the pill any time to turn it off; it stays off until you tap it back on. On phones and tablets it defaults off. While it is on, just say any of these and DATA starts taking dictation, no clicking:</p>
+              <ul class="settings-sub" style="margin:2px 0 12px 18px;line-height:1.75;">
+                <li><strong>"Computer"</strong> — said on its own</li>
+                <li><strong>"Hey data" · "Hi data" · "Ok data" · "Yo data"</strong> (or the same with "computer")</li>
+                <li><strong>"Data, start listening"</strong> or <strong>"Wake up"</strong></li>
+                <li>Say an officer's name — <strong>Vector · Probe · Atlas · Sentinel · Echo</strong> — to route the chat to that officer, then speak</li>
+                <li><strong>"Computer, what can you do"</strong> — DATA speaks a short rundown of the voice commands (also "computer, help")</li>
+                <li><strong>"Computer, stop"</strong> — cut off a spoken reply mid-sentence</li>
+                <li><strong>"Computer, voice off"</strong> — switch the wake word off (also "computer, go to sleep"); tap the ◌ WAKE pill to turn it back on</li>
+                <li><strong>"Computer, shut down"</strong> — power DATA all the way off (five-second cancel)</li>
+              </ul>
+
               <h3 class="settings-h">Crew voice</h3>
               <p class="settings-sub">Which officer's voice is used for spoken replies (the ▶ play button on Data's messages).</p>
               <div class="settings-opt-row" id="settings-voice-row"></div>

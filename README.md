@@ -219,6 +219,9 @@ completely blank memory.
   its own provider and role
 - **Memory banks** — persistent per-user memory plus a searchable archive of every
   conversation
+- **Voice** — local speech-to-text dictation and spoken replies, plus a hands-free
+  **wake word** (tap the **◌ WAKE** pill on desktop Chrome, then say "Computer",
+  "Hey data", or an officer's name). See the Capabilities Guide for the full command list.
 - **Standing orders** — cron-scheduled AI tasks (reports, checks, refreshes)
 - **AI Connectors** — hardware scan, one-click local-model install (via Ollama), and
   cloud-provider connect; populates the main-channel model menu live

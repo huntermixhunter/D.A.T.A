@@ -424,11 +424,16 @@ function _crewAvatar(id) {
 // "hey"-prefixed) — anchored, so "the data looks fine" never false-triggers.
 const CREW_WAKE = {
   data:     ['data'],
-  vector:    ['vector'],
-  probe:   ['probe'],
-  atlas:   ['atlas'],
-  sentinel:     ['sentinel'],
+  atlas:    ['atlas'],
+  forge:    ['forge'],
+  vector:   ['vector'],
+  sentinel: ['sentinel'],
+  probe:    ['probe'],
+  relay:    ['relay'],
   echo:     ['echo', 'counselor echo'],
+  pulse:    ['pulse'],
+  sage:     ['sage'],
+  scout:    ['scout'],
 };
 function _crewWakeMatch(heard) {
   const h = (heard || '').toLowerCase().trim()
@@ -3819,6 +3824,48 @@ async function _performDataShutdown(overlay) {
   setTimeout(() => { try { window.close(); } catch (e) {} }, 900);
 }
 
+// ── Voice command — "Computer, what can you do?" ──────────────────────────
+// Heard by the wake listener; speaks a short spoken rundown of the voice
+// commands. Anchored ^…$ so the whole utterance must BE the question.
+function _capabilitiesRegex() {
+  return /^\W*computer[\s,]+(?:what[\s,]+can[\s,]+you[\s,]+do(?:[\s,]+for[\s,]+me)?|what[\s,]+do[\s,]+you[\s,]+do|what[\s,]+are[\s,]+your[\s,]+(?:commands|capabilities)|list[\s,]+(?:your[\s,]+)?commands|help)\W*$/i;
+}
+
+function _speakCapabilities() {
+  addLog('Voice command: capabilities');
+  // Long spoken reply — hold the wake echo off so it does not re-trigger.
+  WAKE.cooldownUntil = Date.now() + 12000;
+  try { playDataSound('success'); } catch (e) {}
+  const lines = [
+    'I am DATA, your hands-free command deck.',
+    'Say "computer", "hey data", or "wake up" to start talking, and I will listen, then reply out loud.',
+    'While I am speaking, say "computer stop" to cut the reply short.',
+    'Say the name of a crew member to route the chat to that officer, then speak.',
+    'Say "computer, voice off" to switch the wake word off.',
+    'Say "computer, shut down" to power everything down.',
+    'Otherwise, just ask me anything and I will get to work.',
+  ];
+  _speakStreamBegin();
+  _speakStreamFeed(lines.join(' '));
+  _speakStreamEnd();
+}
+
+// ── Voice command — "Computer, voice off" ─────────────────────────────────
+// Heard by the wake listener; switches hands-free listening off until the
+// Captain taps the WAKE pill (or reloads) to turn it back on. Anchored ^…$.
+function _voiceOffRegex() {
+  return /^\W*computer[\s,]+(?:please[\s,]+)?(?:(?:turn|switch|shut)[\s,]+off[\s,]+(?:the[\s,]+)?(?:voice|wake(?:[\s,]+word)?|listening)|(?:voice|wake(?:[\s,]+word)?)[\s,]+off|stop[\s,]+listening|disable[\s,]+(?:voice|wake(?:[\s,]+word)?)|go[\s,]+to[\s,]+sleep|sleep)\W*$/i;
+}
+
+function disableWakeByVoice() {
+  addLog('Voice command: wake word OFF');
+  try { playDataSound('error'); } catch (e) {}
+  WAKE.enabled = false;
+  localStorage.setItem('wake-enabled', '0');
+  _stopWakeListener();   // aborts this recognizer; onend is nulled so no restart
+  _updateWakeButton();
+}
+
 function toggleWakeListener() {
   // On mobile, the pill cannot enable wake listening — keep it pinned off.
   if (_isMobileDevice()) {
@@ -3844,6 +3891,15 @@ function toggleWakeListener() {
 function _updateWakeButton() {
   const btn = document.getElementById('wake-toggle-btn');
   if (!btn) return;
+  // The WAKE pill ships hidden in index.html. Reveal it here — and ONLY here —
+  // once we know wake word can actually work: desktop Chrome with the Web
+  // Speech API. On an unsupported browser (Firefox/Safari) it stays hidden so
+  // nobody taps a dead control. This is the entry point that lets a fresh
+  // install turn wake listening on; without it the pill was invisible and the
+  // feature was unreachable on any machine with no stored wake-enabled choice.
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { btn.hidden = true; return; }
+  btn.hidden = false;
   // Mobile view: wake listening is disabled — show it plainly, not as "ON".
   if (_isMobileDevice()) {
     btn.textContent = '◌ WAKE: N/A';
@@ -3855,6 +3911,11 @@ function _updateWakeButton() {
   btn.textContent = WAKE.enabled
     ? (listening ? '◉ WAKE: ON' : '◌ WAKE: PAUSED')
     : '◌ WAKE: OFF';
+  btn.title = 'Wake word — tap to toggle hands-free listening. Then say ' +
+    '"computer", "hey data", "ok computer", "data start listening", or ' +
+    '"wake up" to talk. "Computer, what can you do" lists the commands; ' +
+    '"computer, stop" cuts playback; "computer, voice off" turns the wake ' +
+    'word off; "computer, shut down" powers DATA off.';
   btn.classList.toggle('active', listening);
 }
 
@@ -3914,6 +3975,16 @@ function _startWakeListener() {
       // and not during the post-wake echo cooldown.
       if (!event.results[i].isFinal) continue;
       if (Date.now() < WAKE.cooldownUntil) continue;
+      // Voice command — "Computer, what can you do?" — speaks the command list.
+      if (_capabilitiesRegex().test(heard)) {
+        _speakCapabilities();
+        return;
+      }
+      // Voice command — "Computer, voice off" — switches the wake word off.
+      if (_voiceOffRegex().test(heard)) {
+        disableWakeByVoice();
+        return;
+      }
       // Crew wake word (carried over from Conversation Mode) — saying an
       // officer's name switches the main-channel agent to them, then dictates.
       const crewHit = _crewWakeMatch(heard);
@@ -4170,17 +4241,15 @@ function _restartWakeIfEnabled() {
 }
 
 // Restore wake state on page load.
-//   - Everyone defaults to OFF (push-to-talk). Ambient always-on mic listening
-//     is surprising on a fresh machine — after a dictation the wake listener
-//     used to re-arm itself and reopen the mic, so it looked like the app
-//     "started listening again on its own." Voice input now happens ONLY when
-//     the Captain taps the mic/WAKE button. Tap the WAKE pill to opt into
-//     hands-free wake-word listening.
-//   - Mobile/tablet: also OFF. Phones keep the mic open for wake-word
+//   - Desktop: defaults to ON (must explicitly disable to keep off). On a
+//     Web-Speech-capable desktop browser the WAKE pill arms itself so the
+//     Captain can talk to DATA hands-free out of the box — say the wake word,
+//     then speak. Tap the WAKE pill any time to turn it off.
+//   - Mobile/tablet: defaults to OFF. Phones keep the mic open for wake-word
 //     recognition, which makes Android show constant "site using microphone"
-//     system notifications.
-// An explicit user choice (localStorage 'wake-enabled' = '0' or '1') overrides
-// the default, so anyone who turned wake ON keeps it across reloads.
+//     system notifications. The Captain can still tap the WAKE pill manually.
+// Either way, an explicit user choice (localStorage 'wake-enabled' = '0' or '1')
+// overrides the default, so a turned-off (or turned-on) state sticks across reloads.
 function _isMobileDevice() {
   return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
          (window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
@@ -4197,9 +4266,8 @@ function _isMobileDevice() {
     if (_isMobileDevice()) enabled = false;
     else if (stored === '0') enabled = false;
     else if (stored === '1') enabled = true;
-    // No explicit choice yet: default OFF (push-to-talk). The mic only opens
-    // when the Captain taps a voice button; it never re-arms on its own.
-    else enabled = false;
+    // No explicit choice yet: desktop defaults ON.
+    else enabled = true;
     if (enabled) {
       WAKE.enabled = true;
       _startWakeListener();

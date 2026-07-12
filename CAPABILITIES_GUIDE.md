@@ -278,6 +278,19 @@ to text.
 - "Read that last answer out loud."
 - "Turn on voice replies for this session."
 
+**Hands-free wake word.** Tap the **◌ WAKE** pill at the bottom of the dashboard
+(desktop Chrome) to arm always-listening mode. Then just say one of these and it
+starts taking dictation — no clicking:
+
+- **"Computer"** (on its own), or **"Hey data" / "Ok computer" / "Yo data"**
+- **"Data, start listening"** or **"Wake up"**
+- Say any officer's name — **Atlas, Forge, Vector, Sentinel, Probe, Relay, Echo, Pulse, Sage, Scout** — to switch the main channel to that officer and dictate to them
+- **"Computer, what can you do"** (or "Computer, help") — DATA speaks a short rundown of the voice commands
+- **"Computer, stop"** cuts off a spoken reply; **"Computer, voice off"** switches the wake word off (tap the pill to turn it back on); **"Computer, shut down"** powers DATA off (five-second cancel)
+
+Wake listening runs on the browser's own speech recognition, so it stays off until
+you turn it on and it is desktop-Chrome only (mobile browsers keep the mic notice up).
+
 The voice engine is CPU-friendly by default (Kokoro for speech, faster-whisper for
 transcription), so it works even without a powerful graphics card.
 
