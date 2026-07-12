@@ -75,6 +75,7 @@ def list_accounts() -> list:
             "address": a.get("address"),
             "imap_host": a.get("imap_host"),
             "auth_type": (a.get("auth_type") or "password"),
+            "oauth_provider": (a.get("oauth_provider") or ("google" if (a.get("auth_type") or "").lower() == "oauth" else None)),
             "send_as": a.get("send_as", []),
             "default_send_as": a.get("default_send_as") or a.get("address"),
         })

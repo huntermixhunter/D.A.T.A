@@ -1231,6 +1231,7 @@ async function _dispatchChatMessage(text, attachments) {
         provider:     mainWs?.provider || '',
         crew:         MAIN_CHAT_CREW,
         attachments:  attachments,
+        ..._buildPaneRoster('main'),   // open_panes + self_pane for inter-pane comms
       }),
     });
 
@@ -7706,6 +7707,7 @@ async function sendProjectMessage(wsId) {
         provider:     ws.provider,   // per-window model override
         crew:         ws.crew,       // per-window agent (officer persona)
         attachments,
+        ..._buildPaneRoster(`ws${wsId}`),   // open_panes + self_pane for inter-pane comms
       }),
     });
     // Surface 400s (e.g. attachments + text-only provider) before stream parse.
@@ -7931,6 +7933,8 @@ function _handleUiEvent(evt) {
     if (targetIsMain && Array.isArray(p.nodes)) renderProjectMiniMatrix(p.nodes, newPath);
   } else if (evt.type === 'ask_options') {
     _renderAskOptions(evt.payload || {});
+  } else if (evt.type === 'pane_message') {
+    _deliverPaneMessage(evt.payload || {});
   } else {
     addLog(`Unknown UI event: ${evt.type}`);
   }
@@ -8054,6 +8058,171 @@ async function _spawnWorkspacesFromEvent(specs) {
       if (winEl) appendMessageToPane(winEl, 'data', briefing, ws.crew);
     }
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// INTER-PANE MESSAGING — panes hand work to one another
+// A pane's model emits a <<send_to_pane>> marker; the bridge relays it as a
+// `pane_message` UI event. The frontend (authority on which panes are open)
+// resolves the target, drops the message into that pane, and auto-submits it
+// so the officer there acts on it — and can reply back the same way.
+// ═══════════════════════════════════════════════════════════
+function _paneBase(id, w) { return w.isMain ? 'main' : `ws${id}`; }
+
+// Composite history key path::pane_id (lowercased) — mirrors _history_key on
+// the backend so the same pane resolves identically on both sides.
+function _paneCompositeKey(id, w) {
+  const wsPath = (w.path || '').toLowerCase();
+  return `${wsPath}::${_paneId(_paneBase(id, w)).toLowerCase()}`;
+}
+
+// Canonical pane ordering: main first, then the rest by ascending wsId. Both
+// the roster we send the backend AND the resolver here use this, so the
+// "window N" the model sees matches the window we deliver to.
+function _orderedPanes() {
+  const entries = [..._workspaces.entries()];
+  entries.sort((a, b) => {
+    const am = a[1].isMain ? 0 : 1, bm = b[1].isMain ? 0 : 1;
+    return am !== bm ? am - bm : a[0] - b[0];
+  });
+  return entries.map(([id, w], i) => ({
+    wsId: id, w, index: i + 1,
+    paneId: _paneId(_paneBase(id, w)),
+    key: _paneCompositeKey(id, w),
+    name: w.isMain
+      ? (w.name || 'Main Channel')
+      : (w.name || (w.path || '').split(/[/\\]/).pop() || `Window ${i + 1}`),
+    path: w.path || '', provider: w.provider || '', isMain: !!w.isMain,
+  }));
+}
+
+// Roster + self tag folded into every chat body so the backend can tell the
+// model which siblings it may address with <<send_to_pane>>.
+function _buildPaneRoster(selfBase) {
+  return {
+    open_panes: _orderedPanes().map(p => ({
+      index: p.index, name: p.name, path: p.path,
+      provider: p.provider, is_main: p.isMain, pane_id: p.paneId,
+    })),
+    self_pane: _paneId(selfBase),
+  };
+}
+
+// Resolve a model-supplied `to` string to an open pane (or null). Accepts a
+// folder name, a window number, "main", "the other window" (when 2 panes), a
+// pane_id echo, or a substring of a name/path.
+function _resolveTargetPane(toStr, fromKey) {
+  const ordered = _orderedPanes();
+  if (!ordered.length) return null;
+  let q = (toStr || '').trim().toLowerCase().replace(/^["'`]+|["'`]+$/g, '').trim();
+  if (!q) return null;
+  const from = (fromKey || '').toLowerCase();
+  // 1. exact pane_id or composite-key echo
+  for (const p of ordered) if (q === p.paneId.toLowerCase() || q === p.key) return p;
+  // 2. main channel
+  if (/^(the\s+)?(main|main channel|main pane|computer|the computer)$/.test(q)) {
+    const m = ordered.find(p => p.isMain); if (m) return m;
+  }
+  // 3. window / pane number
+  const num = q.match(/(?:window|win|ws|pane|#|number|no\.?)?\s*(\d{1,3})\b/);
+  if (num) { const byIdx = ordered.find(p => p.index === parseInt(num[1], 10)); if (byIdx) return byIdx; }
+  // 4. "the other window" — unambiguous only with exactly two panes
+  if (/^(the\s+)?other(\s+(window|pane|one))?$/.test(q) && ordered.length === 2) {
+    const other = ordered.find(p => p.key !== from); if (other) return other;
+  }
+  // 5. exact name or folder basename
+  for (const p of ordered) {
+    const base = (p.path.split(/[/\\]/).pop() || '').toLowerCase();
+    if (q === p.name.toLowerCase() || q === base) return p;
+  }
+  // 6. substring fallback on name / path
+  for (const p of ordered) {
+    if (p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)) return p;
+  }
+  return null;
+}
+
+function _senderFromKey(fromKey) {
+  const from = (fromKey || '').toLowerCase();
+  const s = _orderedPanes().find(p => p.key === from);
+  if (s) return { name: s.name, index: s.index, isMain: s.isMain };
+  const base = ((fromKey || '').split('::')[0] || '').split(/[/\\]/).pop();
+  return { name: base || 'another pane', index: null, isMain: false };
+}
+
+function _renderInPane(target, text) {
+  if (target.isMain) { appendMessage('data', text); return; }
+  const win = document.getElementById(`chat-win-ws${target.wsId}`);
+  if (win) appendMessageToPane(win, 'data', text, target.w.crew);
+  else appendMessage('data', text);
+}
+
+// Push text into a pane's input and fire its send. Main queues internally when
+// busy (no drop); project panes bail while thinking, so we retry briefly.
+function _submitToPane(target, text, attempt) {
+  attempt = attempt || 0;
+  if (target.isMain) {
+    const input = document.getElementById('chat-input');
+    if (input) input.value = text;
+    sendMessage();
+    return;
+  }
+  const ws = _workspaces.get(target.wsId);
+  const input = document.getElementById(`pane-input-ws${target.wsId}`);
+  if (!ws || !input) return;
+  if (ws.isThinking) {
+    if (attempt >= 20) {   // ~30s of retries, then give up rather than hang
+      _renderInPane(target, `⏳ Held an inter-pane message but this pane stayed busy — dropping it. The sender can resend.`);
+      return;
+    }
+    setTimeout(() => _submitToPane(target, text, attempt + 1), 1500);
+    return;
+  }
+  input.value = text;
+  sendProjectMessage(target.wsId);
+}
+
+function _deliverPaneMessage(payload) {
+  const to = payload?.to || '';
+  const message = payload?.message || '';
+  const fromKey = payload?.from_key || '';
+  if (!to || !message) return;
+
+  // Multi-tab safety: sender and target live in the SAME dashboard instance.
+  // Only the tab that owns the sending pane should deliver; if this tab has no
+  // such pane, another tab does — ignore to avoid double/mis-delivery.
+  if (fromKey && !_orderedPanes().some(p => p.key === fromKey.toLowerCase())) return;
+
+  const sender = _senderFromKey(fromKey);
+  const target = _resolveTargetPane(to, fromKey);
+
+  // Unresolved, or a pane addressing itself → note back to the SENDER so its
+  // model can retry with a valid address.
+  if (!target || target.key === fromKey.toLowerCase()) {
+    const openList = _orderedPanes()
+      .map(p => `• "${p.name}" (window ${p.index}${p.isMain ? ', main' : ''})`).join('\n');
+    const why = (target && target.key === fromKey.toLowerCase())
+      ? `A pane cannot message itself.`
+      : `I could not find an open pane matching "${to}".`;
+    const senderPane = _orderedPanes().find(p => p.key === fromKey.toLowerCase());
+    const note = `📨 **Undeliverable** — ${why}\n\nOpen panes right now:\n${openList}`;
+    if (senderPane) _renderInPane(senderPane, note); else appendMessage('data', note);
+    playDataSound('error');
+    addLog(`Inter-pane message to "${to}" undeliverable`);
+    return;
+  }
+
+  const fromName = sender.isMain ? 'the main channel' : `the "${sender.name}" pane`;
+  const idxTag = sender.index ? ` (window ${sender.index})` : '';
+  _renderInPane(target, `📨 Incoming from ${fromName}${idxTag} — relaying to this pane…`);
+
+  const replyName = sender.isMain ? 'main' : sender.name;
+  const submitText =
+    `[📨 Inter-pane message from ${fromName}${idxTag}. Treat this as a request from a teammate officer. `
+    + `If you need to reply, emit a <<send_to_pane>> marker addressed to "${replyName}".]\n\n${message}`;
+  _submitToPane(target, submitText);
+  playDataSound('doorbell');
+  addLog(`Relayed message → ${target.isMain ? 'main channel' : `"${target.name}"`} (window ${target.index})`);
 }
 
 function appendMessageToPane(winEl, role, text, crewId) {
@@ -9095,13 +9264,33 @@ if (!window.__slideinEscBound) {
 }
 
 // ── Widget #1: Email Inboxes ────────────────────────────────────
+// Providers with an `oauth` key connect through that provider's consent screen
+// (no password stored). Everything else uses the manual IMAP / app-password lane.
 const MAIL_PRESETS = {
-  gmail:    { imap_host: 'imap.gmail.com',      imap_port: 993, smtp_host: 'smtp.gmail.com',      smtp_port: 465 },
+  gmail:    { oauth: 'google', imap_host: 'imap.gmail.com', imap_port: 993, smtp_host: 'smtp.gmail.com', smtp_port: 465 },
+  outlook:  { oauth: 'microsoft', imap_host: 'outlook.office365.com', imap_port: 993, smtp_host: 'smtp.office365.com', smtp_port: 587 },
   icloud:   { imap_host: 'imap.mail.me.com',    imap_port: 993, smtp_host: 'smtp.mail.me.com',    smtp_port: 587 },
   fastmail: { imap_host: 'imap.fastmail.com',   imap_port: 993, smtp_host: 'smtp.fastmail.com',   smtp_port: 465 },
   yahoo:    { imap_host: 'imap.mail.yahoo.com', imap_port: 993, smtp_host: 'smtp.mail.yahoo.com', smtp_port: 465 },
-  outlook:  { unsupported: true },
   custom:   { imap_host: '', imap_port: 993, smtp_host: '', smtp_port: 465 },
+};
+
+// Per-provider copy for the OAuth connect lane.
+const OAUTH_PROVIDERS = {
+  google: {
+    label: 'CONNECT WITH GOOGLE',
+    hint: `Sign in through Google. DATA never sees or stores your password —
+      Google issues a limited token you can revoke anytime at
+      <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.
+      Your email address is read from Google automatically.`,
+  },
+  microsoft: {
+    label: 'CONNECT WITH MICROSOFT',
+    hint: `Sign in through Microsoft (Outlook, Office 365, Hotmail). DATA never sees or stores
+      your password — Microsoft issues a limited token you can revoke anytime at
+      <a href="https://account.live.com/consent/Manage" target="_blank" rel="noopener">account.live.com</a>.
+      Your email address is read from Microsoft automatically.`,
+  },
 };
 
 // Entry point from the CONNECTIONS grid. If ≥1 inbox is connected we open
@@ -9268,21 +9457,28 @@ function _inboxFormHtml() {
     <label>Label <span style="opacity:.6">(a short name, e.g. "personal")</span></label>
     <input id="inbox-label" type="text" autocomplete="off" placeholder="personal" required />
 
-    <!-- OAuth block — shown for Gmail. No password stored. -->
+    <!-- Connection method — shown only for providers that support BOTH lanes (Gmail, Outlook). -->
+    <div id="inbox-method-row" style="display:none">
+      <label>Connection method</label>
+      <div class="inbox-method-toggle">
+        <label class="inbox-method-opt"><input type="radio" name="inbox-method" value="oauth" checked onchange="_applyInboxPreset()"> One-click sign-in <span style="opacity:.6">(recommended, no password)</span></label>
+        <label class="inbox-method-opt"><input type="radio" name="inbox-method" value="manual" onchange="_applyInboxPreset()"> App password (IMAP)</label>
+      </div>
+    </div>
+
+    <!-- OAuth block — shown for Gmail (Google) and Outlook (Microsoft). No password stored. -->
     <div id="inbox-oauth-block" style="display:none">
-      <div class="widget-form-hint">Sign in through Google. DATA never sees or stores your password —
-        Google issues a limited token you can revoke anytime at
-        <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.
-        Your email address is read from Google automatically.</div>
+      <div class="widget-form-hint" id="inbox-oauth-hint"></div>
       <div class="widget-error" id="inbox-oauth-error"></div>
       <div class="widget-note" id="inbox-oauth-status" style="display:none"></div>
       <div class="widget-actions">
-        <button type="button" class="data-btn-sm teal" id="inbox-oauth-btn" onclick="connectGmailOAuth()">CONNECT WITH GOOGLE</button>
+        <button type="button" class="data-btn-sm teal" id="inbox-oauth-btn" data-provider="google" onclick="connectOAuth()">CONNECT WITH GOOGLE</button>
       </div>
     </div>
 
     <!-- Manual block — app password / IMAP, for every non-OAuth provider. -->
     <div id="inbox-manual-block">
+      <div class="widget-note" id="inbox-manual-note" style="display:none"></div>
       <label>Email address</label>
       <input id="inbox-address" type="email" autocomplete="off" placeholder="you@example.com" />
       <label>App password</label>
@@ -9307,86 +9503,129 @@ function _inboxFormHtml() {
   </form>`;
 }
 
+// Manual-lane app-password copy for the OAuth providers (shown when the Captain
+// picks "App password (IMAP)" instead of one-click sign-in).
+const MANUAL_NOTES = {
+  gmail: `Generate a Gmail <strong>app password</strong> at
+    <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>
+    (requires 2-Step Verification). Paste it below — it is stored locally, never your normal password.`,
+  outlook: `Most Microsoft accounts now <strong>require</strong> one-click sign-in — app passwords only work if
+    your account still allows IMAP/basic auth. If this fails, switch back to one-click sign-in above.`,
+};
+
+// Applies the current provider + connection-method selection to the form.
+// Exposed at module scope so the method radios can re-run it on change.
+function _applyInboxPreset() {
+  const sel = document.getElementById('inbox-preset');
+  if (!sel) return;
+  const p = MAIL_PRESETS[sel.value] || MAIL_PRESETS.custom;
+  const note = document.getElementById('inbox-outlook-note');
+  const submit = document.getElementById('inbox-submit');
+  const oauthBlock = document.getElementById('inbox-oauth-block');
+  const manualBlock = document.getElementById('inbox-manual-block');
+  const methodRow = document.getElementById('inbox-method-row');
+  const manualNote = document.getElementById('inbox-manual-note');
+
+  // A provider with an `oauth` key supports BOTH lanes → show the method chooser.
+  // Everything else is manual-only (no method row).
+  const chosen = document.querySelector('input[name="inbox-method"]:checked');
+  const method = chosen ? chosen.value : 'oauth';
+  if (methodRow) methodRow.style.display = p.oauth ? '' : 'none';
+
+  // OAuth lane: provider supports it AND the Captain chose one-click.
+  if (p.oauth && method === 'oauth') {
+    if (note) note.innerHTML = '';
+    if (oauthBlock) oauthBlock.style.display = '';
+    if (manualBlock) manualBlock.style.display = 'none';
+    const cfg = OAUTH_PROVIDERS[p.oauth] || OAUTH_PROVIDERS.google;
+    const hint = document.getElementById('inbox-oauth-hint');
+    const btn = document.getElementById('inbox-oauth-btn');
+    if (hint) hint.innerHTML = cfg.hint;
+    if (btn) { btn.dataset.provider = p.oauth; btn.textContent = cfg.label; btn.disabled = false; }
+    const oe = document.getElementById('inbox-oauth-error');
+    const os = document.getElementById('inbox-oauth-status');
+    if (oe) oe.textContent = '';
+    if (os) { os.style.display = 'none'; os.textContent = ''; }
+    return;
+  }
+
+  // Manual lane: either a manual-only provider, or an OAuth provider where the
+  // Captain chose "App password (IMAP)".
+  if (oauthBlock) oauthBlock.style.display = 'none';
+  if (manualBlock) manualBlock.style.display = '';
+  if (note) note.innerHTML = '';
+  if (submit) submit.disabled = false;
+
+  // Provider-specific app-password guidance for the OAuth providers.
+  if (manualNote) {
+    const copy = p.oauth ? MANUAL_NOTES[sel.value] : '';
+    if (copy) { manualNote.innerHTML = copy; manualNote.style.display = ''; }
+    else { manualNote.innerHTML = ''; manualNote.style.display = 'none'; }
+  }
+
+  const ih = document.getElementById('inbox-imap-host');
+  const ip = document.getElementById('inbox-imap-port');
+  const sh = document.getElementById('inbox-smtp-host');
+  const sp = document.getElementById('inbox-smtp-port');
+  // Prefill host/port for every known provider (gmail/outlook/icloud/…); only
+  // the free-form "custom" option starts blank.
+  if (sel.value !== 'custom') {
+    ih.value = p.imap_host; ip.value = p.imap_port;
+    sh.value = p.smtp_host; sp.value = p.smtp_port;
+  } else {
+    ih.value = ''; sh.value = '';
+  }
+}
+
 function _bindPreset() {
   const sel = document.getElementById('inbox-preset');
   if (!sel) return;
-  const apply = () => {
-    const p = MAIL_PRESETS[sel.value] || MAIL_PRESETS.custom;
-    const note = document.getElementById('inbox-outlook-note');
-    const submit = document.getElementById('inbox-submit');
-    const oauthBlock = document.getElementById('inbox-oauth-block');
-    const manualBlock = document.getElementById('inbox-manual-block');
-
-    // Gmail → OAuth path (no password). Everything else → manual IMAP.
-    if (sel.value === 'gmail') {
-      note.innerHTML = '';
-      if (oauthBlock) oauthBlock.style.display = '';
-      if (manualBlock) manualBlock.style.display = 'none';
-      const oe = document.getElementById('inbox-oauth-error');
-      const os = document.getElementById('inbox-oauth-status');
-      if (oe) oe.textContent = '';
-      if (os) { os.style.display = 'none'; os.textContent = ''; }
-      return;
-    }
-    if (oauthBlock) oauthBlock.style.display = 'none';
-    if (manualBlock) manualBlock.style.display = '';
-
-    if (p.unsupported) {
-      note.innerHTML = `<div class="widget-note">Outlook / Microsoft 365 is not supported here — it requires
-        Microsoft OAuth, which this connector does not do yet. Use a provider that allows app passwords.</div>`;
-      if (submit) submit.disabled = true;
-      return;
-    }
-    note.innerHTML = '';
-    if (submit) submit.disabled = false;
-    const ih = document.getElementById('inbox-imap-host');
-    const ip = document.getElementById('inbox-imap-port');
-    const sh = document.getElementById('inbox-smtp-host');
-    const sp = document.getElementById('inbox-smtp-port');
-    if (sel.value !== 'custom') {
-      ih.value = p.imap_host; ip.value = p.imap_port;
-      sh.value = p.smtp_host; sp.value = p.smtp_port;
-    } else {
-      ih.value = ''; sh.value = '';
-    }
-  };
-  sel.addEventListener('change', apply);
-  apply();
+  // Changing provider resets the method back to the recommended one-click lane.
+  sel.addEventListener('change', () => {
+    const oauthRadio = document.querySelector('input[name="inbox-method"][value="oauth"]');
+    if (oauthRadio) oauthRadio.checked = true;
+    _applyInboxPreset();
+  });
+  _applyInboxPreset();
 }
 
-// ── Gmail OAuth connect: kick off the consent flow, then poll for the inbox ──
-async function connectGmailOAuth() {
+// ── OAuth connect (Google or Microsoft): kick off the consent flow, poll for the inbox ──
+async function connectOAuth(provider) {
+  const btn = document.getElementById('inbox-oauth-btn');
+  provider = (provider || (btn && btn.dataset.provider) || 'google').toLowerCase();
+  const cfg = OAUTH_PROVIDERS[provider] || OAUTH_PROVIDERS.google;
+  const brand = provider === 'microsoft' ? 'Microsoft' : 'Google';
   const err = document.getElementById('inbox-oauth-error');
   const status = document.getElementById('inbox-oauth-status');
-  const btn = document.getElementById('inbox-oauth-btn');
   if (err) err.textContent = '';
-  const label = (document.getElementById('inbox-label').value || 'gmail').trim() || 'gmail';
+  const fallbackLabel = provider === 'microsoft' ? 'outlook' : 'gmail';
+  const label = (document.getElementById('inbox-label').value || fallbackLabel).trim() || fallbackLabel;
 
   // Remember which labels exist now, so we can detect the NEW one.
   let before = [];
   try { before = ((await (await fetch(`${API_BASE}/mail/accounts`)).json()).accounts || []).map(a => a.label); } catch (e) {}
 
-  if (btn) { btn.disabled = true; btn.textContent = 'OPENING GOOGLE…'; }
+  if (btn) { btn.disabled = true; btn.textContent = `OPENING ${brand.toUpperCase()}…`; }
   try {
     const r = await fetch(`${API_BASE}/mail/oauth/start`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label }),
+      body: JSON.stringify({ label, provider }),
     });
     const d = await r.json();
     if (d.error) {
       if (err) err.textContent = d.error;
-      if (btn) { btn.disabled = false; btn.textContent = 'CONNECT WITH GOOGLE'; }
+      if (btn) { btn.disabled = false; btn.textContent = cfg.label; }
       return;
     }
   } catch (e) {
     if (err) err.textContent = `Could not start sign-in: ${e.message || e}`;
-    if (btn) { btn.disabled = false; btn.textContent = 'CONNECT WITH GOOGLE'; }
+    if (btn) { btn.disabled = false; btn.textContent = cfg.label; }
     return;
   }
 
   if (status) {
     status.style.display = '';
-    status.textContent = 'A Google sign-in window is opening in your browser. Approve access, then this list updates automatically…';
+    status.textContent = `A ${brand} sign-in window is opening in your browser. Approve access, then this list updates automatically…`;
   }
 
   // Poll /mail/accounts for up to ~3 minutes for the new inbox to appear.
@@ -9396,9 +9635,9 @@ async function connectGmailOAuth() {
     try { accts = (await (await fetch(`${API_BASE}/mail/accounts`)).json()).accounts || []; } catch (e) {}
     const match = accts.find(a => a.label === label && (a.auth_type === 'oauth' || !before.includes(a.label)));
     if (match) {
-      addLog && addLog(`Gmail inbox connected: ${label} (${match.address || ''})`);
+      addLog && addLog(`${brand} inbox connected: ${label} (${match.address || ''})`);
       if (status) status.textContent = `Connected as ${match.address || label}.`;
-      if (btn) { btn.disabled = false; btn.textContent = 'CONNECT WITH GOOGLE'; }
+      if (btn) { btn.disabled = false; btn.textContent = cfg.label; }
       await refreshInboxList();
       renderWidgetsGrid();
       return;
@@ -9406,13 +9645,15 @@ async function connectGmailOAuth() {
     if (Date.now() < deadline) {
       setTimeout(poll, 2500);
     } else {
-      if (err) err.textContent = 'Timed out waiting for Google sign-in. If you approved access, click REFRESH; otherwise try again.';
+      if (err) err.textContent = `Timed out waiting for ${brand} sign-in. If you approved access, click REFRESH; otherwise try again.`;
       if (status) status.style.display = 'none';
-      if (btn) { btn.disabled = false; btn.textContent = 'CONNECT WITH GOOGLE'; }
+      if (btn) { btn.disabled = false; btn.textContent = cfg.label; }
     }
   };
   setTimeout(poll, 3000);
 }
+// Back-compat alias — earlier builds called this directly.
+function connectGmailOAuth() { return connectOAuth('google'); }
 
 async function refreshInboxList() {
   const box = document.getElementById('inbox-list');
@@ -9429,7 +9670,7 @@ async function refreshInboxList() {
     box.innerHTML = `<div class="widget-section-label">Connected inboxes</div>` + accts.map(a => `
       <div class="inbox-row">
         <div class="inbox-row-main">
-          <div class="inbox-row-label">${_wEsc(a.label)} <span class="conn-pill green">${a.auth_type === 'oauth' ? 'OAuth' : 'Connected'}</span></div>
+          <div class="inbox-row-label">${_wEsc(a.label)} <span class="conn-pill green">${a.auth_type === 'oauth' ? ((a.oauth_provider === 'microsoft' ? 'Microsoft' : 'Google') + ' OAuth') : 'Connected'}</span></div>
           <div class="inbox-row-addr">${_wEsc(a.address || '')}</div>
           <div class="inbox-row-host">${_wEsc(a.imap_host || '')}</div>
         </div>
@@ -9613,6 +9854,8 @@ function ecShellHtml() {
           onkeydown="ecAgentKey(event)" oninput="ecAutoGrow(this)"></textarea>
         <button class="dictate-btn" data-target-input="ec-agent-input"
           onclick="toggleDictation(this)" title="Dictate — speak your instruction, click the stop icon to finish">🎙</button>
+        <button class="data-btn-sm blue" id="ec-agent-max" onclick="ecToggleAgentMax(this)"
+          title="Expand the conversation and prompt box">⤢</button>
         <button class="data-btn-sm teal" onclick="ecAgent()">RUN</button>
       </div>
       <div class="ec-agent-report" id="ec-agent-report"></div>
@@ -9955,6 +10198,41 @@ function ecWireAgentResizer() {
     _wireInputResizer(chatHandle, chat, 'data.ecAgentChatHeight');
   }
 }
+// Maximize toggle: pull the conversation transcript + prompt box open to a big
+// height so the Captain can read long replies and write long instructions in
+// full, then restore. Complements the drag handles (which persist per browser).
+function ecToggleAgentMax(btn) {
+  const bar = document.getElementById('ec-agent');
+  const chat = document.getElementById('ec-agent-chat');
+  const chatHandle = document.getElementById('ec-agent-chat-resizer');
+  const ta = document.getElementById('ec-agent-input');
+  if (!bar) return;
+  const on = bar.classList.toggle('agent-max');
+  if (chat) {
+    if (on) {
+      chat.dataset.prevHeight = chat.style.height || '';
+      chat.style.display = '';
+      if (chatHandle) chatHandle.style.display = '';
+      chat.style.height = '55vh';
+      ecRenderAgentChat();
+    } else {
+      chat.style.height = chat.dataset.prevHeight || '';
+      if (!(EC.agentHistory && EC.agentHistory.length)) {
+        chat.style.display = 'none';
+        if (chatHandle) chatHandle.style.display = 'none';
+      }
+    }
+  }
+  if (ta) {
+    if (on) { ta.dataset.prevHeight = ta.style.height || ''; ta.dataset.manualHeight = '1'; ta.style.height = '160px'; }
+    else {
+      ta.style.height = ta.dataset.prevHeight || '';
+      if (!localStorage.getItem('data.ecAgentInputHeight')) { delete ta.dataset.manualHeight; ecAutoGrow(ta); }
+    }
+  }
+  if (btn) { btn.textContent = on ? '⤡' : '⤢'; btn.title = on ? 'Restore size' : 'Expand the conversation and prompt box'; }
+}
+
 // Write a transient one-line status under the compose box (e.g. "Data is
 // working…" or a triage summary). The persistent conversation lives in the
 // transcript above; this line is only for short, replaceable status.

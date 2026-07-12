@@ -3298,6 +3298,32 @@ def _load_soul(mode: str = "api") -> str:
         f"sparingly: only when his answer actually changes what you do next, not for "
         f"choices with an obvious default (just proceed and say what you chose). Put "
         f"any explanation BEFORE the marker — text after it is dropped.\n\n"
+        f"## HAND WORK TO ANOTHER CHAT PANE — send_to_pane\n"
+        f"The Captain often has several chat panes open at once, each rooted in a "
+        f"different project and possibly running a different model. You can talk to "
+        f"another open pane directly — hand it a task, ask it a question, or relay a "
+        f"result — by emitting a `<<send_to_pane>>...<</send_to_pane>>` marker. The "
+        f"bridge delivers your message INTO that pane's chat and auto-submits it to "
+        f"that pane's model, so the officer there actually acts on it and can reply "
+        f"back to you the same way. This is how two windows collaborate.\n\n"
+        f"Marker syntax (literal tags wrapping a JSON object with a `to` target and a "
+        f"`message` string):\n\n"
+        f'<<send_to_pane>>{{"to":"SelkirkSprinklers","message":"Please run the test suite in this folder and report failures."}}<</send_to_pane>>\n\n'
+        f"Addressing the `to` field — any of these work, matched case-insensitively:\n"
+        f"  • the target project's folder name, e.g. `\"SelkirkSprinklers\"`\n"
+        f"  • the window number, e.g. `\"window 2\"` or just `\"2\"`\n"
+        f"  • `\"main\"` for the main channel pane\n"
+        f"  • `\"the other window\"` when exactly two panes are open\n"
+        f"The panes currently open (and the exact names you can address) are listed in "
+        f"an OPEN CHAT PANES system-reminder on each of your turns whenever more than "
+        f"one pane is open — read it to see who you can message. If your `to` can't be "
+        f"resolved, the bridge drops a note back into THIS pane listing the open panes "
+        f"so you can retry with a correct address. When a message arrives FROM another "
+        f"pane it is prefixed so you know who sent it; reply by addressing a "
+        f"`<<send_to_pane>>` back to that pane's name. Unlike set_project_path and "
+        f"ask_options this marker does NOT end your turn — you may keep working or "
+        f"send several. Only use it when the Captain wants panes to coordinate, or "
+        f"when you genuinely need another pane to do something.\n\n"
         f"## RECALLING PAST CONVERSATIONS — search_history\n"
         f"You only see the last 20 turns of the active project pane verbatim. Every turn "
         f"older than that — and every turn from every OTHER pane — lives in the permanent "
@@ -4989,6 +5015,40 @@ def _handle_ask_options_marker(payload):
     log.info(f"[marker] ask_options queued ({len(options)} option(s)) pane={src_pane_key!r}")
 
 
+def _handle_send_to_pane_marker(payload):
+    """LLM emitted a <<send_to_pane>> marker — relay a message from THIS pane into
+    another open chat pane. The frontend resolves the `to` target against the live
+    list of open panes, renders the message in the destination pane, and
+    auto-submits it to that pane's model so the officer there acts on it (and can
+    reply back with its own send_to_pane). This is the inter-pane comms channel —
+    the way two windows collaborate.
+
+    We do NOT resolve the target here: the frontend is the authority on which panes
+    are open right now (it owns the _workspaces map), so it does the matching and,
+    on failure, drops an error note back into the sending pane. We only tag the
+    event with the SENDER's history key (path::pane_id, set by _bind_history on this
+    runner thread) so the frontend can label the message and route delivery
+    failures back to the correct originating window."""
+    if not isinstance(payload, dict):
+        log.warning("[marker] send_to_pane payload not a dict")
+        return
+    # Accept `to` (preferred) or `pane`/`target` as aliases — models improvise.
+    to = (payload.get("to") or payload.get("pane") or payload.get("target") or "").strip()
+    message = (payload.get("message") or payload.get("text") or "").strip()
+    if not to or not message:
+        log.warning("[marker] send_to_pane missing 'to'/'message'")
+        return
+    # Originating pane key — path::pane_id, lowercased (see _history_key). Empty for
+    # background callers (standing orders); the frontend falls back gracefully.
+    from_key = getattr(_history_state, "key", "") or ""
+    _push_ui_event("pane_message", {
+        "to":       to[:200],
+        "message":  message[:8000],
+        "from_key": from_key,
+    })
+    log.info(f"[marker] send_to_pane → to={to!r} from={from_key!r} ({len(message)} chars)")
+
+
 # Map marker name → handler. Used by _marker_filter_sse to intercept tool calls
 # emitted as text markers by CLI providers that don't see our structured TOOLS list.
 _MARKER_HANDLERS = {
@@ -4996,6 +5056,7 @@ _MARKER_HANDLERS = {
     "create_standing_order": _handle_create_standing_order_marker,
     "set_project_path":      _handle_set_project_path_marker,
     "ask_options":           _handle_ask_options_marker,
+    "send_to_pane":          _handle_send_to_pane_marker,
 }
 # Markers that "end the turn" — once they fire, any further LLM tokens are
 # irrelevant noise (the model has done what was asked). The filter suppresses
@@ -5003,6 +5064,61 @@ _MARKER_HANDLERS = {
 # runaway exploration ("let me also check…") after a one-shot operation.
 _TERMINAL_MARKERS = {"set_project_path", "ask_options"}
 _MAX_MARKER_TAG_LEN = max(len(f"<<{n}>>") for n in _MARKER_HANDLERS)
+
+
+# ── Inter-pane roster → per-turn context ──────────────────────────────
+# The frontend sends the live list of open chat panes (`open_panes`) on every
+# chat request. When more than one pane is open we fold a compact roster into
+# the model's turn as a system-reminder so it knows exactly which sibling panes
+# it can hand work to — and the precise names to put in a <<send_to_pane>> `to`.
+# The latest roster is also cached for GET /panes (CLI-mode callers).
+_last_pane_roster = {"panes": [], "ts": 0.0}
+_pane_roster_lock = threading.Lock()
+
+def _format_open_panes_reminder(open_panes, self_pane: str = "") -> str:
+    """Return the OPEN CHAT PANES system-reminder for this turn, or "" when
+    there is nothing worth injecting (0 or 1 pane → no one to message)."""
+    if not isinstance(open_panes, list):
+        return ""
+    # Cache the newest roster for GET /panes and CLI-mode callers.
+    try:
+        with _pane_roster_lock:
+            _last_pane_roster["panes"] = open_panes
+            _last_pane_roster["ts"] = time.time()
+    except Exception:
+        pass
+    if len(open_panes) < 2:
+        return ""
+    self_pid = (self_pane or "").strip().lower()
+    lines = []
+    for p in open_panes:
+        if not isinstance(p, dict):
+            continue
+        idx  = p.get("index")
+        name = (p.get("name") or "").strip() or "(unnamed)"
+        prov = (p.get("provider") or "").strip()
+        ism  = bool(p.get("is_main"))
+        pid  = (p.get("pane_id") or "").strip().lower()
+        tags = []
+        if ism:  tags.append("main")
+        if prov: tags.append(prov)
+        if pid and pid == self_pid: tags.append("← YOU are here")
+        tag_str = f" [{', '.join(tags)}]" if tags else ""
+        addr = "main" if ism else name
+        who  = f"window {idx}" if idx else "window ?"
+        lines.append(f'  • "{name}" — {who}{tag_str} — address as: "{addr}" or "window {idx}"')
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    return (
+        "<system-reminder>\n"
+        "OPEN CHAT PANES — you can hand work to any pane below (other than "
+        "yourself) by emitting a <<send_to_pane>> marker; the bridge drops your "
+        "message into that pane and auto-runs it there.\n"
+        f"{body}\n"
+        'Example: <<send_to_pane>>{"to":"window 2","message":"..."}<</send_to_pane>>\n'
+        "</system-reminder>\n\n"
+    )
 
 def _marker_filter_sse(downstream):
     """Wrap a send_sse callback to intercept tool-marker blocks in the LLM's
@@ -9705,19 +9821,25 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"accounts": m.list_accounts() if m else []})
 
         elif path == "/mail/oauth/status":
-            # ?label=<inbox> -> can Gmail OAuth run here, and is this inbox set up?
+            # ?label=<inbox>&provider=<google|microsoft> -> can this provider's
+            # OAuth run here, and is this inbox set up?
             _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             label = (_q.get("label", [""])[0] or "").strip()
+            provider = (_q.get("provider", ["google"])[0] or "google").strip().lower()
             try:
-                import gmail_oauth
+                if provider == "microsoft":
+                    import microsoft_oauth as oauth_mod
+                else:
+                    import gmail_oauth as oauth_mod
                 self._json({
-                    "available":     gmail_oauth.is_available(),
-                    "libs":          gmail_oauth.libs_available(),
-                    "client_secret": gmail_oauth.client_secret_present(),
-                    "configured":    gmail_oauth.is_configured(label) if label else False,
+                    "provider":      provider,
+                    "available":     oauth_mod.is_available(),
+                    "libs":          oauth_mod.libs_available(),
+                    "client_secret": oauth_mod.client_secret_present(),
+                    "configured":    oauth_mod.is_configured(label) if label else False,
                 })
             except Exception as e:
-                self._json({"available": False, "libs": False,
+                self._json({"provider": provider, "available": False, "libs": False,
                             "client_secret": False, "configured": False,
                             "error": str(e)})
 
@@ -9884,6 +10006,16 @@ class Handler(BaseHTTPRequestHandler):
             client_id = (_q.get("client_id", [""])[0] or "_legacy").strip()
             events = _drain_ui_events(client_id)
             self._json({"events": events})
+
+        elif path == "/panes":
+            # Inter-pane comms: the roster of chat panes open in the dashboard as
+            # of the last chat request. Lets a CLI-mode pane discover its siblings
+            # so it can address a <<send_to_pane>> marker. May be briefly stale.
+            with _pane_roster_lock:
+                self._json({
+                    "panes": list(_last_pane_roster.get("panes") or []),
+                    "ts":    _last_pane_roster.get("ts", 0.0),
+                })
 
         elif path == "/standing_orders":
             with _orders_lock:
@@ -10844,31 +10976,47 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         elif path == "/mail/oauth/start":
-            # {label} -> spawn the Gmail consent flow as a subprocess. A browser
-            # opens on the operator's machine; on approval the child writes the
-            # token and self-registers the inbox. The widget polls /mail/accounts.
-            label = (data.get("label") or "gmail").strip() or "gmail"
+            # {label, provider} -> spawn the provider consent flow as a subprocess.
+            # A browser opens on the operator's machine; on approval the child
+            # writes the token and self-registers the inbox. Widget polls
+            # /mail/accounts. provider in {"google","microsoft"} (default google).
+            provider = (data.get("provider") or "google").strip().lower()
+            default_label = "outlook" if provider == "microsoft" else "gmail"
+            label = (data.get("label") or default_label).strip() or default_label
             try:
-                import gmail_oauth
-                if not gmail_oauth.libs_available():
-                    self._json({"error": "Google auth libraries are not installed. "
-                                "Run: pip install google-auth google-auth-oauthlib"}, 400)
+                if provider == "microsoft":
+                    import microsoft_oauth as oauth_mod
+                    script_name = "microsoft_oauth.py"
+                    logname = "microsoft_oauth.log"
+                    libs_hint = ("Microsoft auth library is not installed. "
+                                 "Run: pip install msal")
+                    secret_hint = ("No Microsoft client id found. Place a public-client "
+                                   "app id JSON at %LOCALAPPDATA%\\hermes\\microsoft_client.json")
+                else:
+                    import gmail_oauth as oauth_mod
+                    script_name = "gmail_oauth.py"
+                    logname = "gmail_oauth.log"
+                    libs_hint = ("Google auth libraries are not installed. "
+                                 "Run: pip install google-auth google-auth-oauthlib")
+                    secret_hint = ("No Google client secret found. Place a Desktop-app "
+                                   "OAuth client JSON at %LOCALAPPDATA%\\hermes\\google_client_secret.json")
+                if not oauth_mod.libs_available():
+                    self._json({"error": libs_hint}, 400)
                     return
-                if not gmail_oauth.client_secret_present():
-                    self._json({"error": "No Google client secret found. Place a Desktop-app "
-                                "OAuth client JSON at %LOCALAPPDATA%\\hermes\\google_client_secret.json"}, 400)
+                if not oauth_mod.client_secret_present():
+                    self._json({"error": secret_hint}, 400)
                     return
                 _dash = Path(__file__).resolve().parent
-                script = str(_dash / "gmail_oauth.py")
+                script = str(_dash / script_name)
                 logdir = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local"))) / "hermes"
                 logdir.mkdir(parents=True, exist_ok=True)
-                logf = open(logdir / "gmail_oauth.log", "ab", buffering=0)
+                logf = open(logdir / logname, "ab", buffering=0)
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 subprocess.Popen([sys.executable, script, label],
                                  cwd=str(_dash),
                                  stdout=logf, stderr=logf,
                                  creationflags=creationflags)
-                self._json({"ok": True, "launching": True, "label": label})
+                self._json({"ok": True, "launching": True, "label": label, "provider": provider})
             except Exception as e:
                 log.exception("/mail/oauth/start failed")
                 self._json({"error": str(e)}, 500)
@@ -11426,6 +11574,12 @@ class Handler(BaseHTTPRequestHandler):
             req_crew = data.get("crew", "")
             if req_crew:
                 _set_main_chat_crew(req_crew)
+            # Inter-pane comms: fold the live open-pane roster into this turn so
+            # the model knows which siblings it can address with <<send_to_pane>>.
+            _pane_reminder = _format_open_panes_reminder(
+                data.get("open_panes"), data.get("self_pane", "") or pane_id)
+            if _pane_reminder and message:
+                message = _pane_reminder + message
             attachments = data.get("attachments") or []
             if not message and not attachments:
                 self._json({"error": "no message"}, 400)
@@ -11489,6 +11643,12 @@ class Handler(BaseHTTPRequestHandler):
             req_crew = data.get("crew", "")
             if req_crew:
                 _set_main_chat_crew(req_crew)
+            # Inter-pane comms: fold the live open-pane roster into this turn so
+            # the model knows which siblings it can address with <<send_to_pane>>.
+            _pane_reminder = _format_open_panes_reminder(
+                data.get("open_panes"), data.get("self_pane", "") or pane_id)
+            if _pane_reminder and message:
+                message = _pane_reminder + message
             attachments = data.get("attachments") or []
             if not message and not attachments:
                 self._json({"error": "no message"}, 400)
