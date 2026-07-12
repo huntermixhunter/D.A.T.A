@@ -773,6 +773,71 @@ def _normalize_voice(voice: str) -> str:
     return v if v in CREW_VOICES else "data"
 
 
+# One-line role blurb per officer — used for the agent-file `description`
+# frontmatter (what the CLI shows and routes on) and the Settings roster.
+CREW_ROLES = {
+    "atlas":    "Strategist and planner. Turns vague ideas into structured, ordered plans. Use to spec, plan, or set direction before building.",
+    "forge":    "Builder and lead implementer. Writes code, configs, and automations, and orchestrates the other officers. Use to build or wire up working code.",
+    "vector":   "Reviewer. Evaluates work for correctness, readability, and design before it ships. Use for code review and a merge sign-off.",
+    "sentinel": "Security specialist covering threats, vulnerabilities, and hardening. Use for a security review or threat assessment.",
+    "probe":    "Test and debugging engineer. Isolates faults to root cause and tunes performance. Use for testing, debugging, or profiling.",
+    "relay":    "Operations: deployment, infrastructure, CI/CD, and keeping systems running. Use to ship a build or fix an environment.",
+    "sage":     "Advisor. The second opinion and the long view. Use to pressure-test a decision or reframe a problem.",
+    "echo":     "Counselor. Reflection, clarity, and steadiness. Use for a non-technical check-in or to think something through.",
+    "pulse":    "Health and wellness coach covering body, energy, rest, and recovery. Use for training, sleep, nutrition, and habits.",
+    "scout":    "Fast-turnaround drafter for content, copy, and throwaway prototypes. Use for quick drafts and cheap experiments.",
+}
+
+
+def crew_agents_dir() -> Path:
+    """The single folder the Settings roster and the matrix graph read crew
+    personality files from. Kept in one place so seeding and reading never drift."""
+    return Path.home() / ".claude" / "agents"
+
+
+def seed_crew_agents(force: bool = False) -> list:
+    """Write the DATA crew personality files to ~/.claude/agents/ from CREW_VOICES.
+
+    Retail DATA ships no crew .md files and the installer never creates them, so
+    on a fresh machine ~/.claude/agents/ is empty and Settings -> Crew
+    Personalities shows nothing (and the crew cannot be spawned as subagents).
+    CREW_VOICES is the source of truth already living in this file, so we
+    generate the files from it on demand.
+
+    Idempotent and safe: an existing file is left untouched (never clobbers a
+    Captain's own edits) unless force=True. The main-channel 'data' voice has no
+    persona and is skipped. Returns the list of ids actually written."""
+    written = []
+    try:
+        agents_dir = crew_agents_dir()
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        for cid, spec in CREW_VOICES.items():
+            persona = (spec or {}).get("persona")
+            if not persona:
+                continue  # 'data' is the main channel, not a spawnable officer
+            target = agents_dir / f"{cid}.md"
+            if target.exists() and not force:
+                continue
+            name = spec.get("name", cid.title())
+            desc = CREW_ROLES.get(cid, f"{name} of the DATA crew.")
+            body = (
+                "---\n"
+                f"name: {cid}\n"
+                f"description: {desc}\n"
+                "---\n\n"
+                f"# {name} — DATA Crew\n\n"
+                f"{persona}\n"
+            )
+            try:
+                target.write_text(body, encoding="utf-8")
+                written.append(cid)
+            except Exception as e:
+                log.warning("[crew] could not write %s: %s", target, e)
+    except Exception as e:
+        log.warning("[crew] seed_crew_agents failed: %s", e)
+    return written
+
+
 # "Computer stop" interrupt — utterances that abort voice playback instead of
 # being answered as a question. Anchored ^...$ so only a *short* command counts:
 # a longer sentence that merely contains "stop" is still a normal query.
@@ -12177,6 +12242,17 @@ if __name__ == "__main__":
         (Path(__file__).resolve().parent / ".data_offline").unlink(missing_ok=True)
     except Exception:
         pass
+    # Seed the crew personality files into ~/.claude/agents/ if missing. Retail
+    # ships none and the installer creates none, so without this a fresh machine
+    # shows an empty Settings -> Crew Personalities roster and cannot spawn the
+    # crew. No-clobber: a Captain's own edited files are always left untouched.
+    try:
+        _seeded = seed_crew_agents()
+        if _seeded:
+            print(f"Crew personalities seeded to {crew_agents_dir()}: {', '.join(_seeded)}")
+    except Exception as _e:
+        log.warning("[crew] startup seed failed: %s", _e)
+
     print(f"DATA Bridge Server online at http://localhost:{PORT}")
     print(f"Hermes directory: {HERMES_DIR}")
     print(f"Memory file: {MEMORY_FILE}")
