@@ -1998,6 +1998,48 @@ html, body {
   border-radius: 4px;
 }
 .attachment-tray[hidden] { display: none; }
+
+/* Draft-restored notice — a slim LCARS-styled banner shown above the prompt
+   when an unsent message from a prior session is recovered on load. */
+.draft-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffcc66;
+  background: rgba(255, 178, 51, 0.08);
+  border: 1px solid rgba(255, 178, 51, 0.35);
+  border-left: 3px solid #ffb233;
+  border-radius: 4px;
+  animation: draft-notice-in 240ms ease-out;
+}
+.draft-notice[hidden] { display: none; }
+.draft-notice-icon { color: #ffb233; }
+.draft-notice-text { flex: 1; }
+.draft-notice-discard {
+  background: transparent;
+  border: 1px solid rgba(255, 178, 51, 0.5);
+  color: #ffcc66;
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.draft-notice-discard:hover {
+  background: #ffb233;
+  color: #14141f;
+}
+@keyframes draft-notice-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .attachment-chip {
   display: inline-flex;
   align-items: center;
