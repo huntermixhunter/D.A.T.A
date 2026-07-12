@@ -5167,10 +5167,23 @@ def _marker_filter_sse(downstream):
     suppressed = [False]
 
     def _flush_safe_prefix(text):
-        # Hold trailing '<' chars that might be the start of an opening marker
-        idx = text.rfind('<')
-        if idx >= 0 and idx >= len(text) - _MAX_MARKER_TAG_LEN:
-            return text[:idx], text[idx:]
+        # Hold a trailing partial that might be the start of an opening marker
+        # tag, so a marker split across stream chunks still reassembles.
+        #
+        # Scan the last _MAX_MARKER_TAG_LEN chars for the EARLIEST '<' whose
+        # suffix is a prefix of some "<<name>>" opening tag, and hold from there.
+        # Using the earliest (not the last) '<' is essential: every marker tag
+        # begins with "<<", so rfind would keep only the SECOND '<' and emit the
+        # first — corrupting a marker whose opening "<<" is split by a chunk
+        # boundary (the tag can then never match and leaks as visible text).
+        window_start = max(0, len(text) - _MAX_MARKER_TAG_LEN)
+        for i in range(window_start, len(text)):
+            if text[i] != '<':
+                continue
+            suffix = text[i:]
+            for name in _MARKER_HANDLERS:
+                if f"<<{name}>>".startswith(suffix):   # viable partial open tag
+                    return text[:i], text[i:]
         return text, ""
 
     def _find_earliest_marker():
