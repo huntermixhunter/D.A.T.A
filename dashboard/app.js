@@ -9780,6 +9780,7 @@ async function openEmailCockpit() {
   document.body.style.overflow = 'hidden';
   host.innerHTML = ecShellHtml();
   ecWireAgentResizer();
+  ecLoadBrain();   // populate the email-AI model picker (cloud + local models)
   // Reopening the cockpit rebuilds the shell HTML, but the conversation memory
   // lives on EC.agentHistory — restore the visible transcript so nothing is lost.
   if (EC.agentHistory && EC.agentHistory.length) {
@@ -9820,6 +9821,10 @@ function ecShellHtml() {
       <input class="ec-search" id="ec-search" type="search" placeholder="Filter messages…"
         oninput="ecSearch(this.value)" />
       <div class="ec-head-actions">
+        <select id="ec-brain" onchange="ecSetBrain(this.value)"
+          title="Which model runs the email AI (summarize, reply, triage). Pick a local model to keep everything on your machine.">
+          <option value="">Cloud · Claude</option>
+        </select>
         <button class="data-btn-sm yellow" onclick="ecLoad(true)" title="Refresh">↻</button>
         <button class="data-btn-sm teal" onclick="ecTriage()" title="Let Data rank by priority">⚡ TRIAGE</button>
         <button class="data-btn-sm blue" onclick="ecShowManage()">INBOXES</button>
@@ -9874,6 +9879,51 @@ function ecSetAccount(v) {
   EC.account = (v === '__all__') ? null : v;
   EC.selected = null;
   ecLoad(true);
+}
+
+// ── Email-AI brain picker ──────────────────────────────────────────
+// Lets the user route all email AI (summarize / reply / triage / agent)
+// through a LOCAL model for privacy, so message content never leaves the
+// machine. "" = cloud default (per-task Claude tiers).
+async function ecLoadBrain() {
+  const sel = document.getElementById('ec-brain');
+  if (!sel) return;
+  let d = { active: '', choices: [] };
+  try { d = await (await fetch(`${API_BASE}/mail/provider`)).json(); } catch (e) { return; }
+  const opts = (d.choices || []).map(c => {
+    const tag  = c.local ? '🔒 ' : '';
+    const na   = c.available ? '' : ' — install first';
+    const lbl  = c.id === '' ? 'Cloud · Claude' : `${tag}${c.label}${na}`;
+    return `<option value="${_wEsc(c.id)}"${c.available ? '' : ' disabled'}>${_wEsc(lbl)}</option>`;
+  });
+  sel.innerHTML = opts.join('') || `<option value="">Cloud · Claude</option>`;
+  sel.value = d.active || '';
+  // Flag the selector when a private/local brain is active.
+  sel.classList.toggle('ec-brain-local', !!(d.active && d.active.startsWith('ollama')));
+}
+
+async function ecSetBrain(v) {
+  const sel = document.getElementById('ec-brain');
+  try {
+    const r = await fetch(`${API_BASE}/mail/provider`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: v }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) {
+      addLog && addLog(`Email brain switch failed: ${d.error || r.status}`);
+      if (d.install_hint) addLog && addLog(`Hint: ${d.install_hint}`);
+      ecLoadBrain();   // revert the dropdown to the real active value
+      return;
+    }
+    if (sel) sel.classList.toggle('ec-brain-local', !!(d.active && d.active.startsWith('ollama')));
+    playDataSound && playDataSound('confirm');
+    addLog && addLog(d.active ? `Email brain → ${d.active} (local, private)` : 'Email brain → Cloud · Claude');
+  } catch (e) {
+    addLog && addLog(`Email brain switch error: ${e.message || e}`);
+    ecLoadBrain();
+  }
 }
 function ecSearch(v) { EC.search = (v || '').toLowerCase().trim(); ecRenderRows(); }
 function ecSetFilter(k) { EC.filter = k; ecRenderFilters(); ecRenderRows(); }

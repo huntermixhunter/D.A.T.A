@@ -5763,6 +5763,12 @@ body.theme-minimal .settings-toggle-cap:hover {
 }
 .ec-search { flex: 1 1 auto; min-width: 120px; }
 .ec-head-actions { display: flex; gap: 8px; align-items: center; }
+/* Email-AI brain picker; turns green when a private on-device model is active. */
+#ec-brain { max-width: 210px; }
+#ec-brain.ec-brain-local {
+  border-color: var(--data-green, #4caf50);
+  color: var(--data-green, #4caf50);
+}
 
 /* Body: list | reader */
 .ec-body { flex: 1 1 auto; display: flex; min-height: 0; }

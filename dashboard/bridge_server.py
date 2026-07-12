@@ -822,6 +822,15 @@ VOICE_PROVIDER_CHOICES = (
     "codex",              # ChatGPT subscription (GPT-5)
 )
 
+# ── Mail AI brain ──────────────────────────────────────────────────
+# Which model runs the email cockpit's AI tasks (summarize / reply / triage /
+# agent). "" = Cloud default: use the per-task Claude subscription tiers
+# (Haiku for light work, Sonnet for drafting). Set to a local "ollama"/
+# "ollama-small"/"ollama:<model>" id to run ALL email AI fully on-device so no
+# message content ever leaves the machine — a privacy option. Any id here
+# OVERRIDES the per-task tier in _mail_llm. Persisted to MAIL_PROVIDER_FILE.
+MAIL_PROVIDER = ""
+
 # Telegram bot has its own provider slot, independent of voice & dashboard
 # chat. Defaults to the Claude Code subscription (Opus 4.8) so DMs are
 # answered by the best available model without burning API tokens. Override
@@ -1695,6 +1704,7 @@ def _cli_install_job(job_id: str, cmd: str) -> None:
 # the box.
 
 PROVIDER_STATE_FILE = PROJECT_DIR / "provider_state.json"   # persists the active brain
+MAIL_PROVIDER_FILE  = PROJECT_DIR / "mail_provider.txt"     # persists the email-cockpit brain
 
 # True once the buyer EXPLICITLY picks a provider via POST /provider. An explicit
 # choice is sticky: CLI-first selection and the Ollama auto-connect never override
@@ -1845,6 +1855,31 @@ def _load_active_provider() -> None:
         log.warning(f"[provider] could not read persisted provider: {e}")
         PROVIDER_EXPLICIT = False
     _select_default_brain()
+
+
+def _save_mail_provider() -> None:
+    """Persist the email-cockpit brain choice (one line; empty = cloud default)."""
+    try:
+        MAIL_PROVIDER_FILE.write_text(MAIL_PROVIDER or "", encoding="utf-8")
+    except Exception as e:
+        log.warning(f"[mail] could not persist mail provider: {e}")
+
+
+def _load_mail_provider() -> None:
+    """At startup: restore the persisted mail brain if it is still a known,
+    available provider. A missing/unavailable choice silently falls back to the
+    cloud default ("") so email AI never breaks on a machine that lost Ollama."""
+    global MAIL_PROVIDER
+    try:
+        if MAIL_PROVIDER_FILE.exists():
+            saved = MAIL_PROVIDER_FILE.read_text(encoding="utf-8").strip()
+            if saved and saved in PROVIDERS and _provider_available(saved):
+                MAIL_PROVIDER = saved
+                log.info(f"[mail] restored mail provider: {saved}")
+            elif saved:
+                log.info(f"[mail] persisted mail provider '{saved}' unavailable — using cloud default")
+    except Exception as e:
+        log.warning(f"[mail] could not read mail provider: {e}")
 
 
 def _set_job(job_id: str, **fields) -> None:
@@ -6183,6 +6218,37 @@ def _mail_call(action_fn) -> str:
         return f"Mail action failed: {e}"
 
 
+def _mail_llm_ollama(prompt: str, system: str, model: str, url: str,
+                     timeout: int = 150) -> str:
+    """One-shot completion via a LOCAL Ollama model (/api/chat, stream:false).
+
+    Used when the email cockpit brain is set to an on-device model for privacy:
+    the message content is sent only to localhost, never to any cloud API.
+    Returns the raw text (empty string on failure — callers handle gracefully).
+    """
+    try:
+        _ensure_ollama_daemon()   # best-effort: wake `ollama serve` if it is asleep
+    except Exception:
+        pass
+    body = json.dumps({
+        "model":    model,
+        "stream":   False,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": prompt},
+        ],
+    }).encode("utf-8")
+    try:
+        req = urllib.request.Request(url, data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        return ((payload.get("message") or {}).get("content") or "").strip()
+    except Exception as e:
+        log.warning(f"[MAIL-LLM/ollama] {e}")
+        return ""
+
+
 def _mail_llm(prompt: str, system: str, tier: str = "claude-cli-haiku",
               timeout: int = 150) -> str:
     """One-shot LLM completion for mail tasks (summarize / triage / reply / agent).
@@ -6190,11 +6256,27 @@ def _mail_llm(prompt: str, system: str, tier: str = "claude-cli-haiku",
     Deliberately does NOT load the full Data soul + tool docs — a tiny task
     system prompt keeps it fast and cheap. `tier` selects the model via PROVIDERS.
     Returns the raw text (empty string on failure — callers handle gracefully).
+
+    Mail-brain override: if MAIL_PROVIDER names an available provider (e.g. a
+    local Ollama model the buyer picked for privacy), it wins over the per-task
+    `tier` and every email AI call routes through it. Empty MAIL_PROVIDER keeps
+    the original cloud behaviour (Claude Haiku/Sonnet by task).
     """
+    eff = tier
+    if MAIL_PROVIDER and MAIL_PROVIDER in PROVIDERS and _provider_available(MAIL_PROVIDER):
+        eff = MAIL_PROVIDER
+    cfg = PROVIDERS.get(eff) or PROVIDERS.get(tier) or PROVIDERS.get("claude-cli") or {}
+
+    # Local path — run fully on-device via Ollama (nothing leaves localhost).
+    if cfg.get("kind") == "http":
+        return _mail_llm_ollama(prompt, system, cfg.get("model", "qwen2.5:3b"),
+                                cfg.get("url", OLLAMA_CHAT_URL), timeout)
+
+    # Cloud path — Claude subscription CLI (default).
     exe = _provider_executable("claude-cli")
     if not exe:
         return ""
-    model = (PROVIDERS.get(tier) or PROVIDERS.get("claude-cli") or {}).get("model", "claude-opus-4-8")
+    model = cfg.get("model", "claude-opus-4-8")
     sf = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
     sf.write(system); sf.close()
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
@@ -10096,6 +10178,30 @@ class Handler(BaseHTTPRequestHandler):
                 "active":  VOICE_ACTIVE_CREW,
             })
 
+        elif path == "/mail/provider":
+            # Email-cockpit brain picker. First choice is the cloud default
+            # (per-task Claude tiers); the rest are every locally-installed
+            # Ollama model, offered as a fully-private on-device option.
+            try:
+                _sync_ollama_providers()   # surface freshly-pulled local models
+            except Exception:
+                pass
+            choices = [{
+                "id": "", "label": "Cloud · Claude (default)",
+                "model": "claude — per task", "available": True, "local": False,
+            }]
+            for pid, p in PROVIDERS.items():
+                if p.get("kind") == "http":   # ollama, ollama-small, ollama:<model>
+                    choices.append({
+                        "id":           pid,
+                        "label":        p.get("label", pid),
+                        "model":        p.get("model", ""),
+                        "available":    _provider_available(pid),
+                        "local":        True,
+                        "install_hint": p.get("install_hint", ""),
+                    })
+            self._json({"active": MAIL_PROVIDER, "choices": choices})
+
         elif path == "/voice/provider":
             self._json({
                 "active":  VOICE_PROVIDER,
@@ -11472,6 +11578,30 @@ class Handler(BaseHTTPRequestHandler):
             log.info(f"[MEMORY] crew memory saved ({len(content)} chars)")
             self._json({"saved": True, "bytes": len(content.encode('utf-8'))})
 
+        elif path == "/mail/provider":
+            global MAIL_PROVIDER
+            new_mp = (data.get("provider") or "").strip()
+            # "" resets to the cloud default (per-task Claude tiers).
+            if new_mp == "":
+                MAIL_PROVIDER = ""
+                _save_mail_provider()
+                log.info("[MAIL_PROVIDER] reset to cloud default")
+                self._json({"active": MAIL_PROVIDER})
+                return
+            if new_mp not in PROVIDERS:
+                self._json({"error": f"unknown provider '{new_mp}'"}, 400)
+                return
+            if not _provider_available(new_mp):
+                self._json({
+                    "error":        f"provider '{new_mp}' is not available",
+                    "install_hint": PROVIDERS[new_mp].get("install_hint", ""),
+                }, 400)
+                return
+            MAIL_PROVIDER = new_mp
+            _save_mail_provider()
+            log.info(f"[MAIL_PROVIDER] switched to {MAIL_PROVIDER}")
+            self._json({"active": MAIL_PROVIDER})
+
         elif path == "/voice/provider":
             global VOICE_PROVIDER
             new_voice = data.get("provider", "")
@@ -12051,6 +12181,9 @@ if __name__ == "__main__":
     # Active brain: restore the persisted provider if it is still available
     # (so a connected local model survives a restart on a machine with no CLI).
     _load_active_provider()
+    # Email-cockpit brain: restore the persisted mail model (cloud default or a
+    # local Ollama model the buyer picked for privacy).
+    _load_mail_provider()
     # Standing orders: load from disk, recompute next_run for each, start scheduler
     _load_standing_orders()
     # The Potential Upgrades scan was retired by the Captain — purge any copy a
