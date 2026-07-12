@@ -5490,7 +5490,11 @@ function _browserDictationToggle(btn, targetId, wakeMode = false) {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       if (e.results[i].isFinal) {
         const txt = e.results[i][0].transcript.trim();
-        if (txt) { input.value = (input.value.trimEnd() ? input.value.trimEnd() + ' ' : '') + txt; _heardText = true; }
+        if (txt) {
+          input.value = (input.value.trimEnd() ? input.value.trimEnd() + ' ' : '') + txt;
+          input.dispatchEvent(new Event('input', { bubbles: true }));  // let autogrow resize
+          _heardText = true;
+        }
       }
     }
   };
@@ -5589,6 +5593,7 @@ async function toggleDictation(btnFromEvent) {
         if (input) {
           input.value = (input.value.trimEnd() ? input.value.trimEnd() + ' ' : '') + data.text;
           input.focus();
+          input.dispatchEvent(new Event('input', { bubbles: true }));  // let autogrow resize
         }
         addLog('Dictation complete');
       } else {
@@ -9262,26 +9267,42 @@ function _inboxFormHtml() {
     <div id="inbox-outlook-note"></div>
     <label>Label <span style="opacity:.6">(a short name, e.g. "personal")</span></label>
     <input id="inbox-label" type="text" autocomplete="off" placeholder="personal" required />
-    <label>Email address</label>
-    <input id="inbox-address" type="email" autocomplete="off" placeholder="you@example.com" required />
-    <label>App password</label>
-    <input id="inbox-password" type="password" autocomplete="new-password" placeholder="app-specific password" required />
-    <div class="widget-form-hint">This is <strong>not</strong> your normal login password. It is an app-specific
-      password you generate in your email provider's security settings. For Gmail:
-      <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a></div>
-    <label>Display name <span style="opacity:.6">(optional)</span></label>
-    <input id="inbox-name" type="text" autocomplete="off" placeholder="Your Name" />
-    <div class="form-row2">
-      <div><label>IMAP host</label><input id="inbox-imap-host" type="text" /></div>
-      <div><label>IMAP port</label><input id="inbox-imap-port" type="number" value="993" /></div>
+
+    <!-- OAuth block — shown for Gmail. No password stored. -->
+    <div id="inbox-oauth-block" style="display:none">
+      <div class="widget-form-hint">Sign in through Google. DATA never sees or stores your password —
+        Google issues a limited token you can revoke anytime at
+        <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.
+        Your email address is read from Google automatically.</div>
+      <div class="widget-error" id="inbox-oauth-error"></div>
+      <div class="widget-note" id="inbox-oauth-status" style="display:none"></div>
+      <div class="widget-actions">
+        <button type="button" class="data-btn-sm teal" id="inbox-oauth-btn" onclick="connectGmailOAuth()">CONNECT WITH GOOGLE</button>
+      </div>
     </div>
-    <div class="form-row2">
-      <div><label>SMTP host</label><input id="inbox-smtp-host" type="text" /></div>
-      <div><label>SMTP port</label><input id="inbox-smtp-port" type="number" value="465" /></div>
-    </div>
-    <div class="widget-error" id="inbox-error"></div>
-    <div class="widget-actions">
-      <button type="submit" class="data-btn-sm teal" id="inbox-submit">CONNECT INBOX</button>
+
+    <!-- Manual block — app password / IMAP, for every non-OAuth provider. -->
+    <div id="inbox-manual-block">
+      <label>Email address</label>
+      <input id="inbox-address" type="email" autocomplete="off" placeholder="you@example.com" />
+      <label>App password</label>
+      <input id="inbox-password" type="password" autocomplete="new-password" placeholder="app-specific password" />
+      <div class="widget-form-hint">This is <strong>not</strong> your normal login password. It is an app-specific
+        password you generate in your email provider's security settings.</div>
+      <label>Display name <span style="opacity:.6">(optional)</span></label>
+      <input id="inbox-name" type="text" autocomplete="off" placeholder="Your Name" />
+      <div class="form-row2">
+        <div><label>IMAP host</label><input id="inbox-imap-host" type="text" /></div>
+        <div><label>IMAP port</label><input id="inbox-imap-port" type="number" value="993" /></div>
+      </div>
+      <div class="form-row2">
+        <div><label>SMTP host</label><input id="inbox-smtp-host" type="text" /></div>
+        <div><label>SMTP port</label><input id="inbox-smtp-port" type="number" value="465" /></div>
+      </div>
+      <div class="widget-error" id="inbox-error"></div>
+      <div class="widget-actions">
+        <button type="submit" class="data-btn-sm teal" id="inbox-submit">CONNECT INBOX</button>
+      </div>
     </div>
   </form>`;
 }
@@ -9293,9 +9314,26 @@ function _bindPreset() {
     const p = MAIL_PRESETS[sel.value] || MAIL_PRESETS.custom;
     const note = document.getElementById('inbox-outlook-note');
     const submit = document.getElementById('inbox-submit');
+    const oauthBlock = document.getElementById('inbox-oauth-block');
+    const manualBlock = document.getElementById('inbox-manual-block');
+
+    // Gmail → OAuth path (no password). Everything else → manual IMAP.
+    if (sel.value === 'gmail') {
+      note.innerHTML = '';
+      if (oauthBlock) oauthBlock.style.display = '';
+      if (manualBlock) manualBlock.style.display = 'none';
+      const oe = document.getElementById('inbox-oauth-error');
+      const os = document.getElementById('inbox-oauth-status');
+      if (oe) oe.textContent = '';
+      if (os) { os.style.display = 'none'; os.textContent = ''; }
+      return;
+    }
+    if (oauthBlock) oauthBlock.style.display = 'none';
+    if (manualBlock) manualBlock.style.display = '';
+
     if (p.unsupported) {
       note.innerHTML = `<div class="widget-note">Outlook / Microsoft 365 is not supported here — it requires
-        OAuth (XOAUTH2), which this connector does not do. Use a provider that allows app passwords.</div>`;
+        Microsoft OAuth, which this connector does not do yet. Use a provider that allows app passwords.</div>`;
       if (submit) submit.disabled = true;
       return;
     }
@@ -9316,6 +9354,66 @@ function _bindPreset() {
   apply();
 }
 
+// ── Gmail OAuth connect: kick off the consent flow, then poll for the inbox ──
+async function connectGmailOAuth() {
+  const err = document.getElementById('inbox-oauth-error');
+  const status = document.getElementById('inbox-oauth-status');
+  const btn = document.getElementById('inbox-oauth-btn');
+  if (err) err.textContent = '';
+  const label = (document.getElementById('inbox-label').value || 'gmail').trim() || 'gmail';
+
+  // Remember which labels exist now, so we can detect the NEW one.
+  let before = [];
+  try { before = ((await (await fetch(`${API_BASE}/mail/accounts`)).json()).accounts || []).map(a => a.label); } catch (e) {}
+
+  if (btn) { btn.disabled = true; btn.textContent = 'OPENING GOOGLE…'; }
+  try {
+    const r = await fetch(`${API_BASE}/mail/oauth/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+    });
+    const d = await r.json();
+    if (d.error) {
+      if (err) err.textContent = d.error;
+      if (btn) { btn.disabled = false; btn.textContent = 'CONNECT WITH GOOGLE'; }
+      return;
+    }
+  } catch (e) {
+    if (err) err.textContent = `Could not start sign-in: ${e.message || e}`;
+    if (btn) { btn.disabled = false; btn.textContent = 'CONNECT WITH GOOGLE'; }
+    return;
+  }
+
+  if (status) {
+    status.style.display = '';
+    status.textContent = 'A Google sign-in window is opening in your browser. Approve access, then this list updates automatically…';
+  }
+
+  // Poll /mail/accounts for up to ~3 minutes for the new inbox to appear.
+  const deadline = Date.now() + 180000;
+  const poll = async () => {
+    let accts = [];
+    try { accts = (await (await fetch(`${API_BASE}/mail/accounts`)).json()).accounts || []; } catch (e) {}
+    const match = accts.find(a => a.label === label && (a.auth_type === 'oauth' || !before.includes(a.label)));
+    if (match) {
+      addLog && addLog(`Gmail inbox connected: ${label} (${match.address || ''})`);
+      if (status) status.textContent = `Connected as ${match.address || label}.`;
+      if (btn) { btn.disabled = false; btn.textContent = 'CONNECT WITH GOOGLE'; }
+      await refreshInboxList();
+      renderWidgetsGrid();
+      return;
+    }
+    if (Date.now() < deadline) {
+      setTimeout(poll, 2500);
+    } else {
+      if (err) err.textContent = 'Timed out waiting for Google sign-in. If you approved access, click REFRESH; otherwise try again.';
+      if (status) status.style.display = 'none';
+      if (btn) { btn.disabled = false; btn.textContent = 'CONNECT WITH GOOGLE'; }
+    }
+  };
+  setTimeout(poll, 3000);
+}
+
 async function refreshInboxList() {
   const box = document.getElementById('inbox-list');
   if (!box) return;
@@ -9331,7 +9429,7 @@ async function refreshInboxList() {
     box.innerHTML = `<div class="widget-section-label">Connected inboxes</div>` + accts.map(a => `
       <div class="inbox-row">
         <div class="inbox-row-main">
-          <div class="inbox-row-label">${_wEsc(a.label)} <span class="conn-pill green">Connected</span></div>
+          <div class="inbox-row-label">${_wEsc(a.label)} <span class="conn-pill green">${a.auth_type === 'oauth' ? 'OAuth' : 'Connected'}</span></div>
           <div class="inbox-row-addr">${_wEsc(a.address || '')}</div>
           <div class="inbox-row-host">${_wEsc(a.imap_host || '')}</div>
         </div>
@@ -9440,6 +9538,16 @@ async function openEmailCockpit() {
   host.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
   host.innerHTML = ecShellHtml();
+  ecWireAgentResizer();
+  // Reopening the cockpit rebuilds the shell HTML, but the conversation memory
+  // lives on EC.agentHistory — restore the visible transcript so nothing is lost.
+  if (EC.agentHistory && EC.agentHistory.length) {
+    const chat = document.getElementById('ec-agent-chat');
+    const handle = document.getElementById('ec-agent-chat-resizer');
+    if (chat) chat.style.display = '';
+    if (handle) handle.style.display = '';
+    ecRenderAgentChat();
+  }
   try {
     EC.accounts = (await (await fetch(`${API_BASE}/mail/accounts`)).json()).accounts || [];
   } catch { EC.accounts = []; }
@@ -9487,14 +9595,25 @@ function ecShellHtml() {
       </div>
     </div>
     <div class="ec-agent" id="ec-agent">
+      <!-- Conversation transcript with Data. Doubles as his short-term memory of
+           this inbox thread and is drag-resizable, like the bridge chat. Hidden
+           until the first exchange so the widget stays compact. -->
+      <div class="input-resize-handle" id="ec-agent-chat-resizer"
+           title="Drag to resize the conversation area" role="separator"
+           aria-orientation="horizontal" style="display:none"></div>
+      <div class="ec-agent-chat" id="ec-agent-chat" style="display:none"></div>
+      <!-- Drag up/down to resize the prompt box, like the bridge chat. Height persists. -->
+      <div class="input-resize-handle" id="ec-agent-resizer"
+           title="Drag to resize the prompt area" role="separator"
+           aria-orientation="horizontal"></div>
       <div class="ec-agent-row">
         <span class="ec-agent-icon">DATA ▸</span>
         <textarea id="ec-agent-input" rows="1"
           placeholder="Tell Data to organize your inbox — e.g. 'archive all newsletters, flag anything from my bank, mark receipts read'"
           onkeydown="ecAgentKey(event)" oninput="ecAutoGrow(this)"></textarea>
+        <button class="dictate-btn" data-target-input="ec-agent-input"
+          onclick="toggleDictation(this)" title="Dictate — speak your instruction, click the stop icon to finish">🎙</button>
         <button class="data-btn-sm teal" onclick="ecAgent()">RUN</button>
-        <button class="data-btn-sm ec-agent-expand" id="ec-agent-expand"
-          onclick="ecToggleAgentExpand()" title="Expand the prompt and Data's replies">⤢</button>
       </div>
       <div class="ec-agent-report" id="ec-agent-report"></div>
     </div>`;
@@ -9806,47 +9925,94 @@ function ecAgentKey(ev) {
   if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); ecAgent(); }
 }
 // Grow the prompt textarea to fit its content (bounded by the CSS max-height).
+// Yields once the Captain has dragged the box to a manual height so autogrow
+// never fights the drag handle.
 function ecAutoGrow(el) {
   if (!el) return;
+  if (el.dataset.manualHeight) return;
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 220) + 'px';
 }
-// Toggle the tall panel — big prompt box + full scrollable reply.
-function ecToggleAgentExpand() {
-  const bar = document.getElementById('ec-agent');
-  const btn = document.getElementById('ec-agent-expand');
-  if (!bar) return;
-  const on = bar.classList.toggle('expanded');
-  if (btn) { btn.textContent = on ? '⤡' : '⤢'; btn.title = on ? 'Collapse' : 'Expand the prompt and Data\'s replies'; }
-  ecAutoGrow(document.getElementById('ec-agent-input'));
+// Wire the drag handle above the prompt box, reusing the same generic resizer
+// the bridge chat uses. Dragging up grows the box; the height persists per
+// browser; double-clicking the handle resets it to autogrow.
+function ecWireAgentResizer() {
+  const handle = document.getElementById('ec-agent-resizer');
+  const ta = document.getElementById('ec-agent-input');
+  if (!handle || !ta || typeof _wireInputResizer !== 'function') return;
+  const KEY = 'data.ecAgentInputHeight';
+  _wireInputResizer(handle, ta, KEY);
+  // Once dragged, mark the box manual so autogrow yields to the chosen height.
+  handle.addEventListener('pointerdown', () => { ta.dataset.manualHeight = '1'; });
+  handle.addEventListener('dblclick',   () => { delete ta.dataset.manualHeight; ecAutoGrow(ta); });
+  if (localStorage.getItem(KEY)) ta.dataset.manualHeight = '1';
+
+  // The conversation transcript is resizable too — same drag handle the bridge
+  // chat uses, so the Captain can pull it open to read a long reply in full.
+  const chatHandle = document.getElementById('ec-agent-chat-resizer');
+  const chat = document.getElementById('ec-agent-chat');
+  if (chatHandle && chat && typeof _wireInputResizer === 'function') {
+    _wireInputResizer(chatHandle, chat, 'data.ecAgentChatHeight');
+  }
 }
-// Write Data's reply into the report panel. Auto-expands for longer replies so
-// the Captain can actually read them without hunting for the toggle.
+// Write a transient one-line status under the compose box (e.g. "Data is
+// working…" or a triage summary). The persistent conversation lives in the
+// transcript above; this line is only for short, replaceable status.
 function ecSetReport(text) {
   const rep = document.getElementById('ec-agent-report');
   if (!rep) return;
   rep.textContent = text || '';
-  if ((text || '').length > 80) {
-    const bar = document.getElementById('ec-agent');
-    if (bar && !bar.classList.contains('expanded')) ecToggleAgentExpand();
-  }
+  const bar = document.getElementById('ec-agent');
+  if (bar) bar.classList.toggle('expanded', (text || '').length > 80);
+}
+
+// Append one turn to the conversation transcript. The transcript is Data's
+// short-term memory of this inbox thread: every bubble here is replayed to the
+// backend so he remembers what was said. Reveals the (resizable) log on first use.
+function ecAgentAppend(role, text) {
+  if (!EC.agentHistory) EC.agentHistory = [];
+  EC.agentHistory.push({ role, text: text || '' });
+  const chat = document.getElementById('ec-agent-chat');
+  const handle = document.getElementById('ec-agent-chat-resizer');
+  if (chat) { chat.style.display = ''; if (handle) handle.style.display = ''; }
+  ecRenderAgentChat();
+}
+
+// Render the full transcript and pin the view to the newest message.
+function ecRenderAgentChat() {
+  const chat = document.getElementById('ec-agent-chat');
+  if (!chat) return;
+  chat.innerHTML = (EC.agentHistory || []).map(t =>
+    `<div class="ec-msg ${t.role === 'user' ? 'me' : 'data'}">
+       <span class="ec-msg-who">${t.role === 'user' ? 'YOU' : 'DATA'}</span>
+       <div class="ec-msg-text">${_wEsc(t.text)}</div>
+     </div>`).join('');
+  chat.scrollTop = chat.scrollHeight;
 }
 
 async function ecAgent() {
   const inp = document.getElementById('ec-agent-input'); if (!inp) return;
   const command = (inp.value || '').trim(); if (!command) return;
+  // Clear the box the instant we send — the Captain's words should not linger
+  // while Data works, and an early return on error must never strand the text.
+  inp.value = ''; ecAutoGrow(inp);
+  // Capture the prior thread BEFORE adding this turn, so history is context and
+  // `command` is the current instruction (no duplication of the live command).
+  if (!EC.agentHistory) EC.agentHistory = [];
+  const priorHistory = EC.agentHistory.slice(-12);
+  ecAgentAppend('user', command);
   ecSetReport('Data is working the inbox…');
   playDataSound && playDataSound('confirm');
-  const payload = { folder: EC.folder, command };
+  const payload = { folder: EC.folder, command, history: priorHistory };
   if (EC.account) payload.account = EC.account;
   const r = await fetch(`${API_BASE}/mail/agent`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then(r => r.json()).catch(e => ({ error: e.message || e }));
-  if (r.error) { ecSetReport('Agent error: ' + r.error); return; }
-  ecSetReport(r.report || `Applied ${r.count || 0} action(s).`);
+  ecSetReport('');
+  if (r.error) { ecAgentAppend('data', 'Agent error: ' + r.error); return; }
+  ecAgentAppend('data', r.report || `Applied ${r.count || 0} action(s).`);
   addLog && addLog(`Inbox agent: ${r.report || ''} (${r.count || 0} applied)`);
-  inp.value = ''; ecAutoGrow(inp);
   await ecLoad(true);   // reflect the agent's changes live
 }
 

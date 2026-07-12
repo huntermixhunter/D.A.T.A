@@ -332,6 +332,11 @@ SKILLS_DIR  = HERMES_DIR / "skills"
 PROJECT_DIR = Path(__file__).parent.parent   # the DATA install folder
 STANDING_ORDERS_FILE = PROJECT_DIR / "standing_orders.json"   # shared across users
 POWER_CORE_BASELINE_FILE = PROJECT_DIR / "power_core_baseline.json"
+# One-shot notes background jobs leave for Data to surface on the next chat turn
+# (see _data_notify / _data_notification_hint). Lives at the install root, outside
+# the dashboard/ subtree the self-updater syncs, so an update can never clobber it.
+DATA_NOTIFICATIONS_FILE = PROJECT_DIR / "data_notifications.json"
+_data_notif_lock = threading.Lock()
 
 # ════════════════════════════════════════════════════════════════
 # CLAWDCURSOR — desktop-takeover MCP server (arm/disarm)
@@ -4495,6 +4500,87 @@ def _drain_ui_events(client_id: str) -> list:
 
 
 # ═══════════════════════════════════════════════════════════
+# DATA NOTIFICATIONS — one-shot notes the ship leaves for Data
+# ───────────────────────────────────────────────────────────
+# When a background job finishes with something Data should know or relay (a
+# standing order completing, the self-updater applying files), it drops a note
+# here. The note is surfaced to Data on his NEXT chat turn as a system-reminder
+# block, then marked read, so it appears exactly once. Persisted to disk so it
+# survives a restart — essential for the self-updater, whose final step is to
+# reboot the bridge; the note is written before the reboot and delivered after.
+
+def _data_notify(title: str, body: str = "", instructions: str = "") -> None:
+    """Queue a one-shot notification for Data to surface on his next turn."""
+    rec = {
+        "ts": time.time(),
+        "title": str(title or "").strip(),
+        "body": str(body or "").strip(),
+        "instructions": str(instructions or "").strip(),
+        "read": False,
+    }
+    try:
+        with _data_notif_lock:
+            items = []
+            if DATA_NOTIFICATIONS_FILE.exists():
+                try:
+                    items = json.loads(DATA_NOTIFICATIONS_FILE.read_text(encoding="utf-8"))
+                    if not isinstance(items, list):
+                        items = []
+                except Exception:
+                    items = []
+            items.append(rec)
+            items = items[-50:]          # bound the file
+            DATA_NOTIFICATIONS_FILE.write_text(
+                json.dumps(items, indent=2), encoding="utf-8")
+        log.info(f"[data-notify] queued: {rec['title']}")
+    except Exception as e:
+        log.warning(f"[data-notify] could not queue notification: {e}")
+
+
+def _data_notification_hint() -> str:
+    """Return unread Data notifications as a system-reminder block and mark them
+    read. Empty string when nothing is pending. One-shot by design."""
+    unread = []
+    try:
+        with _data_notif_lock:
+            if not DATA_NOTIFICATIONS_FILE.exists():
+                return ""
+            try:
+                items = json.loads(DATA_NOTIFICATIONS_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                return ""
+            if not isinstance(items, list):
+                return ""
+            unread = [n for n in items if isinstance(n, dict) and not n.get("read")]
+            if not unread:
+                return ""
+            for n in items:
+                if isinstance(n, dict):
+                    n["read"] = True
+            try:
+                DATA_NOTIFICATIONS_FILE.write_text(
+                    json.dumps(items, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+    except Exception:
+        return ""
+    lines = [
+        "[ship notification — for Data] The following completed in the background "
+        "while you were away. Relay what matters to the Captain in your own voice, "
+        "and carry out any further instructions. This is shown once — act on it now."
+    ]
+    for n in unread:
+        when = time.strftime("%Y-%m-%d %H:%M",
+                             time.localtime(n.get("ts", time.time())))
+        lines.append(f"\n🔔 {n.get('title', '(untitled)')}  ({when})")
+        if n.get("body"):
+            lines.append(str(n["body"]))
+        if n.get("instructions"):
+            lines.append(f"Further instructions: {n['instructions']}")
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════
 # STANDING ORDERS — recurring duty roster
 # Cron entries that the bridge fires on schedule. Each order has a prompt
 # that gets dispatched to a chosen provider as if the Captain had typed it.
@@ -4647,6 +4733,40 @@ def _fire_standing_order(order: dict) -> None:
             if summary.get("errors"):
                 log.warning(f"[orders] self-update errors: {summary['errors'][:5]}")
             _push_ui_event("dashboard_update", summary)
+            # Leave Data a one-shot note so the result surfaces on his next turn
+            # even though the Captain wasn't watching. Written BEFORE the auto-
+            # restart below so it persists across the reboot and is delivered
+            # afterward, carrying any further instructions.
+            try:
+                up = summary.get("updated") or []
+                changed = ", ".join(u.get("path", "?").split("/")[-1] for u in up[:12]) or "none"
+                if len(up) > 12:
+                    changed += f", +{len(up) - 12} more"
+                instr = []
+                if summary.get("errors"):
+                    instr.append(f"{len(summary['errors'])} file(s) failed to apply — "
+                                 f"review the bridge log and, if anything is broken, roll "
+                                 f"back from {summary.get('backup_dir') or 'the backup folder'}.")
+                if not up:
+                    instr.append("Nothing changed, so no action is needed.")
+                else:
+                    instr.append("Skim the changed files and give the Captain a one-line "
+                                 "summary of what is new or fixed.")
+                    if summary.get("restart_required"):
+                        instr.append("A bridge restart was required and was performed "
+                                     "automatically — confirm the dashboard came back up "
+                                     "and the updated features work."
+                                     if auto else
+                                     "A restart is required to activate .py changes — "
+                                     "tell the Captain to restart DATA.")
+                _data_notify(
+                    title=f"Dashboard self-update — {summary.get('status', '?')}",
+                    body=(f"{response}\nChanged: {changed}\n"
+                          f"Backup: {summary.get('backup_dir') or 'n/a'}"),
+                    instructions=" ".join(instr),
+                )
+            except Exception as _ne:
+                log.warning(f"[orders] self-update data-notify failed: {_ne}")
             # Relaunch the bridge so downloaded .py changes take effect. Gated
             # on this order's auto_restart flag (seeded True): writing the files
             # is the apply, the in-place re-exec activates them live.
@@ -6247,6 +6367,17 @@ def ask_hermes(message: str, project_path: str = "") -> str:
             {"role": "assistant", "content": "Understood, Captain. I am aware of the active project and will read files directly when required."},
         ] + messages
 
+    # Ship notification — one-shot background-job results (self-update, etc.).
+    try:
+        _notif = _data_notification_hint()
+        if _notif:
+            messages = [
+                {"role": "user",      "content": _notif},
+                {"role": "assistant", "content": "Understood — I will relay that and act on it."},
+            ] + messages
+    except Exception as e:
+        log.warning(f"[data-notify] inject failed: {e}")
+
     # Auto-recall hint: quietly surface the single most relevant past item if
     # one strongly matches the user's current message. Silent when nothing is
     # confidently relevant. Best-effort — never blocks the turn on failure.
@@ -6468,6 +6599,15 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     active_path = project_path or _project_path
     if active_path:
         prompt = f"[Active project: {active_path}]\n\n{prompt}"
+
+    # Ship notification — one-shot background-job results (self-update, etc.).
+    # This is the live main-channel path, so Data reliably sees the note here.
+    try:
+        _notif = _data_notification_hint()
+        if _notif:
+            prompt = _notif + "\n\n" + prompt
+    except Exception as e:
+        log.warning(f"[data-notify] CLI inject failed: {e}")
 
     # Auto memory-bank recall — surface relevant past context from EVERY pane so
     # the Captain never has to prod ("search your memory banks"). This is the CLI
@@ -7416,6 +7556,17 @@ def ask_hermes_stream(message: str, project_path: str, send_sse) -> None:
             {"role": "user",      "content": f"[Active project: {active_path}]\nUse your read_file and list_directory tools to access specific files when needed."},
             {"role": "assistant", "content": "Understood, Captain. I am aware of the active project and will read files directly when required."},
         ] + messages
+
+    # Ship notification — one-shot background-job results (self-update, etc.).
+    try:
+        _notif = _data_notification_hint()
+        if _notif:
+            messages = [
+                {"role": "user",      "content": _notif},
+                {"role": "assistant", "content": "Understood — I will relay that and act on it."},
+            ] + messages
+    except Exception as e:
+        log.warning(f"[data-notify] inject failed: {e}")
 
     # Auto-recall hint (streaming path).
     try:
@@ -9553,6 +9704,23 @@ class Handler(BaseHTTPRequestHandler):
             m = _get_mail()
             self._json({"accounts": m.list_accounts() if m else []})
 
+        elif path == "/mail/oauth/status":
+            # ?label=<inbox> -> can Gmail OAuth run here, and is this inbox set up?
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            label = (_q.get("label", [""])[0] or "").strip()
+            try:
+                import gmail_oauth
+                self._json({
+                    "available":     gmail_oauth.is_available(),
+                    "libs":          gmail_oauth.libs_available(),
+                    "client_secret": gmail_oauth.client_secret_present(),
+                    "configured":    gmail_oauth.is_configured(label) if label else False,
+                })
+            except Exception as e:
+                self._json({"available": False, "libs": False,
+                            "client_secret": False, "configured": False,
+                            "error": str(e)})
+
         elif path == "/mail/unread":
             # Read-only inbox listing for the Connections email panel.
             # ?account=<label> (optional; omit for all)  &limit=<n>
@@ -10675,6 +10843,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        elif path == "/mail/oauth/start":
+            # {label} -> spawn the Gmail consent flow as a subprocess. A browser
+            # opens on the operator's machine; on approval the child writes the
+            # token and self-registers the inbox. The widget polls /mail/accounts.
+            label = (data.get("label") or "gmail").strip() or "gmail"
+            try:
+                import gmail_oauth
+                if not gmail_oauth.libs_available():
+                    self._json({"error": "Google auth libraries are not installed. "
+                                "Run: pip install google-auth google-auth-oauthlib"}, 400)
+                    return
+                if not gmail_oauth.client_secret_present():
+                    self._json({"error": "No Google client secret found. Place a Desktop-app "
+                                "OAuth client JSON at %LOCALAPPDATA%\\hermes\\google_client_secret.json"}, 400)
+                    return
+                _dash = Path(__file__).resolve().parent
+                script = str(_dash / "gmail_oauth.py")
+                logdir = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local"))) / "hermes"
+                logdir.mkdir(parents=True, exist_ok=True)
+                logf = open(logdir / "gmail_oauth.log", "ab", buffering=0)
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                subprocess.Popen([sys.executable, script, label],
+                                 cwd=str(_dash),
+                                 stdout=logf, stderr=logf,
+                                 creationflags=creationflags)
+                self._json({"ok": True, "launching": True, "label": label})
+            except Exception as e:
+                log.exception("/mail/oauth/start failed")
+                self._json({"error": str(e)}, 500)
+            return
+
         elif path == "/mail/mark":
             # {account, id, seen:bool, folder?}
             m = _get_mail()
@@ -10836,18 +11035,36 @@ class Handler(BaseHTTPRequestHandler):
                 snapshot = [f"[acct={x['account']} id={x['id']} seen={x.get('seen')} "
                             f"flagged={x.get('flagged')}] {x.get('from','')} | "
                             f"{x.get('subject','')}" for x in msgs]
-                sys_p = ("You are Data, an inbox agent with authority to organize the "
-                         "Captain's mail. You are given the current inbox and an "
-                         "instruction. Decide the actions. Allowed ops: "
-                         "mark_read, mark_unread, flag, unflag, move (needs dest folder), "
-                         "delete. Use the exact account and id from the snapshot. "
-                         "NEVER delete unless the instruction clearly asks to delete or "
-                         "trash. Return ONLY JSON: "
-                         '{"report":"one-line summary of what you did", '
-                         '"actions":[{"op":"","account":"","id":"","dest":""}]}. '
-                         "dest only for move. If nothing should be done, return an empty "
-                         "actions array with a report explaining why.")
-                usr = (f"Instruction: {command}\n\nInbox:\n" + "\n".join(snapshot or ["(empty)"]))
+                sys_p = ("You are Data, the Captain's inbox agent. You both organize "
+                         "the mail and answer questions about it, and you remember the "
+                         "earlier turns of this conversation. You are given the recent "
+                         "conversation, the current inbox, and a new instruction. Decide "
+                         "any actions. Allowed ops: mark_read, mark_unread, flag, unflag, "
+                         "move (needs dest folder), delete. Use the exact account and id "
+                         "from the snapshot. NEVER delete unless the instruction clearly "
+                         "asks to delete or trash. Return ONLY JSON: "
+                         '{"report":"...", "actions":[{"op":"","account":"","id":"","dest":""}]}. '
+                         "The report is shown to the Captain in a chat window, so write a "
+                         "clear, genuinely helpful answer — a sentence or several, with "
+                         "line breaks where useful; do not artificially truncate it. If "
+                         "the Captain only asked a question (not an action), answer it in "
+                         "report and return an empty actions array. dest only for move.")
+                # Fold the recent conversation in so Data has memory of the thread.
+                convo = ""
+                history = data.get("history") or []
+                if isinstance(history, list) and history:
+                    lines = []
+                    for t in history[-12:]:
+                        if not isinstance(t, dict):
+                            continue
+                        who = "Captain" if t.get("role") == "user" else "Data"
+                        txt = str(t.get("text") or "").strip()
+                        if txt:
+                            lines.append(f"{who}: {txt}")
+                    if lines:
+                        convo = "Recent conversation:\n" + "\n".join(lines) + "\n\n"
+                usr = (convo + f"New instruction: {command}\n\nInbox:\n"
+                       + "\n".join(snapshot or ["(empty)"]))
                 plan = _mail_llm_json(usr, sys_p, tier="claude-cli-sonnet") or {}
                 # The model may return the object {"report","actions"} OR, if it
                 # skips the wrapper, a bare array of action dicts. Accept both.

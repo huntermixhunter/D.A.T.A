@@ -5833,11 +5833,30 @@ body.theme-minimal .settings-toggle-cap:hover {
 .ec-agent textarea { flex: 1 1 auto; background: var(--data-bg); color: var(--data-text);
   border: 1px solid var(--min-border, rgba(68,221,204,.35)); border-radius: var(--radius-sm);
   padding: 10px 14px; font-size: 13px; font-family: var(--font-main, sans-serif);
-  line-height: 1.45; resize: vertical; min-height: 40px; max-height: 220px; }
-.ec-agent.expanded textarea { min-height: 120px; }
-.ec-agent-expand { flex: 0 0 auto; }
-/* Data's reply line. Collapsed = single ellipsised line; expanded = full
-   scrollable panel so the Captain can read the whole reply. */
+  line-height: 1.45; resize: none; min-height: 40px; }
+/* The drag handle controls prompt height (persisted), so the box has no hard
+   max — the handle clamps it to 60% of the viewport. */
+.ec-agent .dictate-btn { flex: 0 0 auto; margin-bottom: 6px; }
+.ec-agent .input-resize-handle { margin: -6px 0 0; }
+/* Conversation transcript with the inbox agent. Scrollable, drag-resizable,
+   and doubles as Data's short-term memory of the thread. The drag handle sets
+   an inline height (persisted); this is the default until the Captain resizes. */
+.ec-agent-chat {
+  height: 180px; overflow-y: auto; flex: 0 0 auto;
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--data-bg); border: 1px solid var(--min-border, rgba(68,221,204,.25));
+  border-radius: var(--radius-sm); padding: 12px 14px; }
+.ec-msg { display: flex; flex-direction: column; gap: 3px; max-width: 92%; }
+.ec-msg.me   { align-self: flex-end;   align-items: flex-end; }
+.ec-msg.data { align-self: flex-start; align-items: flex-start; }
+.ec-msg-who { font-family: var(--font-data, monospace); font-size: 10px;
+  letter-spacing: 1px; color: var(--data-text-dim); }
+.ec-msg-text { font-size: 13px; line-height: 1.55; white-space: pre-wrap;
+  word-break: break-word; padding: 8px 12px; border-radius: var(--radius-sm); }
+.ec-msg.me   .ec-msg-text { background: var(--data-bg2); color: var(--data-text); }
+.ec-msg.data .ec-msg-text { background: rgba(68,221,204,.08); color: var(--data-teal); }
+
+/* Transient one-line status under the compose box (working…, triage summary). */
 .ec-agent-report { font-size: 12px; color: var(--data-teal); flex: 0 0 auto;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ec-agent-report:empty { display: none; }

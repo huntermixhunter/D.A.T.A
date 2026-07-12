@@ -23,8 +23,10 @@ JSON shape per account:
     "default_send_as": "hunterthomasmix@gmail.com"
   }
 
-Microsoft 365 / Outlook.com: not supported here — they require OAuth XOAUTH2.
-Add a provider-specific module later if needed.
+OAuth (XOAUTH2) inboxes set auth_type="oauth" and oauth_provider in
+{"google","microsoft"}; the login step dispatches to gmail_oauth.py or
+microsoft_oauth.py respectively (see _oauth_mod). Everything else — folders,
+flags, move, search, draft, send — is identical across auth types.
 """
 import os
 import re
@@ -72,6 +74,7 @@ def list_accounts() -> list:
             "label": a.get("label"),
             "address": a.get("address"),
             "imap_host": a.get("imap_host"),
+            "auth_type": (a.get("auth_type") or "password"),
             "send_as": a.get("send_as", []),
             "default_send_as": a.get("default_send_as") or a.get("address"),
         })
@@ -83,7 +86,9 @@ def add_account(account: dict) -> dict:
     label = (account.get("label") or "").strip()
     if not label:
         return {"error": "label is required"}
-    missing = [f for f in ("imap_host", "imap_user", "password") if not account.get(f)]
+    is_oauth = (account.get("auth_type") or "").lower() == "oauth"
+    required = ("imap_host", "imap_user") if is_oauth else ("imap_host", "imap_user", "password")
+    missing = [f for f in required if not account.get(f)]
     if missing:
         return {"error": f"Missing fields: {', '.join(missing)}"}
     account.setdefault("imap_port", 993)
@@ -107,10 +112,16 @@ def add_account(account: dict) -> dict:
 
 def remove_account(label: str) -> dict:
     accts = _load_accounts()
+    removed = next((a for a in accts if a.get("label") == label), None)
     new = [a for a in accts if a.get("label") != label]
     if len(new) == len(accts):
         return {"error": f"No account: {label}"}
     _save_accounts(new)
+    if removed and (removed.get("auth_type") or "").lower() == "oauth":
+        try:
+            _oauth_mod(removed).revoke(label)   # delete the local token file
+        except Exception:
+            pass
     return {"ok": True, "removed": label}
 
 
@@ -126,11 +137,53 @@ def _find(label_or_address: str | None) -> dict | None:
 
 # ── IMAP helpers ─────────────────────────────────────────────────
 
+def _is_oauth(a: dict) -> bool:
+    return (a.get("auth_type") or "").lower() == "oauth"
+
+
+def _oauth_provider(a: dict) -> str:
+    """Which OAuth provider owns this inbox. Defaults to 'google' so inboxes
+    connected before the Microsoft lane existed keep working unchanged."""
+    return (a.get("oauth_provider") or "google").strip().lower()
+
+
+def _oauth_mod(a: dict):
+    """Return the provider-specific OAuth module (gmail_oauth / microsoft_oauth).
+    Both expose the same surface: get_access_token / xoauth2_string /
+    xoauth2_b64 / revoke."""
+    if _oauth_provider(a) == "microsoft":
+        import microsoft_oauth as mod
+    else:
+        import gmail_oauth as mod
+    return mod
+
+
 def _imap(a: dict) -> imaplib.IMAP4_SSL:
     ctx = ssl.create_default_context()
     conn = imaplib.IMAP4_SSL(a["imap_host"], int(a.get("imap_port", 993)), ssl_context=ctx)
-    conn.login(a["imap_user"], a["password"])
+    if _is_oauth(a):
+        # OAuth (XOAUTH2) — same IMAP session, bearer token instead of password.
+        mod = _oauth_mod(a)
+        user = a.get("imap_user") or a.get("address")
+        token = mod.get_access_token(a["label"])
+        auth = mod.xoauth2_string(user, token).encode()
+        conn.authenticate("XOAUTH2", lambda _=None: auth)
+    else:
+        conn.login(a["imap_user"], a["password"])
     return conn
+
+
+def _smtp_login(s: smtplib.SMTP, a: dict, smtp_user: str) -> None:
+    """Authenticate an SMTP session — XOAUTH2 for oauth accounts, else password."""
+    if _is_oauth(a):
+        mod = _oauth_mod(a)
+        token = mod.get_access_token(a["label"])
+        s.ehlo()
+        code, resp = s.docmd("AUTH", "XOAUTH2 " + mod.xoauth2_b64(smtp_user, token))
+        if code != 235:
+            raise smtplib.SMTPAuthenticationError(code, resp)
+    else:
+        s.login(smtp_user, a.get("smtp_password") or a.get("password"))
 
 
 def _is_gmail(a: dict) -> bool:
@@ -509,12 +562,12 @@ def send(to: str, subject: str, body: str,
         if smtp_port == 465:
             ctx = ssl.create_default_context()
             with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx, timeout=30) as s:
-                s.login(smtp_user, smtp_pass)
+                _smtp_login(s, a, smtp_user)
                 s.send_message(msg)
         else:
             with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as s:
                 s.ehlo(); s.starttls(); s.ehlo()
-                s.login(smtp_user, smtp_pass)
+                _smtp_login(s, a, smtp_user)
                 s.send_message(msg)
         return {"ok": True, "from": from_addr, "to": to,
                 "subject": subject, "message_id": msg["Message-Id"]}
