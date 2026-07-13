@@ -191,6 +191,7 @@
               <span class="panel-title">COMMUNICATIONS</span>
               <div class="panel-pills">
                 <button class="fullscreen-btn" id="chat-find-btn" onclick="toggleChatFind()" title="Find in conversation (Ctrl+F)">🔍</button>
+                <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
               </div>
@@ -220,6 +221,22 @@
                     onclick="chatFindStep(1)" aria-label="Next match">▼</button>
             <button class="chat-find-close" title="Close (Esc)"
                     onclick="toggleChatFind(false)" aria-label="Close find">✕</button>
+          </div>
+
+          <!-- PROMPT LIBRARY — saved, reusable prompts the Captain can insert
+               into the main channel with one click. Chips live in localStorage
+               so they survive reloads. Hidden until toggled via the 📋 pill or
+               Ctrl+Shift+P. -->
+          <div class="prompt-lib-bar" id="prompt-lib-bar" hidden
+               role="region" aria-label="Prompt library">
+            <span class="prompt-lib-icon" aria-hidden="true">📋</span>
+            <div class="prompt-lib-list" id="prompt-lib-list"></div>
+            <button class="prompt-lib-save" id="prompt-lib-save"
+                    onclick="savePromptFromInput()"
+                    title="Save the current prompt text to your library">＋ SAVE</button>
+            <button class="prompt-lib-close" title="Close (Esc)"
+                    onclick="togglePromptLibrary(false)"
+                    aria-label="Close prompt library">✕</button>
           </div>
 
           <div class="chats-wrapper" id="chats-wrapper">

@@ -2427,6 +2427,104 @@ mark.chat-find-hl.active {
   box-shadow: 0 0 0 1px var(--data-orange);
 }
 
+/* ── Prompt library ───────────────────────────────────────
+   Drop-in bar (mirrors the find bar) holding the Captain's saved, reusable
+   prompts as clickable chips. Click a chip to insert it into the prompt box;
+   ✕ removes it. Toggled via the 📋 pill or Ctrl+Shift+P. */
+.prompt-lib-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid #2a2a3a;
+  background: rgba(6,6,14,0.9);
+}
+.prompt-lib-bar[hidden] { display: none; }
+.prompt-lib-icon { font-size: 12px; opacity: 0.7; line-height: 1; flex-shrink: 0; }
+.prompt-lib-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+.prompt-lib-empty {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #667;
+  white-space: nowrap;
+  align-self: center;
+}
+.prompt-lib-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid #2a2a3a;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.prompt-lib-chip:hover { border-color: var(--data-blue); }
+.prompt-lib-chip-label {
+  background: none;
+  border: none;
+  color: var(--data-blue);
+  cursor: pointer;
+  font-family: 'Share Tech Mono', 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  padding: 4px 4px 4px 10px;
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prompt-lib-chip-label:hover { color: var(--data-orange); }
+.prompt-lib-chip-del {
+  background: none;
+  border: none;
+  color: #556;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 8px 4px 4px;
+  transition: color 0.15s;
+}
+.prompt-lib-chip-del:hover { color: #ff5a5a; }
+.prompt-lib-save, .prompt-lib-close {
+  flex-shrink: 0;
+  background: rgba(6,6,14,0.85);
+  border: 1px solid #2a2a3a;
+  color: #888;
+  cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 3px;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.prompt-lib-save:hover, .prompt-lib-close:hover {
+  border-color: var(--data-orange);
+  color: var(--data-orange);
+}
+.prompt-lib-save.flash {
+  border-color: var(--data-green);
+  color: var(--data-green);
+}
+/* Active state on the 📋 header pill while the bar is open. */
+#chat-prompts-btn.active {
+  border-color: var(--data-blue);
+  color: var(--data-blue);
+}
+
 /* Fullscreen state — covers the DATA header + footer + sidebars and
    collapses the panel-header bar itself so the chat panes get every
    available pixel. The fullscreen button floats in the top-right
