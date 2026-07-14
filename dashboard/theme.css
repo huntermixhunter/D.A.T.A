@@ -626,6 +626,16 @@ html, body {
 /* ═══════════════════════════════════════════════════════════
    CHAT PANEL
    ═══════════════════════════════════════════════════════════ */
+/* Wraps the scrollable chat window so the floating "jump to latest" pill can
+   be positioned against the bottom of the message area (just above the input
+   row) without scrolling away with the content. */
+.chat-window-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .chat-window {
   flex: 1;
   overflow-y: auto;
@@ -634,6 +644,70 @@ html, body {
   flex-direction: column;
   gap: 16px;
   scroll-behavior: smooth;
+}
+
+/* ── Jump to latest ──────────────────────────────────────────────
+   Shows only when the Captain has scrolled up. .has-new adds a pulsing
+   dot to signal that fresh content (a new message or streaming tokens)
+   landed below the fold while they were reading earlier text. */
+.jump-latest {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--data-orange, #ffb000);
+  background: rgba(12, 12, 12, 0.92);
+  border: 1px solid var(--data-orange2, #ff8800);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.15s ease;
+  pointer-events: none;
+}
+.jump-latest.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.jump-latest:hover {
+  background: rgba(30, 20, 6, 0.96);
+  border-color: var(--data-orange, #ffb000);
+}
+.jump-latest .jump-latest-arrow {
+  font-size: 13px;
+  line-height: 1;
+}
+.jump-latest.has-new::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--data-red, #ff3b30);
+  box-shadow: 0 0 0 2px rgba(12, 12, 12, 0.92);
+  animation: jumpLatestPulse 1.4s ease-in-out infinite;
+}
+@keyframes jumpLatestPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jump-latest { transition: opacity 0.18s ease; transform: none; }
+  .jump-latest.visible { transform: none; }
+  .jump-latest.has-new::after { animation: none; }
 }
 .chat-window::-webkit-scrollbar { width: 4px; }
 .chat-window::-webkit-scrollbar-track { background: #0a0a0a; }

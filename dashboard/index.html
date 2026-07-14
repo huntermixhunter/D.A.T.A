@@ -239,15 +239,27 @@
                         onclick="closeMainPane()">✕ CLOSE</button>
               </div>
 
-              <div class="chat-window" id="chat-window">
-                <div class="chat-message data">
-                  <div class="avatar">◉</div>
-                  <div class="bubble">
-                    <div class="sender">DATA</div>
-                    <div class="text">DATA main computer online, Captain. All systems nominal. How may I assist you?</div>
-                    <div class="timestamp" id="init-timestamp"></div>
+              <div class="chat-window-wrap">
+                <div class="chat-window" id="chat-window">
+                  <div class="chat-message data">
+                    <div class="avatar">◉</div>
+                    <div class="bubble">
+                      <div class="sender">DATA</div>
+                      <div class="text">DATA main computer online, Captain. All systems nominal. How may I assist you?</div>
+                      <div class="timestamp" id="init-timestamp"></div>
+                    </div>
                   </div>
                 </div>
+                <!-- Floating "jump to latest" pill — appears only when the
+                     Captain has scrolled up away from the newest message.
+                     Flags new content (·) that arrived while scrolled away. -->
+                <button class="jump-latest" id="jump-latest" hidden
+                        onclick="jumpToLatest()"
+                        title="Jump to the latest message"
+                        aria-label="Jump to the latest message">
+                  <span class="jump-latest-arrow" aria-hidden="true">▾</span>
+                  <span class="jump-latest-label">Latest</span>
+                </button>
               </div>
 
               <div class="chat-input-area">
