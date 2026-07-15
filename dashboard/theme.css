@@ -817,7 +817,7 @@ html, body {
 }
 
 .sender {
-  font-size: 10px;
+  font-size: calc(10px * var(--chat-font-scale, 1));
   letter-spacing: 0.15em;
   margin-bottom: 6px;
   font-weight: 700;
@@ -827,13 +827,13 @@ html, body {
 
 .text {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--chat-font-scale, 1));
   line-height: 1.6;
   color: #cccccc;
 }
 
 .timestamp {
-  font-size: 9px;
+  font-size: calc(9px * var(--chat-font-scale, 1));
   color: #444;
   margin-top: 6px;
   letter-spacing: 0.1em;
@@ -2358,6 +2358,64 @@ html, body {
   border-color: var(--data-green);
   color: var(--data-green);
 }
+/* Active state while the text-size popover is open. */
+#chat-textsize-btn.active { border-color: var(--data-blue); color: var(--data-blue); }
+
+/* ── Text size (readability) popover ──────────────────────
+   Anchored to the chat toolbar; scales all conversation text. */
+.panel-pills { position: relative; }
+.chat-textsize-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(6,6,14,0.97);
+  border: 1px solid var(--data-orange2);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+  z-index: 40;
+}
+.chat-textsize-menu[hidden] { display: none; }
+.textsize-step {
+  background: rgba(10,10,22,0.9);
+  border: 1px solid #2a2a3a;
+  color: var(--data-orange2);
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.textsize-step { font-size: 12px; }
+.textsize-step.big { font-size: 16px; }
+.textsize-step:hover { border-color: var(--data-blue); color: var(--data-blue); }
+.textsize-value {
+  min-width: 42px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--data-text);
+  font-variant-numeric: tabular-nums;
+}
+.textsize-reset {
+  background: none;
+  border: 1px solid #2a2a3a;
+  color: #888;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.textsize-reset:hover { border-color: var(--data-orange); color: var(--data-orange); }
 
 /* ── Find in conversation ─────────────────────────────────
    Slim search bar that drops in below the chat panel header. Styled to sit

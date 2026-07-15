@@ -493,6 +493,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _populatePaneCrewSelect('main', MAIN_CHAT_CREW);
   bootCaptains();
   initChatInputResizer();
+  _loadChatFontScale();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -8413,6 +8414,85 @@ function toggleChatFullscreen() {
   const btn = document.getElementById('fullscreen-btn');
   panel.classList.toggle('fullscreen');
   btn.textContent = panel.classList.contains('fullscreen') ? '⊡' : '⛶';
+}
+
+// ── Conversation text size (readability zoom) ────────────
+// Scales every message's text across all chat panes by driving the CSS
+// variable --chat-font-scale on #chats-wrapper. The choice persists in
+// localStorage so the Captain's preferred size survives reloads.
+const _CHAT_SCALE_KEY   = 'chat-font-scale';
+const _CHAT_SCALE_MIN   = 0.8;
+const _CHAT_SCALE_MAX   = 1.6;
+const _CHAT_SCALE_STEP  = 0.1;
+let _chatFontScale = 1;
+
+function _loadChatFontScale() {
+  const raw = parseFloat(localStorage.getItem(_CHAT_SCALE_KEY));
+  if (!isNaN(raw) && raw >= _CHAT_SCALE_MIN && raw <= _CHAT_SCALE_MAX) {
+    _chatFontScale = Math.round(raw * 10) / 10;
+  }
+  applyChatTextSize();
+}
+
+function applyChatTextSize() {
+  const wrap = document.getElementById('chats-wrapper');
+  if (wrap) wrap.style.setProperty('--chat-font-scale', String(_chatFontScale));
+  const label = document.getElementById('chat-textsize-value');
+  if (label) label.textContent = Math.round(_chatFontScale * 100) + '%';
+}
+
+function stepChatTextSize(dir) {
+  const next = Math.round((_chatFontScale + dir * _CHAT_SCALE_STEP) * 10) / 10;
+  if (next < _CHAT_SCALE_MIN || next > _CHAT_SCALE_MAX) {
+    playDataSound('error');
+    return;                                 // already at a limit — nudge feedback
+  }
+  _chatFontScale = next;
+  try { localStorage.setItem(_CHAT_SCALE_KEY, String(_chatFontScale)); } catch (e) {}
+  applyChatTextSize();
+  playDataSound('confirm');
+}
+
+function resetChatTextSize() {
+  _chatFontScale = 1;
+  try { localStorage.removeItem(_CHAT_SCALE_KEY); } catch (e) {}
+  applyChatTextSize();
+  playDataSound('confirm');
+}
+
+function toggleTextSizeMenu(force) {
+  const menu = document.getElementById('chat-textsize-menu');
+  const btn  = document.getElementById('chat-textsize-btn');
+  if (!menu) return;
+  const show = (typeof force === 'boolean') ? force : menu.hidden;
+  menu.hidden = !show;
+  if (btn) {
+    btn.classList.toggle('active', show);
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  }
+  if (show) {
+    applyChatTextSize();
+    // Dismiss on the next outside click or Escape.
+    setTimeout(() => {
+      document.addEventListener('click', _closeTextSizeOnOutside);
+      document.addEventListener('keydown', _closeTextSizeOnEsc);
+    }, 0);
+  } else {
+    document.removeEventListener('click', _closeTextSizeOnOutside);
+    document.removeEventListener('keydown', _closeTextSizeOnEsc);
+  }
+}
+
+function _closeTextSizeOnOutside(e) {
+  const menu = document.getElementById('chat-textsize-menu');
+  const btn  = document.getElementById('chat-textsize-btn');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+  toggleTextSizeMenu(false);
+}
+
+function _closeTextSizeOnEsc(e) {
+  if (e.key === 'Escape') toggleTextSizeMenu(false);
 }
 
 // ── Export conversation ──────────────────────────────────
