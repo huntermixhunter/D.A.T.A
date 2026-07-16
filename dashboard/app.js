@@ -8759,6 +8759,154 @@ document.addEventListener('keydown', (e) => {
   toggleChatFind(true);
 });
 
+// ── Prompt library ───────────────────────────────────────
+// Saved, reusable prompts the Captain can insert into the main channel with a
+// single click — handy for recurring instructions ("summarise this", "review
+// for bugs", a standing report format) without retyping them. Stored as a
+// JSON array of strings in localStorage so the library persists across
+// reloads. Surfaced via the 📋 pill in the chat header or Ctrl/Cmd+Shift+P.
+const PROMPT_LIB_KEY = 'data-prompt-library';
+// Seeded on first use so the library is never empty on a fresh install. These
+// are generic, broadly-useful prompts; the Captain can delete or replace them.
+const PROMPT_LIB_DEFAULTS = [
+  'Summarize our conversation so far into a short brief.',
+  'Review the latest changes for bugs and security issues.',
+  "Draft a concise Captain's log entry for what we just did.",
+  'Explain your last response in simpler terms.',
+];
+
+function _loadPromptLibrary() {
+  try {
+    const raw = localStorage.getItem(PROMPT_LIB_KEY);
+    if (raw === null) return PROMPT_LIB_DEFAULTS.slice();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(p => typeof p === 'string' && p.trim()) : [];
+  } catch (_) { return []; }
+}
+
+function _savePromptLibrary(list) {
+  try { localStorage.setItem(PROMPT_LIB_KEY, JSON.stringify(list)); } catch (_) {}
+}
+
+// Toggle the prompt-library bar. Pass true/false to force a state; omit to flip.
+function togglePromptLibrary(force) {
+  const bar = document.getElementById('prompt-lib-bar');
+  const btn = document.getElementById('chat-prompts-btn');
+  if (!bar) return;
+  const show = (force === undefined) ? bar.hidden : !!force;
+  bar.hidden = !show;
+  if (btn) btn.classList.toggle('active', show);
+  if (show) renderPromptLibrary();
+}
+
+function renderPromptLibrary() {
+  const list = document.getElementById('prompt-lib-list');
+  if (!list) return;
+  const prompts = _loadPromptLibrary();
+  list.innerHTML = '';
+  if (!prompts.length) {
+    const empty = document.createElement('span');
+    empty.className = 'prompt-lib-empty';
+    empty.textContent = 'No saved prompts — type one below and press ＋ SAVE.';
+    list.appendChild(empty);
+    return;
+  }
+  prompts.forEach((text, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'prompt-lib-chip';
+    chip.title = text;
+
+    const label = document.createElement('button');
+    label.type = 'button';
+    label.className = 'prompt-lib-chip-label';
+    label.textContent = text.length > 42 ? text.slice(0, 41) + '…' : text;
+    label.addEventListener('click', () => insertPromptIntoInput(text));
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'prompt-lib-chip-del';
+    del.title = 'Delete this prompt';
+    del.setAttribute('aria-label', 'Delete prompt');
+    del.textContent = '✕';
+    del.addEventListener('click', (e) => { e.stopPropagation(); deleteSavedPrompt(i); });
+
+    chip.appendChild(label);
+    chip.appendChild(del);
+    list.appendChild(chip);
+  });
+}
+
+// Insert a saved prompt at the caret in the main prompt box (appending on a new
+// line if we're at the end of existing text), then focus so the Captain can
+// tweak and send. Fires an `input` event so any autosize / draft-save listeners
+// stay in sync.
+function insertPromptIntoInput(text) {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  const cur = input.value;
+  const start = (typeof input.selectionStart === 'number') ? input.selectionStart : cur.length;
+  const end   = (typeof input.selectionEnd   === 'number') ? input.selectionEnd   : cur.length;
+  const before = cur.slice(0, start);
+  const after  = cur.slice(end);
+  let insert = text;
+  if (before && !before.endsWith('\n') && start === cur.length) insert = '\n' + insert;
+  input.value = before + insert + after;
+  const caret = before.length + insert.length;
+  try { input.setSelectionRange(caret, caret); } catch (_) {}
+  input.focus();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// Save whatever is currently typed in the main prompt box as a new library
+// entry (newest first). No-op on empty; silently skips exact duplicates.
+function savePromptFromInput() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  const text = (input.value || '').trim();
+  if (!text) { _flashPromptSave(false); return; }
+  const list = _loadPromptLibrary();
+  if (!list.includes(text)) {
+    list.unshift(text);
+    _savePromptLibrary(list);
+    renderPromptLibrary();
+  }
+  _flashPromptSave(true);
+}
+
+function _flashPromptSave(ok) {
+  const btn = document.getElementById('prompt-lib-save');
+  if (!btn) return;
+  const orig = '＋ SAVE';
+  btn.textContent = ok ? '✓ SAVED' : '✕ EMPTY';
+  btn.classList.toggle('flash', ok);
+  setTimeout(() => { btn.textContent = orig; btn.classList.remove('flash'); }, 1200);
+}
+
+function deleteSavedPrompt(i) {
+  const list = _loadPromptLibrary();
+  if (i < 0 || i >= list.length) return;
+  list.splice(i, 1);
+  _savePromptLibrary(list);
+  renderPromptLibrary();
+}
+
+// Ctrl/Cmd+Shift+P toggles the prompt library while the Bridge (chat) panel is
+// active. Esc closes it when open.
+document.addEventListener('keydown', (e) => {
+  const chatPanel = document.getElementById('panel-chat');
+  const active = chatPanel && chatPanel.classList.contains('active');
+  if (e.key === 'Escape') {
+    const bar = document.getElementById('prompt-lib-bar');
+    if (bar && !bar.hidden) { e.preventDefault(); togglePromptLibrary(false); }
+    return;
+  }
+  if ((e.key === 'p' || e.key === 'P') && (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+    if (!active) return;
+    e.preventDefault();
+    togglePromptLibrary();
+  }
+});
+
 // ── Conversation outline (jump-to navigator) ─────────────
 // A scannable table of contents for the main channel. Opening the ☰ pill
 // reads the current message list straight from the DOM and renders one
