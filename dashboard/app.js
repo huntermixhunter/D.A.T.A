@@ -504,6 +504,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _populatePaneCrewSelect('main', MAIN_CHAT_CREW);
   bootCaptains();
   initChatInputResizer();
+  initChatDraft();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -582,6 +583,78 @@ function initChatInputResizer() {
     document.getElementById('chat-input'),
     _CHAT_INPUT_HEIGHT_KEY
   );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MAIN-CHAT DRAFT AUTO-SAVE — never lose a half-typed transmission
+// ══════════════════════════════════════════════════════════════════
+// A long prompt can vanish in an instant: an accidental Ctrl+R, a tab
+// close, a laptop sleep that drops the tab, a crash mid-thought. Here we
+// mirror the main chat textarea into localStorage as the Captain types
+// (debounced) and restore it on the next load, so an unsent message
+// survives a reload. Cleared the moment it is actually transmitted.
+const _CHAT_DRAFT_KEY = 'data.chatDraft';
+let _chatDraftTimer = null;
+// Guard so restoring a draft (which fires no user keystroke) doesn't itself
+// re-trigger a save, and so we can suppress the "restored" notice once the
+// Captain starts editing.
+let _chatDraftRestored = false;
+
+function _saveChatDraft(value) {
+  try {
+    if (value && value.trim()) localStorage.setItem(_CHAT_DRAFT_KEY, value);
+    else localStorage.removeItem(_CHAT_DRAFT_KEY);
+  } catch (e) { /* storage full / disabled — best-effort only */ }
+}
+
+// Wipe the persisted draft. Called on a successful send and on explicit
+// discard so a stale draft never reappears on the next reload.
+function clearChatDraft() {
+  _chatDraftRestored = false;
+  if (_chatDraftTimer) { clearTimeout(_chatDraftTimer); _chatDraftTimer = null; }
+  try { localStorage.removeItem(_CHAT_DRAFT_KEY); } catch (e) {}
+  _hideDraftNotice();
+}
+
+function _hideDraftNotice() {
+  const n = document.getElementById('draft-notice');
+  if (n) n.hidden = true;
+}
+
+// Captain clicked DISCARD on the restored-draft banner: empty the box and
+// forget the draft entirely.
+function discardChatDraft() {
+  const input = document.getElementById('chat-input');
+  if (input) { input.value = ''; input.focus(); }
+  clearChatDraft();
+}
+
+function initChatDraft() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+
+  // Restore a draft from a previous session — but only into an empty box, so
+  // we never clobber text the Captain has already begun typing this load.
+  try {
+    const saved = localStorage.getItem(_CHAT_DRAFT_KEY);
+    if (saved && !input.value) {
+      input.value = saved;
+      _chatDraftRestored = true;
+      const notice = document.getElementById('draft-notice');
+      if (notice) notice.hidden = false;
+      // Park the cursor at the end so the Captain can keep typing.
+      try { input.setSelectionRange(saved.length, saved.length); } catch (e) {}
+    }
+  } catch (e) { /* ignore */ }
+
+  // Debounced mirror-to-storage on every edit. 400ms keeps writes cheap
+  // during fast typing while still capturing the latest text well before a
+  // reload could lose it.
+  input.addEventListener('input', () => {
+    if (_chatDraftRestored) { _chatDraftRestored = false; _hideDraftNotice(); }
+    if (_chatDraftTimer) clearTimeout(_chatDraftTimer);
+    _chatDraftTimer = setTimeout(() => _saveChatDraft(input.value), 400);
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1166,6 +1239,7 @@ async function sendMessage() {
   _renderAttachmentTray('main');
 
   input.value = '';
+  clearChatDraft();        // transmitted — the saved draft is no longer needed
   _lastActiveWsId = null;  // sending into main pane = main pane is last-active
 
   // Bubble preview — show the text plus a small list of attached files.
