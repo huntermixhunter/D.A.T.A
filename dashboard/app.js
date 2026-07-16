@@ -209,6 +209,17 @@ document.addEventListener('click', (e) => {
 // Conversation mode has its own Esc handler so we don't touch it here.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+
+  // Conversation outline: Esc closes the jump-to navigator first, before any
+  // dictation-cancel / abort routing below, so a stray Esc never aborts an
+  // in-flight request just because the outline happened to be open.
+  const _outlineBar = document.getElementById('chat-outline-bar');
+  if (_outlineBar && !_outlineBar.hidden) {
+    e.preventDefault();
+    toggleChatOutline(false);
+    return;
+  }
+
   if (typeof BRAIN !== 'undefined' && BRAIN.active) return;
 
   // 1. Cancel listening (always global — only one mic stream at a time).
@@ -8623,6 +8634,87 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   toggleChatFind(true);
 });
+
+// ── Conversation outline (jump-to navigator) ─────────────
+// A scannable table of contents for the main channel. Opening the ☰ pill
+// reads the current message list straight from the DOM and renders one
+// clickable row per turn; clicking a row scrolls that message into view and
+// flashes it. Purely client-side and stateless — the list is rebuilt each
+// time it opens so it always reflects the live conversation, and closing it
+// leaves the message DOM completely untouched.
+function toggleChatOutline(force) {
+  const bar = document.getElementById('chat-outline-bar');
+  if (!bar) return;
+  const show = (force === undefined) ? bar.hidden : force;
+  bar.hidden = !show;
+  const btn = document.getElementById('chat-outline-btn');
+  if (btn) btn.classList.toggle('copied', show);
+  if (show) {
+    playDataSound('confirm');
+    _buildChatOutline();
+  }
+}
+
+// Rebuild the outline rows from the live message DOM. Mirrors the export
+// walk: skips the in-flight "thinking" bubble and any message with no real
+// transcript text so the outline lines up 1:1 with what a reader sees.
+function _buildChatOutline() {
+  const win     = document.getElementById('chat-window');
+  const list    = document.getElementById('chat-outline-list');
+  const countEl = document.getElementById('chat-outline-count');
+  if (!win || !list) return;
+  list.innerHTML = '';
+
+  const msgs = win.querySelectorAll('.chat-message');
+  let n = 0;
+  msgs.forEach(msg => {
+    if (msg.id === 'thinking-msg') return;                 // live status bubble
+    const textEl = msg.querySelector('.text');
+    if (!textEl) return;
+    const body = (textEl.innerText || textEl.textContent || '').trim();
+    if (!body) return;
+
+    const isCaptain = msg.classList.contains('captain');
+    const tsEl = msg.querySelector('.timestamp');
+    const ts = tsEl ? tsEl.textContent.trim() : '';
+    const clean = body.replace(/\s+/g, ' ');
+    const preview = clean.slice(0, 90) + (clean.length > 90 ? '…' : '');
+
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'chat-outline-item ' + (isCaptain ? 'from-captain' : 'from-data');
+    row.setAttribute('role', 'listitem');
+    row.innerHTML =
+      `<span class="col-role" aria-hidden="true">${isCaptain ? '▸' : '◉'}</span>` +
+      `<span class="col-text"></span>` +
+      `<span class="col-ts"></span>`;
+    row.querySelector('.col-text').textContent = preview;   // textContent — never inject HTML
+    row.querySelector('.col-ts').textContent = ts;
+    row.title = clean;
+    row.addEventListener('click', () => _outlineJumpTo(msg));
+    list.appendChild(row);
+    n++;
+  });
+
+  if (!n) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-outline-empty';
+    empty.textContent = 'No messages yet.';
+    list.appendChild(empty);
+  }
+  if (countEl) countEl.textContent = String(n);
+}
+
+// Scroll a message into view and flash its bubble so the eye lands on the
+// right turn once the smooth-scroll settles.
+function _outlineJumpTo(msg) {
+  if (!msg) return;
+  msg.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  msg.classList.remove('msg-flash');
+  void msg.offsetWidth;               // force reflow so the animation restarts
+  msg.classList.add('msg-flash');
+  setTimeout(() => msg.classList.remove('msg-flash'), 1600);
+}
 
 // ── Potential Upgrades (AI tool discovery) ───────────────
 let _briefingRefreshing = false;
