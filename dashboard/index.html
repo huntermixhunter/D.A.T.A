@@ -194,6 +194,7 @@
                 <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
+                <button class="fullscreen-btn" id="chat-bookmarks-btn" onclick="toggleChatBookmarks()" title="Bookmarks — jump to messages you've starred">★</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
 
@@ -264,6 +265,23 @@
                       onclick="toggleChatOutline(false)" aria-label="Close outline">✕</button>
             </div>
             <div class="chat-outline-list" id="chat-outline-list" role="list"></div>
+          </div>
+
+          <!-- MESSAGE BOOKMARKS — the Captain can star any message in the main
+               channel (★ button on each bubble) to flag important turns. This
+               navigator lists only the starred messages; clicking a row scrolls
+               to and flashes that message. Stars persist across reloads in
+               localStorage (keyed by a hash of the message text), so a restored
+               conversation keeps its bookmarks. Hidden until toggled via the ★
+               pill. -->
+          <div class="chat-bookmarks-bar" id="chat-bookmarks-bar" hidden role="navigation" aria-label="Message bookmarks">
+            <div class="chat-outline-head">
+              <span class="chat-outline-title">BOOKMARKS</span>
+              <span class="chat-outline-count" id="chat-bookmarks-count">0</span>
+              <button class="chat-find-close" title="Close (Esc)"
+                      onclick="toggleChatBookmarks(false)" aria-label="Close bookmarks">✕</button>
+            </div>
+            <div class="chat-outline-list" id="chat-bookmarks-list" role="list"></div>
           </div>
 
           <div class="chats-wrapper" id="chats-wrapper">
