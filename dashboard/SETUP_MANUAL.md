@@ -211,6 +211,16 @@ you're live. To invite someone, give them the same URL and token.
 
 ✅ **Your dashboard is now running 24/7.** Part 2 sets up which AI models it uses.
 
+### Update to the latest build *(30 sec)*
+
+DATA keeps itself current. A standing order named **Dashboard self-update** ships
+enabled and runs every night at 04:00. It pulls the newest dashboard files from
+GitHub and restarts to activate them. To grab the latest right now instead of waiting
+for tonight: open the **Standing Orders** page, find **Dashboard self-update**, and
+click **RUN NOW** (or just tell DATA in chat, *"update yourself"*). It works on **any
+provider**: the update is a plain download from GitHub, not an AI task, so it does not
+matter whether you have Claude, Codex, Gemini, or a local model connected.
+
 ---
 
 # Part 2 — The AI Connectors page
@@ -339,7 +349,7 @@ so your options track your machine instead of freezing in time.
 |---|---|
 | Restart the dashboard | `systemctl restart lcars-bridge` |
 | See live logs | `journalctl -u lcars-bridge -f` |
-| Update to the latest version | upload the new release `.zip`, extract it over `/home/lcars/DATA` (see Appendix A), then `systemctl restart lcars-bridge` |
+| Update to the latest version | **easiest:** open **Standing Orders**, then **Dashboard self-update**, then **RUN NOW** (or say *"update yourself"* in chat). It downloads from GitHub and restarts itself, on any provider. Runs nightly at 04:00 on its own. *Manual fallback:* upload the new release `.zip`, extract over `/home/lcars/DATA` (Appendix A), then `systemctl restart lcars-bridge` |
 | Restart the tunnel | `systemctl restart cloudflared` |
 | Change/rotate your token | edit `/etc/lcars/bridge.env`, then `systemctl restart lcars-bridge`, then re-share |
 | Add or remove an AI model | use the **AI Connectors** page — no commands needed |

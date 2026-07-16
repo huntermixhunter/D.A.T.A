@@ -205,6 +205,16 @@ them. For a job to run while your computer is off, DATA needs to be hosted somew
 that stays on, or set to daemon lifecycle mode (see
 [section 21](#21-settings-and-lifecycle)).
 
+**One ships built in: keeping DATA updated.** Every install comes with a standing
+order named **Dashboard self-update**, enabled and set to run nightly at 04:00. It
+checks GitHub, downloads any changed dashboard files in place, and restarts to
+activate them. To update right now instead of waiting, open the **Standing Orders**
+page and click **RUN NOW** on it, or just say **"update yourself."** It works on **any
+provider** (Claude, Codex, Gemini, or a local model) because the update is a direct
+download, not an AI task, so it never depends on which brain you have connected. Do
+this once right after installing to get on the latest build. Replaced files are backed
+up under `dashboard/.update_backups/` in case you ever want to roll one back.
+
 ---
 
 ## 9. Memory — teaching DATA who you are

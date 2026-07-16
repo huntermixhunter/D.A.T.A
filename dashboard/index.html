@@ -192,6 +192,8 @@
               <div class="panel-pills">
                 <button class="fullscreen-btn" id="chat-find-btn" onclick="toggleChatFind()" title="Find in conversation (Ctrl+F)">🔍</button>
                 <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
+                <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
+                <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
 
@@ -233,6 +235,37 @@
                     onclick="toggleChatFind(false)" aria-label="Close find">✕</button>
           </div>
 
+          <!-- PROMPT LIBRARY — saved, reusable prompts the Captain can insert
+               into the main channel with one click. Chips live in localStorage
+               so they survive reloads. Hidden until toggled via the 📋 pill or
+               Ctrl+Shift+P. -->
+          <div class="prompt-lib-bar" id="prompt-lib-bar" hidden
+               role="region" aria-label="Prompt library">
+            <span class="prompt-lib-icon" aria-hidden="true">📋</span>
+            <div class="prompt-lib-list" id="prompt-lib-list"></div>
+            <button class="prompt-lib-save" id="prompt-lib-save"
+                    onclick="savePromptFromInput()"
+                    title="Save the current prompt text to your library">＋ SAVE</button>
+            <button class="prompt-lib-close" title="Close (Esc)"
+                    onclick="togglePromptLibrary(false)"
+                    aria-label="Close prompt library">✕</button>
+          </div>
+
+          <!-- CONVERSATION OUTLINE — a scannable table of contents for the main
+               channel. Each turn is a clickable anchor that scrolls the message
+               into view and flashes it, so the Captain can jump anywhere in a
+               long conversation. Rebuilt from the live DOM every time it opens;
+               hidden until toggled via the ☰ pill. -->
+          <div class="chat-outline-bar" id="chat-outline-bar" hidden role="navigation" aria-label="Conversation outline">
+            <div class="chat-outline-head">
+              <span class="chat-outline-title">CONVERSATION OUTLINE</span>
+              <span class="chat-outline-count" id="chat-outline-count">0</span>
+              <button class="chat-find-close" title="Close (Esc)"
+                      onclick="toggleChatOutline(false)" aria-label="Close outline">✕</button>
+            </div>
+            <div class="chat-outline-list" id="chat-outline-list" role="list"></div>
+          </div>
+
           <div class="chats-wrapper" id="chats-wrapper">
             <!-- MAIN PANE -->
             <div class="chat-pane" id="pane-main">
@@ -250,15 +283,27 @@
                         onclick="closeMainPane()">✕ CLOSE</button>
               </div>
 
-              <div class="chat-window" id="chat-window">
-                <div class="chat-message data">
-                  <div class="avatar">◉</div>
-                  <div class="bubble">
-                    <div class="sender">DATA</div>
-                    <div class="text">DATA main computer online, Captain. All systems nominal. How may I assist you?</div>
-                    <div class="timestamp" id="init-timestamp"></div>
+              <div class="chat-window-wrap">
+                <div class="chat-window" id="chat-window">
+                  <div class="chat-message data">
+                    <div class="avatar">◉</div>
+                    <div class="bubble">
+                      <div class="sender">DATA</div>
+                      <div class="text">DATA main computer online, Captain. All systems nominal. How may I assist you?</div>
+                      <div class="timestamp" id="init-timestamp"></div>
+                    </div>
                   </div>
                 </div>
+                <!-- Floating "jump to latest" pill — appears only when the
+                     Captain has scrolled up away from the newest message.
+                     Flags new content (·) that arrived while scrolled away. -->
+                <button class="jump-latest" id="jump-latest" hidden
+                        onclick="jumpToLatest()"
+                        title="Jump to the latest message"
+                        aria-label="Jump to the latest message">
+                  <span class="jump-latest-arrow" aria-hidden="true">▾</span>
+                  <span class="jump-latest-label">Latest</span>
+                </button>
               </div>
 
               <div class="chat-input-area">
@@ -268,6 +313,15 @@
                      aria-orientation="horizontal"></div>
                 <!-- Attachment tray — populated by app.js as files are added. -->
                 <div class="attachment-tray" id="attachment-tray" hidden></div>
+                <!-- Draft-restored notice — shown by app.js when an unsent
+                     message from a previous session is recovered on load. -->
+                <div class="draft-notice" id="draft-notice" hidden role="status" aria-live="polite">
+                  <span class="draft-notice-icon" aria-hidden="true">◍</span>
+                  <span class="draft-notice-text">Unsent draft restored</span>
+                  <button class="draft-notice-discard" type="button"
+                          onclick="discardChatDraft()"
+                          title="Discard the restored draft">DISCARD</button>
+                </div>
                 <div class="input-row">
                   <div class="input-prefix">CAPTAIN ›</div>
                   <div class="input-wrapper has-attach">

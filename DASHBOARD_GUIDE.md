@@ -14,6 +14,14 @@ required. But it's also a **baseplate**: every screen, control, and capability i
 plain source the agent can rewrite, so you can grow it into whatever you need. Use it
 out of the box, or build on top of it. Both are first-class.
 
+> **Keep the baseplate current.** DATA updates itself. A built-in standing order,
+> **Dashboard self-update**, runs nightly (04:00) and pulls the latest dashboard files
+> from GitHub, then restarts. To update on demand, open the **Standing Orders** page
+> and click **RUN NOW** on it, or just say **"update yourself."** It runs on any
+> provider, because the update is a direct download, not an AI task. Do this once right
+> after installing. (Your own edits under `dashboard/` are backed up before each update,
+> and runtime files like `.env`, memory, and `standing_orders.json` are never touched.)
+
 ---
 
 ## 1. Orientation — the layout

@@ -122,6 +122,28 @@ Once it's running, two guides take you the rest of the way:
 - The [Dashboard Guide](DASHBOARD_GUIDE.md) — how to customize the UI by conversation
   and have DATA rewrite its own source to add features and capabilities.
 
+### Keeping DATA up to date
+
+DATA can update itself. A standing order named **Dashboard self-update** ships enabled
+and runs automatically every night at 04:00. It checks this GitHub repo, downloads any
+changed dashboard files in place, and restarts to activate them.
+
+**Right after installing, update once so you're on the latest build:**
+
+1. Open the dashboard (**http://localhost:7777**).
+2. Go to the **Standing Orders** page.
+3. Find **Dashboard self-update** and click **RUN NOW**.
+4. If any code changed, DATA applies it and restarts itself. Give it a few seconds to
+   come back up.
+
+Or just ask DATA in chat: **"update yourself"** / **"run the dashboard self-update."**
+
+This works on **any provider**: Claude, Codex, Gemini, or a local model. The update is a
+direct download from GitHub, not an AI task, so it never depends on which brain you have
+connected. Every replaced file is backed up under `dashboard/.update_backups/` so an
+update can be rolled back by hand. (On a developer `git clone` the updater no-ops, so use
+`git pull` there instead.)
+
 ### Uninstall
 
 DATA is almost entirely self-contained, but the installer does place a desktop

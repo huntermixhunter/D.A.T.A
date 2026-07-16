@@ -209,6 +209,17 @@ document.addEventListener('click', (e) => {
 // Conversation mode has its own Esc handler so we don't touch it here.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+
+  // Conversation outline: Esc closes the jump-to navigator first, before any
+  // dictation-cancel / abort routing below, so a stray Esc never aborts an
+  // in-flight request just because the outline happened to be open.
+  const _outlineBar = document.getElementById('chat-outline-bar');
+  if (_outlineBar && !_outlineBar.hidden) {
+    e.preventDefault();
+    toggleChatOutline(false);
+    return;
+  }
+
   if (typeof BRAIN !== 'undefined' && BRAIN.active) return;
 
   // 1. Cancel listening (always global — only one mic stream at a time).
@@ -494,6 +505,8 @@ window.addEventListener('DOMContentLoaded', () => {
   bootCaptains();
   initChatInputResizer();
   _loadChatFontScale();
+  initJumpLatest();
+  initChatDraft();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -572,6 +585,78 @@ function initChatInputResizer() {
     document.getElementById('chat-input'),
     _CHAT_INPUT_HEIGHT_KEY
   );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MAIN-CHAT DRAFT AUTO-SAVE — never lose a half-typed transmission
+// ══════════════════════════════════════════════════════════════════
+// A long prompt can vanish in an instant: an accidental Ctrl+R, a tab
+// close, a laptop sleep that drops the tab, a crash mid-thought. Here we
+// mirror the main chat textarea into localStorage as the Captain types
+// (debounced) and restore it on the next load, so an unsent message
+// survives a reload. Cleared the moment it is actually transmitted.
+const _CHAT_DRAFT_KEY = 'data.chatDraft';
+let _chatDraftTimer = null;
+// Guard so restoring a draft (which fires no user keystroke) doesn't itself
+// re-trigger a save, and so we can suppress the "restored" notice once the
+// Captain starts editing.
+let _chatDraftRestored = false;
+
+function _saveChatDraft(value) {
+  try {
+    if (value && value.trim()) localStorage.setItem(_CHAT_DRAFT_KEY, value);
+    else localStorage.removeItem(_CHAT_DRAFT_KEY);
+  } catch (e) { /* storage full / disabled — best-effort only */ }
+}
+
+// Wipe the persisted draft. Called on a successful send and on explicit
+// discard so a stale draft never reappears on the next reload.
+function clearChatDraft() {
+  _chatDraftRestored = false;
+  if (_chatDraftTimer) { clearTimeout(_chatDraftTimer); _chatDraftTimer = null; }
+  try { localStorage.removeItem(_CHAT_DRAFT_KEY); } catch (e) {}
+  _hideDraftNotice();
+}
+
+function _hideDraftNotice() {
+  const n = document.getElementById('draft-notice');
+  if (n) n.hidden = true;
+}
+
+// Captain clicked DISCARD on the restored-draft banner: empty the box and
+// forget the draft entirely.
+function discardChatDraft() {
+  const input = document.getElementById('chat-input');
+  if (input) { input.value = ''; input.focus(); }
+  clearChatDraft();
+}
+
+function initChatDraft() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+
+  // Restore a draft from a previous session — but only into an empty box, so
+  // we never clobber text the Captain has already begun typing this load.
+  try {
+    const saved = localStorage.getItem(_CHAT_DRAFT_KEY);
+    if (saved && !input.value) {
+      input.value = saved;
+      _chatDraftRestored = true;
+      const notice = document.getElementById('draft-notice');
+      if (notice) notice.hidden = false;
+      // Park the cursor at the end so the Captain can keep typing.
+      try { input.setSelectionRange(saved.length, saved.length); } catch (e) {}
+    }
+  } catch (e) { /* ignore */ }
+
+  // Debounced mirror-to-storage on every edit. 400ms keeps writes cheap
+  // during fast typing while still capturing the latest text well before a
+  // reload could lose it.
+  input.addEventListener('input', () => {
+    if (_chatDraftRestored) { _chatDraftRestored = false; _hideDraftNotice(); }
+    if (_chatDraftTimer) clearTimeout(_chatDraftTimer);
+    _chatDraftTimer = setTimeout(() => _saveChatDraft(input.value), 400);
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -886,6 +971,53 @@ function _isPinnedToBottom(winEl, threshold) {
   return remaining <= threshold;
 }
 
+// ── Jump to latest ─────────────────────────────────────────────────
+// A floating pill over the main chat that surfaces only when the Captain
+// has scrolled up away from the newest message. While scrolled away, any
+// fresh content (a new bubble or streaming tokens) lights a "new" dot so
+// long replies don't silently pile up below the fold. Clicking (or scrolling
+// back to the bottom) clears it. Uses a wider threshold than the auto-scroll
+// gate so the pill only appears once the Captain has meaningfully scrolled up.
+const _JUMP_LATEST_THRESHOLD = 160;
+function _jumpLatestEls() {
+  return {
+    win: document.getElementById('chat-window'),
+    btn: document.getElementById('jump-latest'),
+  };
+}
+// Refresh the pill's visibility from the current scroll position. Pass
+// hasNew=true when called because content just arrived, so we can flag it
+// only in the case where the Captain isn't already at the bottom.
+function _updateJumpLatest(hasNew) {
+  const { win, btn } = _jumpLatestEls();
+  if (!win || !btn) return;
+  const pinned = _isPinnedToBottom(win, _JUMP_LATEST_THRESHOLD);
+  if (pinned) {
+    btn.classList.remove('visible', 'has-new');
+    btn.hidden = true;
+    return;
+  }
+  btn.hidden = false;
+  // Force reflow so the entry transition runs the first time it un-hides.
+  void btn.offsetWidth;
+  btn.classList.add('visible');
+  if (hasNew) btn.classList.add('has-new');
+}
+// Smoothly return to the newest message and clear the "new" flag.
+function jumpToLatest() {
+  const { win, btn } = _jumpLatestEls();
+  if (!win) return;
+  win.scrollTo({ top: win.scrollHeight, behavior: 'smooth' });
+  if (btn) btn.classList.remove('has-new');
+}
+function initJumpLatest() {
+  const { win } = _jumpLatestEls();
+  if (!win) return;
+  // Manual scroll toward the bottom should retire the pill immediately.
+  win.addEventListener('scroll', () => _updateJumpLatest(false), { passive: true });
+  _updateJumpLatest(false);
+}
+
 function appendMessage(role, text) {
   const win = document.getElementById('chat-window');
   const msg = document.createElement('div');
@@ -927,6 +1059,7 @@ function appendMessage(role, text) {
   const wasPinned = _isPinnedToBottom(win);
   win.appendChild(msg);
   if (wasPinned) win.scrollTop = win.scrollHeight;
+  else _updateJumpLatest(true);
   return msg;
 }
 
@@ -1156,6 +1289,7 @@ async function sendMessage() {
   _renderAttachmentTray('main');
 
   input.value = '';
+  clearChatDraft();        // transmitted — the saved draft is no longer needed
   _lastActiveWsId = null;  // sending into main pane = main pane is last-active
 
   // Bubble preview — show the text plus a small list of attached files.
@@ -1481,6 +1615,7 @@ function _appendStreamToken(streamMsg, token) {
   const wasPinned = _isPinnedToBottom(win);
   if (textEl) textEl.textContent = _streamAccum;
   if (win && wasPinned) win.scrollTop = win.scrollHeight;
+  else if (win === document.getElementById('chat-window')) _updateJumpLatest(true);
 }
 
 function _finalizeStreamBubble(streamMsg) {
@@ -8703,6 +8838,235 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   toggleChatFind(true);
 });
+
+// ── Prompt library ───────────────────────────────────────
+// Saved, reusable prompts the Captain can insert into the main channel with a
+// single click — handy for recurring instructions ("summarise this", "review
+// for bugs", a standing report format) without retyping them. Stored as a
+// JSON array of strings in localStorage so the library persists across
+// reloads. Surfaced via the 📋 pill in the chat header or Ctrl/Cmd+Shift+P.
+const PROMPT_LIB_KEY = 'data-prompt-library';
+// Seeded on first use so the library is never empty on a fresh install. These
+// are generic, broadly-useful prompts; the Captain can delete or replace them.
+const PROMPT_LIB_DEFAULTS = [
+  'Summarize our conversation so far into a short brief.',
+  'Review the latest changes for bugs and security issues.',
+  "Draft a concise Captain's log entry for what we just did.",
+  'Explain your last response in simpler terms.',
+];
+
+function _loadPromptLibrary() {
+  try {
+    const raw = localStorage.getItem(PROMPT_LIB_KEY);
+    if (raw === null) return PROMPT_LIB_DEFAULTS.slice();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(p => typeof p === 'string' && p.trim()) : [];
+  } catch (_) { return []; }
+}
+
+function _savePromptLibrary(list) {
+  try { localStorage.setItem(PROMPT_LIB_KEY, JSON.stringify(list)); } catch (_) {}
+}
+
+// Toggle the prompt-library bar. Pass true/false to force a state; omit to flip.
+function togglePromptLibrary(force) {
+  const bar = document.getElementById('prompt-lib-bar');
+  const btn = document.getElementById('chat-prompts-btn');
+  if (!bar) return;
+  const show = (force === undefined) ? bar.hidden : !!force;
+  bar.hidden = !show;
+  if (btn) btn.classList.toggle('active', show);
+  if (show) renderPromptLibrary();
+}
+
+function renderPromptLibrary() {
+  const list = document.getElementById('prompt-lib-list');
+  if (!list) return;
+  const prompts = _loadPromptLibrary();
+  list.innerHTML = '';
+  if (!prompts.length) {
+    const empty = document.createElement('span');
+    empty.className = 'prompt-lib-empty';
+    empty.textContent = 'No saved prompts — type one below and press ＋ SAVE.';
+    list.appendChild(empty);
+    return;
+  }
+  prompts.forEach((text, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'prompt-lib-chip';
+    chip.title = text;
+
+    const label = document.createElement('button');
+    label.type = 'button';
+    label.className = 'prompt-lib-chip-label';
+    label.textContent = text.length > 42 ? text.slice(0, 41) + '…' : text;
+    label.addEventListener('click', () => insertPromptIntoInput(text));
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'prompt-lib-chip-del';
+    del.title = 'Delete this prompt';
+    del.setAttribute('aria-label', 'Delete prompt');
+    del.textContent = '✕';
+    del.addEventListener('click', (e) => { e.stopPropagation(); deleteSavedPrompt(i); });
+
+    chip.appendChild(label);
+    chip.appendChild(del);
+    list.appendChild(chip);
+  });
+}
+
+// Insert a saved prompt at the caret in the main prompt box (appending on a new
+// line if we're at the end of existing text), then focus so the Captain can
+// tweak and send. Fires an `input` event so any autosize / draft-save listeners
+// stay in sync.
+function insertPromptIntoInput(text) {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  const cur = input.value;
+  const start = (typeof input.selectionStart === 'number') ? input.selectionStart : cur.length;
+  const end   = (typeof input.selectionEnd   === 'number') ? input.selectionEnd   : cur.length;
+  const before = cur.slice(0, start);
+  const after  = cur.slice(end);
+  let insert = text;
+  if (before && !before.endsWith('\n') && start === cur.length) insert = '\n' + insert;
+  input.value = before + insert + after;
+  const caret = before.length + insert.length;
+  try { input.setSelectionRange(caret, caret); } catch (_) {}
+  input.focus();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// Save whatever is currently typed in the main prompt box as a new library
+// entry (newest first). No-op on empty; silently skips exact duplicates.
+function savePromptFromInput() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  const text = (input.value || '').trim();
+  if (!text) { _flashPromptSave(false); return; }
+  const list = _loadPromptLibrary();
+  if (!list.includes(text)) {
+    list.unshift(text);
+    _savePromptLibrary(list);
+    renderPromptLibrary();
+  }
+  _flashPromptSave(true);
+}
+
+function _flashPromptSave(ok) {
+  const btn = document.getElementById('prompt-lib-save');
+  if (!btn) return;
+  const orig = '＋ SAVE';
+  btn.textContent = ok ? '✓ SAVED' : '✕ EMPTY';
+  btn.classList.toggle('flash', ok);
+  setTimeout(() => { btn.textContent = orig; btn.classList.remove('flash'); }, 1200);
+}
+
+function deleteSavedPrompt(i) {
+  const list = _loadPromptLibrary();
+  if (i < 0 || i >= list.length) return;
+  list.splice(i, 1);
+  _savePromptLibrary(list);
+  renderPromptLibrary();
+}
+
+// Ctrl/Cmd+Shift+P toggles the prompt library while the Bridge (chat) panel is
+// active. Esc closes it when open.
+document.addEventListener('keydown', (e) => {
+  const chatPanel = document.getElementById('panel-chat');
+  const active = chatPanel && chatPanel.classList.contains('active');
+  if (e.key === 'Escape') {
+    const bar = document.getElementById('prompt-lib-bar');
+    if (bar && !bar.hidden) { e.preventDefault(); togglePromptLibrary(false); }
+    return;
+  }
+  if ((e.key === 'p' || e.key === 'P') && (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+    if (!active) return;
+    e.preventDefault();
+    togglePromptLibrary();
+  }
+});
+
+// ── Conversation outline (jump-to navigator) ─────────────
+// A scannable table of contents for the main channel. Opening the ☰ pill
+// reads the current message list straight from the DOM and renders one
+// clickable row per turn; clicking a row scrolls that message into view and
+// flashes it. Purely client-side and stateless — the list is rebuilt each
+// time it opens so it always reflects the live conversation, and closing it
+// leaves the message DOM completely untouched.
+function toggleChatOutline(force) {
+  const bar = document.getElementById('chat-outline-bar');
+  if (!bar) return;
+  const show = (force === undefined) ? bar.hidden : force;
+  bar.hidden = !show;
+  const btn = document.getElementById('chat-outline-btn');
+  if (btn) btn.classList.toggle('copied', show);
+  if (show) {
+    playDataSound('confirm');
+    _buildChatOutline();
+  }
+}
+
+// Rebuild the outline rows from the live message DOM. Mirrors the export
+// walk: skips the in-flight "thinking" bubble and any message with no real
+// transcript text so the outline lines up 1:1 with what a reader sees.
+function _buildChatOutline() {
+  const win     = document.getElementById('chat-window');
+  const list    = document.getElementById('chat-outline-list');
+  const countEl = document.getElementById('chat-outline-count');
+  if (!win || !list) return;
+  list.innerHTML = '';
+
+  const msgs = win.querySelectorAll('.chat-message');
+  let n = 0;
+  msgs.forEach(msg => {
+    if (msg.id === 'thinking-msg') return;                 // live status bubble
+    const textEl = msg.querySelector('.text');
+    if (!textEl) return;
+    const body = (textEl.innerText || textEl.textContent || '').trim();
+    if (!body) return;
+
+    const isCaptain = msg.classList.contains('captain');
+    const tsEl = msg.querySelector('.timestamp');
+    const ts = tsEl ? tsEl.textContent.trim() : '';
+    const clean = body.replace(/\s+/g, ' ');
+    const preview = clean.slice(0, 90) + (clean.length > 90 ? '…' : '');
+
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'chat-outline-item ' + (isCaptain ? 'from-captain' : 'from-data');
+    row.setAttribute('role', 'listitem');
+    row.innerHTML =
+      `<span class="col-role" aria-hidden="true">${isCaptain ? '▸' : '◉'}</span>` +
+      `<span class="col-text"></span>` +
+      `<span class="col-ts"></span>`;
+    row.querySelector('.col-text').textContent = preview;   // textContent — never inject HTML
+    row.querySelector('.col-ts').textContent = ts;
+    row.title = clean;
+    row.addEventListener('click', () => _outlineJumpTo(msg));
+    list.appendChild(row);
+    n++;
+  });
+
+  if (!n) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-outline-empty';
+    empty.textContent = 'No messages yet.';
+    list.appendChild(empty);
+  }
+  if (countEl) countEl.textContent = String(n);
+}
+
+// Scroll a message into view and flash its bubble so the eye lands on the
+// right turn once the smooth-scroll settles.
+function _outlineJumpTo(msg) {
+  if (!msg) return;
+  msg.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  msg.classList.remove('msg-flash');
+  void msg.offsetWidth;               // force reflow so the animation restarts
+  msg.classList.add('msg-flash');
+  setTimeout(() => msg.classList.remove('msg-flash'), 1600);
+}
 
 // ── Potential Upgrades (AI tool discovery) ───────────────
 let _briefingRefreshing = false;
