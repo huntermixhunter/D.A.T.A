@@ -220,6 +220,15 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
+  // Bookmarks navigator: same rule as the outline — Esc closes it first so a
+  // stray Esc never aborts an in-flight request just because it was open.
+  const _bookmarksBar = document.getElementById('chat-bookmarks-bar');
+  if (_bookmarksBar && !_bookmarksBar.hidden) {
+    e.preventDefault();
+    toggleChatBookmarks(false);
+    return;
+  }
+
   if (typeof BRAIN !== 'undefined' && BRAIN.active) return;
 
   // 1. Cancel listening (always global — only one mic stream at a time).
@@ -1033,6 +1042,7 @@ function appendMessage(role, text) {
     <div class="bubble">
       ${isData ? '<button class="tts-btn" title="Speak">▶</button>' : ''}
       <button class="copy-btn" title="Copy">⧉</button>
+      <button class="bookmark-btn" title="Bookmark this message">★</button>
       <div class="sender">${senderLabel}</div>
       <div class="text md-content">${renderMarkdown(text)}</div>
       <div class="timestamp">${ts}</div>
@@ -1044,6 +1054,10 @@ function appendMessage(role, text) {
       toggleTts(this, text);
     });
   }
+
+  // Bookmark toggle — persisted by a hash of the message text so a restored
+  // conversation keeps its stars. Restore the starred state on (re)creation.
+  _initMsgBookmark(msg, text);
 
   msg.querySelector('.copy-btn').addEventListener('click', function() {
     navigator.clipboard.writeText(text).then(() => {
@@ -9066,6 +9080,127 @@ function _outlineJumpTo(msg) {
   void msg.offsetWidth;               // force reflow so the animation restarts
   msg.classList.add('msg-flash');
   setTimeout(() => msg.classList.remove('msg-flash'), 1600);
+}
+
+// ── Message bookmarks ────────────────────────────────────
+// The Captain can star any message in the main channel to flag important
+// turns. Stars are keyed by a stable hash of the message text and stored in
+// localStorage, so they survive reloads (and reattach when the conversation
+// history is restored). The ★ pill opens a navigator listing only starred
+// messages; clicking a row jumps to it.
+const _BOOKMARKS_KEY = 'data-chat-bookmarks';
+
+// djb2 — small, stable, dependency-free. Returns a short base-36 string.
+function _msgHash(text) {
+  const s = (text || '').trim().replace(/\s+/g, ' ');
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+function _loadBookmarks() {
+  try {
+    const raw = localStorage.getItem(_BOOKMARKS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch (_) { return new Set(); }
+}
+
+function _saveBookmarks(set) {
+  try { localStorage.setItem(_BOOKMARKS_KEY, JSON.stringify([...set])); } catch (_) {}
+}
+
+// Wire the ★ button on a freshly created message and reflect its saved state.
+function _initMsgBookmark(msg, text) {
+  const btn = msg.querySelector('.bookmark-btn');
+  if (!btn) return;
+  const hash = _msgHash(text);
+  msg.dataset.bmHash = hash;
+  const marked = _loadBookmarks().has(hash);
+  msg.classList.toggle('bookmarked', marked);
+  btn.classList.toggle('active', marked);
+  btn.setAttribute('aria-pressed', marked ? 'true' : 'false');
+  btn.addEventListener('click', function() {
+    const set = _loadBookmarks();
+    const nowOn = !set.has(hash);
+    if (nowOn) set.add(hash); else set.delete(hash);
+    _saveBookmarks(set);
+    msg.classList.toggle('bookmarked', nowOn);
+    this.classList.toggle('active', nowOn);
+    this.setAttribute('aria-pressed', nowOn ? 'true' : 'false');
+    playDataSound('confirm');
+    // Keep the navigator live if it happens to be open.
+    const bar = document.getElementById('chat-bookmarks-bar');
+    if (bar && !bar.hidden) _buildChatBookmarks();
+  });
+}
+
+function toggleChatBookmarks(force) {
+  const bar = document.getElementById('chat-bookmarks-bar');
+  if (!bar) return;
+  const show = (force === undefined) ? bar.hidden : force;
+  bar.hidden = !show;
+  const btn = document.getElementById('chat-bookmarks-btn');
+  if (btn) btn.classList.toggle('copied', show);
+  if (show) {
+    playDataSound('confirm');
+    _buildChatBookmarks();
+  }
+}
+
+// Rebuild the navigator from the live DOM, listing only starred messages.
+// Each row jumps to its message; the ✕ removes the bookmark in place.
+function _buildChatBookmarks() {
+  const win     = document.getElementById('chat-window');
+  const list    = document.getElementById('chat-bookmarks-list');
+  const countEl = document.getElementById('chat-bookmarks-count');
+  if (!win || !list) return;
+  list.innerHTML = '';
+
+  const msgs = win.querySelectorAll('.chat-message.bookmarked');
+  let n = 0;
+  msgs.forEach(msg => {
+    if (msg.id === 'thinking-msg') return;
+    const textEl = msg.querySelector('.text');
+    if (!textEl) return;
+    const body = (textEl.innerText || textEl.textContent || '').trim();
+    if (!body) return;
+
+    const isCaptain = msg.classList.contains('captain') || msg.classList.contains('user');
+    const tsEl = msg.querySelector('.timestamp');
+    const ts = tsEl ? tsEl.textContent.trim() : '';
+    const clean = body.replace(/\s+/g, ' ');
+    const preview = clean.slice(0, 90) + (clean.length > 90 ? '…' : '');
+
+    const row = document.createElement('div');
+    row.className = 'chat-outline-item bookmark-item ' + (isCaptain ? 'from-captain' : 'from-data');
+    row.setAttribute('role', 'listitem');
+    row.innerHTML =
+      `<span class="col-role" aria-hidden="true">${isCaptain ? '▸' : '◉'}</span>` +
+      `<span class="col-text"></span>` +
+      `<span class="col-ts"></span>` +
+      `<button class="bookmark-remove" type="button" title="Remove bookmark" aria-label="Remove bookmark">✕</button>`;
+    row.querySelector('.col-text').textContent = preview;   // textContent — never inject HTML
+    row.querySelector('.col-ts').textContent = ts;
+    row.title = clean;
+    row.querySelector('.col-text').addEventListener('click', () => _outlineJumpTo(msg));
+    row.querySelector('.col-role').addEventListener('click', () => _outlineJumpTo(msg));
+    row.querySelector('.bookmark-remove').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const btn = msg.querySelector('.bookmark-btn');
+      if (btn) btn.click();     // reuse the toggle path (persist + repaint)
+    });
+    list.appendChild(row);
+    n++;
+  });
+
+  if (!n) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-outline-empty';
+    empty.textContent = 'No bookmarks yet — click ★ on a message to save it.';
+    list.appendChild(empty);
+  }
+  if (countEl) countEl.textContent = String(n);
 }
 
 // ── Potential Upgrades (AI tool discovery) ───────────────
