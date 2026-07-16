@@ -191,10 +191,21 @@
               <span class="panel-title">COMMUNICATIONS</span>
               <div class="panel-pills">
                 <button class="fullscreen-btn" id="chat-find-btn" onclick="toggleChatFind()" title="Find in conversation (Ctrl+F)">🔍</button>
+                <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
+
+                <!-- TEXT SIZE — scales all conversation text (main + workspace
+                     panes) for readability. Persists across sessions. Hidden
+                     until the "A" pill is clicked. -->
+                <div class="chat-textsize-menu" id="chat-textsize-menu" hidden role="group" aria-label="Conversation text size">
+                  <button class="textsize-step" onclick="stepChatTextSize(-1)" title="Smaller text" aria-label="Smaller text">A−</button>
+                  <span class="textsize-value" id="chat-textsize-value">100%</span>
+                  <button class="textsize-step big" onclick="stepChatTextSize(1)" title="Larger text" aria-label="Larger text">A+</button>
+                  <button class="textsize-reset" onclick="resetChatTextSize()" title="Reset to default size">RESET</button>
+                </div>
               </div>
             </div>
           </div>

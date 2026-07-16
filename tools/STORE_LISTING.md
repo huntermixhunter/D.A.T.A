@@ -30,6 +30,7 @@ Point it at your own Claude, ChatGPT, Gemini, or a free local Ollama model. DATA
 - **Persistent memory** — DATA remembers across sessions, with a searchable archive of every conversation.
 - **Project workspaces** — spawn parallel chat panes rooted in any folder, each with its own AI provider and role. Run Claude and Codex side by side.
 - **Standing orders** — schedule AI tasks to run on their own (daily reports, checks, scans).
+- **Free updates, built in.** DATA updates itself. A one-click (or nightly, automatic) self-update pulls the latest version straight from GitHub and restarts, with no re-downloading and no reinstalling, and it works on any provider.
 - **Potential Upgrades** — DATA scans for new AI tools, MCP servers, and skills you might want.
 - **Live system vitals** — real CPU/RAM/GPU readouts in a full Master Systems Display.
 - **Two dark themes** — a clean, professional MINIMAL and a neon CYBER, one click apart.

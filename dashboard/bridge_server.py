@@ -4796,6 +4796,39 @@ def _validate_cron(cron: str) -> str | None:
         return f"invalid cron field: {e}"
     return None
 
+def _pick_seed_provider() -> str:
+    """Choose a valid, INSTALLED provider id for an action-only standing order.
+
+    The dashboard self-update runs as pure Python (it downloads changed files
+    straight from GitHub) and NEVER dispatches to a provider, so this field is
+    cosmetic. It exists only so the order's edit dialog shows a real, available
+    brain instead of a disabled 'claude-cli n/a' entry on a box that has, say,
+    only Codex installed. Preference: the active brain, then the CLI priority
+    order (Claude, Codex, Gemini), then any available provider, then a stable
+    fallback so the field is always a known provider id."""
+    try:
+        if ACTIVE_PROVIDER and _provider_available(ACTIVE_PROVIDER):
+            return ACTIVE_PROVIDER
+    except Exception:
+        pass
+    for pid in _CLI_PRIORITY:
+        if _provider_available(pid):
+            return pid
+    for pid in PROVIDERS:
+        if _provider_available(pid):
+            return pid
+    return "claude-cli"
+
+
+# User-facing text for the self-update order (kept in one place so the seed and
+# the self-heal normalization below can never drift apart).
+_UPDATE_ORDER_NAME   = "Dashboard self-update"
+_UPDATE_ORDER_PROMPT = ("Checks GitHub and installs the latest DATA dashboard "
+                        "updates in place, then restarts to activate them. Runs "
+                        "on ANY provider (this is a direct download, not an AI "
+                        "task). Press RUN NOW to update immediately.")
+
+
 def _load_standing_orders() -> None:
     global _standing_orders
     if not STANDING_ORDERS_FILE.exists():
@@ -12287,13 +12320,18 @@ if __name__ == "__main__":
         # Auto-seed the daily dashboard self-update scan. Harmless on the dev
         # git clone (self_update.py self-guards and no-ops there); on a retail
         # install it scans GitHub and downloads any changed dashboard files.
-        if not any(o.get("id") == "so-dashboard-update" for o in _standing_orders):
+        _existing_update = next(
+            (o for o in _standing_orders if o.get("id") == "so-dashboard-update"), None)
+        if _existing_update is None:
             _standing_orders.append({
                 "id":       "so-dashboard-update",
-                "name":     "Dashboard self-update",
+                "name":     _UPDATE_ORDER_NAME,
                 "cron":     "0 4 * * *",                  # daily 04:00, off-peak
-                "prompt":   "(internal — scans GitHub and downloads dashboard updates)",
-                "provider": "claude-cli",                 # placeholder, unused with action
+                "prompt":   _UPDATE_ORDER_PROMPT,
+                # Cosmetic only — the update runs as pure Python and never
+                # dispatches to a provider. Seed it to whatever brain is actually
+                # installed so the edit dialog never shows a disabled 'n/a' entry.
+                "provider": _pick_seed_provider(),
                 "enabled":  True,
                 "action":   "update_dashboard",
                 "auto_restart": True,                     # download+apply, then relaunch the bridge to activate
@@ -12303,6 +12341,23 @@ if __name__ == "__main__":
                 "notify_telegram": False,
             })
             log.info("[orders] auto-seeded so-dashboard-update (daily 04:00)")
+        else:
+            # Self-heal a shipped/older copy so it never looks Claude-tied. Repoint
+            # the (cosmetic) provider to an installed brain if the stored one is not
+            # available on this box, and refresh the user-facing name/prompt text.
+            _healed = False
+            if not _provider_available(_existing_update.get("provider", "")):
+                _existing_update["provider"] = _pick_seed_provider()
+                _healed = True
+            if _existing_update.get("name") != _UPDATE_ORDER_NAME:
+                _existing_update["name"] = _UPDATE_ORDER_NAME
+                _healed = True
+            if _existing_update.get("prompt") != _UPDATE_ORDER_PROMPT:
+                _existing_update["prompt"] = _UPDATE_ORDER_PROMPT
+                _healed = True
+            if _healed:
+                log.info(f"[orders] self-healed so-dashboard-update "
+                         f"(provider={_existing_update['provider']})")
         for _o in _standing_orders:
             _recompute_next_run(_o)
         _save_standing_orders()
