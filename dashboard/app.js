@@ -504,6 +504,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _populatePaneCrewSelect('main', MAIN_CHAT_CREW);
   bootCaptains();
   initChatInputResizer();
+  initJumpLatest();
   initChatDraft();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
@@ -969,6 +970,53 @@ function _isPinnedToBottom(winEl, threshold) {
   return remaining <= threshold;
 }
 
+// ── Jump to latest ─────────────────────────────────────────────────
+// A floating pill over the main chat that surfaces only when the Captain
+// has scrolled up away from the newest message. While scrolled away, any
+// fresh content (a new bubble or streaming tokens) lights a "new" dot so
+// long replies don't silently pile up below the fold. Clicking (or scrolling
+// back to the bottom) clears it. Uses a wider threshold than the auto-scroll
+// gate so the pill only appears once the Captain has meaningfully scrolled up.
+const _JUMP_LATEST_THRESHOLD = 160;
+function _jumpLatestEls() {
+  return {
+    win: document.getElementById('chat-window'),
+    btn: document.getElementById('jump-latest'),
+  };
+}
+// Refresh the pill's visibility from the current scroll position. Pass
+// hasNew=true when called because content just arrived, so we can flag it
+// only in the case where the Captain isn't already at the bottom.
+function _updateJumpLatest(hasNew) {
+  const { win, btn } = _jumpLatestEls();
+  if (!win || !btn) return;
+  const pinned = _isPinnedToBottom(win, _JUMP_LATEST_THRESHOLD);
+  if (pinned) {
+    btn.classList.remove('visible', 'has-new');
+    btn.hidden = true;
+    return;
+  }
+  btn.hidden = false;
+  // Force reflow so the entry transition runs the first time it un-hides.
+  void btn.offsetWidth;
+  btn.classList.add('visible');
+  if (hasNew) btn.classList.add('has-new');
+}
+// Smoothly return to the newest message and clear the "new" flag.
+function jumpToLatest() {
+  const { win, btn } = _jumpLatestEls();
+  if (!win) return;
+  win.scrollTo({ top: win.scrollHeight, behavior: 'smooth' });
+  if (btn) btn.classList.remove('has-new');
+}
+function initJumpLatest() {
+  const { win } = _jumpLatestEls();
+  if (!win) return;
+  // Manual scroll toward the bottom should retire the pill immediately.
+  win.addEventListener('scroll', () => _updateJumpLatest(false), { passive: true });
+  _updateJumpLatest(false);
+}
+
 function appendMessage(role, text) {
   const win = document.getElementById('chat-window');
   const msg = document.createElement('div');
@@ -1010,6 +1058,7 @@ function appendMessage(role, text) {
   const wasPinned = _isPinnedToBottom(win);
   win.appendChild(msg);
   if (wasPinned) win.scrollTop = win.scrollHeight;
+  else _updateJumpLatest(true);
   return msg;
 }
 
@@ -1565,6 +1614,7 @@ function _appendStreamToken(streamMsg, token) {
   const wasPinned = _isPinnedToBottom(win);
   if (textEl) textEl.textContent = _streamAccum;
   if (win && wasPinned) win.scrollTop = win.scrollHeight;
+  else if (win === document.getElementById('chat-window')) _updateJumpLatest(true);
 }
 
 function _finalizeStreamBubble(streamMsg) {
