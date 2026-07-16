@@ -2072,6 +2072,48 @@ html, body {
   border-radius: 4px;
 }
 .attachment-tray[hidden] { display: none; }
+
+/* Draft-restored notice — a slim LCARS-styled banner shown above the prompt
+   when an unsent message from a prior session is recovered on load. */
+.draft-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffcc66;
+  background: rgba(255, 178, 51, 0.08);
+  border: 1px solid rgba(255, 178, 51, 0.35);
+  border-left: 3px solid #ffb233;
+  border-radius: 4px;
+  animation: draft-notice-in 240ms ease-out;
+}
+.draft-notice[hidden] { display: none; }
+.draft-notice-icon { color: #ffb233; }
+.draft-notice-text { flex: 1; }
+.draft-notice-discard {
+  background: transparent;
+  border: 1px solid rgba(255, 178, 51, 0.5);
+  color: #ffcc66;
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.draft-notice-discard:hover {
+  background: #ffb233;
+  color: #14141f;
+}
+@keyframes draft-notice-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .attachment-chip {
   display: inline-flex;
   align-items: center;
@@ -2499,6 +2541,106 @@ mark.chat-find-hl.active {
   background: var(--data-orange);
   color: #000;
   box-shadow: 0 0 0 1px var(--data-orange);
+}
+
+/* ── Conversation outline (jump-to navigator) ─────────────
+   Drop-down table of contents that slots in below the chat panel header,
+   directly reusing the find-bar chrome. The list scrolls internally so a
+   long conversation never pushes the input off-screen. */
+.chat-outline-bar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  max-height: 42vh;
+  border-bottom: 1px solid #2a2a3a;
+  background: rgba(6,6,14,0.95);
+}
+.chat-outline-bar[hidden] { display: none; }
+.chat-outline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #1c1c28;
+}
+.chat-outline-title {
+  flex: 1;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--data-blue);
+}
+.chat-outline-count {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: #667;
+  min-width: 24px;
+  text-align: right;
+}
+.chat-outline-list {
+  overflow-y: auto;
+  padding: 4px 6px 6px;
+}
+.chat-outline-empty {
+  padding: 10px 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  color: #556;
+}
+.chat-outline-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #b9c2d0;
+  cursor: pointer;
+  font-family: 'Share Tech Mono', 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 5px 8px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.chat-outline-item:hover {
+  background: rgba(0,180,255,0.08);
+  border-color: #2a3a4a;
+}
+.chat-outline-item .col-role {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  line-height: 1;
+}
+.chat-outline-item.from-captain .col-role { color: var(--data-orange); }
+.chat-outline-item.from-data .col-role { color: var(--data-blue); }
+.chat-outline-item .col-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-outline-item.from-captain .col-text { color: #dfe6ef; }
+.chat-outline-item .col-ts {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #556;
+  white-space: nowrap;
+}
+
+/* Momentary flash on the message a jump lands on, so the eye finds the
+   right turn after the smooth-scroll settles. */
+@keyframes data-msg-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(255,153,0,0.0);  background: rgba(255,153,0,0.16); }
+  35%  { box-shadow: 0 0 0 2px rgba(255,153,0,0.5); background: rgba(255,153,0,0.16); }
+  100% { box-shadow: 0 0 0 0 rgba(255,153,0,0.0);  background: transparent; }
+}
+.chat-message.msg-flash .bubble {
+  animation: data-msg-flash 1.5s ease-out;
+  border-radius: 6px;
 }
 
 /* Fullscreen state — covers the DATA header + footer + sidebars and
