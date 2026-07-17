@@ -788,6 +788,73 @@ html, body {
   color: var(--data-teal);
 }
 
+/* Fenced code block (```lang … ```) — a bordered panel with a header row
+   carrying the language label and a copy button, and a scrollable monospace
+   body. Preserves whitespace so multi-line code from DATA reads correctly. */
+.md-codeblock {
+  margin: 6px 0;
+  border: 1px solid #2a2a4a;
+  border-radius: 4px;
+  background: #0b0b14;
+  overflow: hidden;
+}
+.md-codeblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  background: #12121f;
+  border-bottom: 1px solid #2a2a4a;
+}
+.md-codeblock-lang {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--data-orange2, #FC6600);
+  opacity: 0.85;
+}
+.md-codeblock-copy {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--data-teal, #33ffcc);
+  background: transparent;
+  border: 1px solid #2a2a4a;
+  border-radius: 3px;
+  padding: 1px 7px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.md-codeblock-copy:hover {
+  background: #161628;
+  border-color: var(--data-teal, #33ffcc);
+}
+.md-codeblock-copy.copied {
+  color: var(--data-green, #44ff99);
+  border-color: var(--data-green, #44ff99);
+}
+.md-codeblock-body {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #d6d6f0;
+  white-space: pre;
+  tab-size: 4;
+}
+.md-codeblock-body code {
+  font-family: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  white-space: inherit;
+}
+
 /* Markdown URL — DATA-orange underlined link, opens in a new tab. */
 .md-link {
   color: var(--data-orange, #FF9900);

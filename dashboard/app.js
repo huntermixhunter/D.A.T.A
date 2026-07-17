@@ -1735,7 +1735,21 @@ function _inlineMd(text) {
 }
 
 function renderMarkdown(raw) {
-  const escaped = raw
+  // Pull fenced code blocks (```lang\n…\n```) out first so their contents are
+  // never mangled by the inline/line markdown passes below. Each block is
+  // replaced by a space-padded placeholder line (" CB<n> ", a shape ordinary
+  // prose never takes) and rendered afterwards as a <pre> with a language
+  // label and a one-click copy button.
+  const codeBlocks = [];
+  const preExtracted = raw.replace(
+    /```[ \t]*([\w+.#-]*)[ \t]*\r?\n([\s\S]*?)```/g,
+    (_m, lang, code) => {
+      codeBlocks.push({ lang: (lang || '').trim(), code: code.replace(/\n$/, '') });
+      return `\n CB${codeBlocks.length - 1} \n`;
+    }
+  );
+
+  const escaped = preExtracted
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
@@ -1745,6 +1759,12 @@ function renderMarkdown(raw) {
   let inList = false;
 
   for (const line of lines) {
+    const cb = line.match(/^ CB(\d+) $/);
+    if (cb) {
+      if (inList) { out.push('</ul>'); inList = false; }
+      out.push(_renderCodeBlock(codeBlocks[+cb[1]]));
+      continue;
+    }
     if (/^-{3,}$/.test(line.trim())) {
       if (inList) { out.push('</ul>'); inList = false; }
       out.push('<hr class="md-hr">');
@@ -1761,6 +1781,81 @@ function renderMarkdown(raw) {
   }
   if (inList) out.push('</ul>');
   return out.join('');
+}
+
+// Build the HTML for one fenced code block: a header carrying the language
+// label (falling back to "code") plus a copy button, and a <pre><code> body
+// with the raw source HTML-escaped. The un-escaped source is stashed on a data
+// attribute so copyCodeBlock() copies exactly what DATA emitted.
+function _renderCodeBlock(block) {
+  const src  = (block && block.code) || '';
+  const lang = (block && block.lang) || '';
+  const bodyHtml = src
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const langLabel = (lang || 'code')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // Stash the exact source for copy — base64 keeps quotes/newlines/markup out
+  // of the attribute entirely, so no escaping edge case can corrupt it.
+  let payload = '';
+  try { payload = btoa(unescape(encodeURIComponent(src))); }
+  catch (_e) { payload = ''; }
+  return (
+    '<div class="md-codeblock">' +
+      '<div class="md-codeblock-head">' +
+        '<span class="md-codeblock-lang">' + langLabel + '</span>' +
+        '<button class="md-codeblock-copy" type="button" ' +
+                'onclick="copyCodeBlock(this)" title="Copy code" ' +
+                'data-code="' + payload + '">⧉ Copy</button>' +
+      '</div>' +
+      '<pre class="md-codeblock-body"><code>' + bodyHtml + '</code></pre>' +
+    '</div>'
+  );
+}
+
+// Copy a fenced code block's exact source to the clipboard and flash the
+// button. Reads the base64 payload stashed by _renderCodeBlock() and falls
+// back to the visible <code> text if that is somehow missing.
+function copyCodeBlock(btn) {
+  let text = '';
+  const payload = btn.getAttribute('data-code');
+  if (payload) {
+    try { text = decodeURIComponent(escape(atob(payload))); }
+    catch (_e) { text = ''; }
+  }
+  if (!text) {
+    const wrap = btn.closest('.md-codeblock');
+    const codeEl = wrap && wrap.querySelector('pre code');
+    text = codeEl ? codeEl.textContent : '';
+  }
+  const ok = () => {
+    btn.textContent = '✓ Copied';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '⧉ Copy'; btn.classList.remove('copied'); }, 1500);
+  };
+  const fail = () => {
+    btn.textContent = '! Failed';
+    setTimeout(() => { btn.textContent = '⧉ Copy'; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(ok).catch(fail);
+  } else {
+    // Legacy fallback for non-secure contexts without the async clipboard API.
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok();
+    } catch (_e) { fail(); }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
