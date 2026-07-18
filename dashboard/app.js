@@ -9280,6 +9280,38 @@ function closeSettings() {
 function _settingsBackdrop(evt) { if (evt.target.id === 'settings-overlay') closeSettings(); }
 function _settingsKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeSettings(); } }
 
+// ── KEYBOARD SHORTCUTS overlay ────────────────────────────────────────────
+// A read-only cheat sheet for the chat shortcuts. Toggled by the ⌨ pill, by
+// pressing "?" outside a text field, or closed with Esc / backdrop click.
+function toggleShortcutsHelp(force) {
+  const ov = document.getElementById('shortcuts-overlay');
+  if (!ov) return;
+  const show = (force === undefined) ? ov.classList.contains('hidden') : !!force;
+  ov.classList.toggle('hidden', !show);
+  const btn = document.getElementById('chat-shortcuts-btn');
+  if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  if (show) {
+    document.addEventListener('keydown', _shortcutsKey);
+    const close = ov.querySelector('.shortcuts-close');
+    if (close) { try { close.focus(); } catch {} }
+  } else {
+    document.removeEventListener('keydown', _shortcutsKey);
+  }
+}
+function _shortcutsBackdrop(evt) { if (evt.target.id === 'shortcuts-overlay') toggleShortcutsHelp(false); }
+function _shortcutsKey(e) { if (e.key === 'Escape') { e.stopPropagation(); toggleShortcutsHelp(false); } }
+
+// "?" (Shift+/) opens the cheat sheet — but never while the Captain is typing
+// into a field or editing text, so it can't hijack a legitimate question mark.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.isContentEditable ||
+            /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+  e.preventDefault();
+  toggleShortcutsHelp();
+});
+
 function settingsTab(name) {
   document.querySelectorAll('.settings-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.tab === name));

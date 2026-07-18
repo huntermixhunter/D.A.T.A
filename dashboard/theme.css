@@ -6262,3 +6262,118 @@ body.theme-minimal .settings-toggle-cap:hover {
   .ec-body.reading .ec-list { display: none; }
   .ec-body:not(.reading) .ec-reader { display: none; }
 }
+
+/* ── KEYBOARD SHORTCUTS overlay ──────────────────────────────────────────
+   Centered reference dialog listing the chat keyboard shortcuts. Mirrors the
+   settings modal's frame styling for a consistent look. */
+.shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(3px);
+}
+.shortcuts-overlay.hidden { display: none; }
+
+.shortcuts-frame {
+  width: min(92vw, 460px);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--data-bg, #0a0a0f);
+  border: 2px solid var(--data-orange);
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 30px 90px -30px rgba(0,0,0,0.95),
+              0 0 60px -20px color-mix(in srgb, var(--data-orange) 50%, transparent);
+  overflow: hidden;
+}
+
+.shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+  background: var(--data-orange);
+  color: #000;
+}
+.shortcuts-title {
+  font-family: var(--font-main);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.2em;
+}
+.shortcuts-close {
+  border: none;
+  background: rgba(0,0,0,0.25);
+  color: #000;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  transition: background 0.15s, transform 0.08s;
+}
+.shortcuts-close:hover { background: rgba(0,0,0,0.45); }
+.shortcuts-close:active { transform: scale(0.92); }
+
+.shortcuts-body {
+  padding: 16px 20px 18px;
+  overflow-y: auto;
+}
+.shortcuts-group { margin-bottom: 16px; }
+.shortcuts-group:last-of-type { margin-bottom: 8px; }
+.shortcuts-h {
+  font-family: var(--font-main);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--data-orange);
+  margin: 0 0 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(255,153,0,0.18);
+}
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 5px 0;
+}
+.shortcut-desc {
+  font-size: 13px;
+  color: var(--data-text, #cfd3dc);
+}
+.shortcut-keys {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--data-text, #cfd3dc);
+  font-size: 12px;
+}
+.shortcut-keys kbd,
+.shortcuts-foot kbd {
+  display: inline-block;
+  min-width: 14px;
+  padding: 2px 7px;
+  font-family: var(--font-main), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--data-orange);
+  background: rgba(255,153,0,0.10);
+  border: 1px solid rgba(255,153,0,0.35);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+}
+.shortcuts-foot {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: rgba(207,211,220,0.62);
+}
+.shortcuts-foot kbd { color: var(--data-text, #cfd3dc); }
