@@ -195,6 +195,7 @@
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
+                <button class="fullscreen-btn" id="chat-shortcuts-btn" onclick="toggleShortcutsHelp()" title="Keyboard shortcuts (press ?)" aria-haspopup="dialog">⌨</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
 
                 <!-- TEXT SIZE — scales all conversation text (main + workspace
@@ -836,6 +837,40 @@
             </section>
 
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KEYBOARD SHORTCUTS — a scannable cheat sheet for every chat shortcut
+         the dashboard has accumulated. Opened via the ⌨ pill or by pressing
+         "?" while not typing; closed with Esc, the ✕, or a backdrop click.
+         Purely a reference overlay — reads no state, mutates nothing. -->
+    <div class="shortcuts-overlay hidden" id="shortcuts-overlay"
+         onclick="_shortcutsBackdrop(event)"
+         role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+      <div class="shortcuts-frame" onclick="event.stopPropagation()">
+        <header class="shortcuts-head">
+          <span class="shortcuts-title" id="shortcuts-title">⌨ KEYBOARD SHORTCUTS</span>
+          <button class="shortcuts-close" onclick="toggleShortcutsHelp(false)" title="Close (Esc)" aria-label="Close shortcuts">✕</button>
+        </header>
+        <div class="shortcuts-body">
+          <section class="shortcuts-group">
+            <h3 class="shortcuts-h">Composer</h3>
+            <div class="shortcut-row"><span class="shortcut-desc">Send message</span><span class="shortcut-keys"><kbd>Enter</kbd></span></div>
+            <div class="shortcut-row"><span class="shortcut-desc">New line without sending</span><span class="shortcut-keys"><kbd>Shift</kbd><kbd>Enter</kbd></span></div>
+          </section>
+          <section class="shortcuts-group">
+            <h3 class="shortcuts-h">Chat tools</h3>
+            <div class="shortcut-row"><span class="shortcut-desc">Find in conversation</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>F</kbd></span></div>
+            <div class="shortcut-row"><span class="shortcut-desc">Next / previous match</span><span class="shortcut-keys"><kbd>Enter</kbd> / <kbd>Shift</kbd><kbd>Enter</kbd></span></div>
+            <div class="shortcut-row"><span class="shortcut-desc">Prompt library</span><span class="shortcut-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>P</kbd></span></div>
+          </section>
+          <section class="shortcuts-group">
+            <h3 class="shortcuts-h">General</h3>
+            <div class="shortcut-row"><span class="shortcut-desc">Show this help</span><span class="shortcut-keys"><kbd>?</kbd></span></div>
+            <div class="shortcut-row"><span class="shortcut-desc">Close panel · cancel voice · abort reply</span><span class="shortcut-keys"><kbd>Esc</kbd></span></div>
+          </section>
+          <p class="shortcuts-foot">On macOS, use <kbd>⌘</kbd> in place of <kbd>Ctrl</kbd>.</p>
         </div>
       </div>
     </div>
