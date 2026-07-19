@@ -1060,7 +1060,100 @@ function appendMessage(role, text) {
   win.appendChild(msg);
   if (wasPinned) win.scrollTop = win.scrollHeight;
   else _updateJumpLatest(true);
+  _collapsePriorMessage(msg);
   return msg;
+}
+
+// ── Long-message collapse ────────────────────────────────────────────────
+// Very long replies (big code walkthroughs, pasted logs, verbose analyses)
+// can bury the rest of the conversation and make scrolling tedious. Once a
+// message is finalized we measure it; anything taller than MSG_COLLAPSE_PX is
+// folded behind a "Show more" toggle with a soft fade, so the transcript stays
+// scannable. Fully client-side and non-destructive — the text is only visually
+// clipped, never altered — and find/outline navigation auto-expands a collapsed
+// message before scrolling to it (see _expandCollapsedFor).
+const MSG_COLLAPSE_PX = 460;
+
+// Fold the message that comes just before a newly-appended one. We never
+// collapse the latest message itself — the Captain is reading it — but as soon
+// as the conversation moves on, the prior turn folds if it's overly long.
+function _collapsePriorMessage(newMsgEl) {
+  let prev = newMsgEl && newMsgEl.previousElementSibling;
+  while (prev && !prev.classList.contains('chat-message')) {
+    prev = prev.previousElementSibling;
+  }
+  if (prev && !prev.dataset.thinking && prev.id !== 'thinking-msg') {
+    _applyMessageCollapse(prev);
+  }
+}
+
+function _applyMessageCollapse(msgEl) {
+  try {
+    if (!msgEl || msgEl.dataset.collapseChecked) return;
+    const bubble = msgEl.querySelector('.bubble');
+    const textEl = msgEl.querySelector('.text');
+    if (!bubble || !textEl) return;
+    // Defer a frame so the just-rendered markdown has a settled height.
+    requestAnimationFrame(() => {
+      if (!msgEl.isConnected || msgEl.dataset.collapseChecked) return;
+      if (textEl.scrollHeight <= MSG_COLLAPSE_PX) return;   // short enough — leave it
+      // Capture scroll state so folding this (older) message doesn't yank the
+      // view: re-pin if we're at the bottom, otherwise keep content stable by
+      // compensating for the height lost above the viewport.
+      const win = msgEl.closest('.chat-window');
+      const pinned = win ? _isPinnedToBottom(win) : false;
+      const prevTop = win ? win.scrollTop : 0;
+      const heightBefore = win ? win.scrollHeight : 0;
+      const wasAbove = win ? (msgEl.offsetTop + msgEl.offsetHeight <= prevTop) : false;
+      msgEl.dataset.collapseChecked = '1';
+      msgEl.classList.add('msg-collapsible', 'msg-collapsed');
+      if (win) {
+        if (pinned) win.scrollTop = win.scrollHeight;
+        else if (wasAbove) win.scrollTop = prevTop - (heightBefore - win.scrollHeight);
+      }
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'msg-collapse-toggle';
+      const sync = () => {
+        const folded = msgEl.classList.contains('msg-collapsed');
+        toggle.textContent = folded ? '▾ Show more' : '▴ Show less';
+        toggle.setAttribute('aria-expanded', String(!folded));
+        toggle.title = folded ? 'Expand this message' : 'Collapse this message';
+      };
+      toggle.addEventListener('click', () => {
+        const win = msgEl.closest('.chat-window');
+        const folding = !msgEl.classList.contains('msg-collapsed');
+        msgEl.classList.toggle('msg-collapsed');
+        sync();
+        // When re-folding a message the Captain has scrolled past, pull its
+        // top back into view so the window doesn't lurch to a random spot.
+        if (folding && win) {
+          const top = msgEl.offsetTop - 12;
+          if (win.scrollTop > top) win.scrollTop = top;
+        }
+      });
+      sync();
+      const tsEl = bubble.querySelector('.timestamp');
+      if (tsEl) bubble.insertBefore(toggle, tsEl);
+      else bubble.appendChild(toggle);
+    });
+  } catch {}
+}
+
+// Expand any collapsed message containing `el` so navigation (find, outline)
+// can reveal a match/turn that would otherwise be clipped out of view.
+function _expandCollapsedFor(el) {
+  try {
+    const msg = el && el.closest ? el.closest('.chat-message.msg-collapsed') : null;
+    if (!msg) return;
+    msg.classList.remove('msg-collapsed');
+    const t = msg.querySelector('.msg-collapse-toggle');
+    if (t) {
+      t.textContent = '▴ Show less';
+      t.setAttribute('aria-expanded', 'true');
+      t.title = 'Collapse this message';
+    }
+  } catch {}
 }
 
 function appendThinking() {
@@ -1603,6 +1696,7 @@ function _startStreamBubble(winEl) {
   const wasPinned = _isPinnedToBottom(winEl);
   winEl.appendChild(msg);
   if (wasPinned) winEl.scrollTop = winEl.scrollHeight;
+  _collapsePriorMessage(msg);
   return msg;
 }
 
@@ -8461,6 +8555,7 @@ function appendMessageToPane(winEl, role, text, crewId) {
   const wasPinned = _isPinnedToBottom(winEl);
   winEl.appendChild(msg);
   if (wasPinned) winEl.scrollTop = winEl.scrollHeight;
+  _collapsePriorMessage(msg);
 }
 
 function appendThinkingToPane(winEl, crewId) {
@@ -8815,6 +8910,7 @@ function chatFindStep(dir) {
   _chatFindIdx = (_chatFindIdx + dir + _chatFindMarks.length) % _chatFindMarks.length;
   const cur = _chatFindMarks[_chatFindIdx];
   cur.classList.add('active');
+  _expandCollapsedFor(cur);
   cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
   _updateChatFindCount();
 }
@@ -9061,6 +9157,7 @@ function _buildChatOutline() {
 // right turn once the smooth-scroll settles.
 function _outlineJumpTo(msg) {
   if (!msg) return;
+  _expandCollapsedFor(msg);
   msg.scrollIntoView({ block: 'center', behavior: 'smooth' });
   msg.classList.remove('msg-flash');
   void msg.offsetWidth;               // force reflow so the animation restarts

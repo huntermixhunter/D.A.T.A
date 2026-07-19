@@ -914,6 +914,45 @@ html, body {
   font-family: var(--font-mono);
 }
 
+/* ── Long-message collapse ────────────────────────────────────────────────
+   Folds very long chat messages behind a "Show more" toggle so a single
+   verbose reply can't bury the rest of the transcript. Applied by
+   _applyMessageCollapse() in app.js once a message is finalized; only the
+   .text is clipped (with a soft fade), and the toggle sits below it in the
+   bubble. Navigation (find / outline) auto-expands via _expandCollapsedFor. */
+.chat-message.msg-collapsed .text {
+  max-height: 420px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+          mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+}
+.msg-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 3px 12px;
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--chat-font-scale, 1));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--data-orange);
+  background: rgba(255, 153, 0, 0.08);
+  border: 1px solid rgba(255, 153, 0, 0.4);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.msg-collapse-toggle:hover {
+  background: rgba(255, 153, 0, 0.2);
+  color: #fff;
+  border-color: rgba(255, 153, 0, 0.85);
+}
+.msg-collapse-toggle:focus-visible {
+  outline: 2px solid var(--data-orange);
+  outline-offset: 2px;
+}
+
 /* Thinking indicator */
 .thinking-dots span {
   animation: blink 1.2s infinite;
