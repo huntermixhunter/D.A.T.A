@@ -1056,6 +1056,8 @@ function appendMessage(role, text) {
     });
   });
 
+  _wireQuoteBtn(msg.querySelector('.bubble'), role, text);
+
   const wasPinned = _isPinnedToBottom(win);
   win.appendChild(msg);
   if (wasPinned) win.scrollTop = win.scrollHeight;
@@ -1646,6 +1648,7 @@ function _finalizeStreamBubble(streamMsg) {
 
     bubble.insertBefore(copyBtn, bubble.firstChild);
     bubble.insertBefore(ttsBtn, bubble.firstChild);
+    _wireQuoteBtn(bubble, 'data', finalText);
   }
 }
 
@@ -8935,6 +8938,39 @@ function insertPromptIntoInput(text) {
   try { input.setSelectionRange(caret, caret); } catch (_) {}
   input.focus();
   input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// Build a Markdown blockquote of a single main-channel message and drop it into
+// the composer, so the Captain can reply to or reference a specific turn without
+// scrolling and retyping. Purely additive — reuses the caret-aware insert from
+// the prompt library, so an in-progress draft is preserved, not clobbered.
+function quoteMessageIntoInput(role, text) {
+  const label = role === 'data'
+    ? crewLabel(MAIN_CHAT_CREW).toUpperCase()
+    : 'CAPTAIN';
+  const raw = (text == null ? '' : String(text)).replace(/\r\n?/g, '\n');
+  const body = raw.split('\n').map(l => '> ' + l).join('\n');
+  const block = `> **${label} said:**\n${body}\n\n`;
+  insertPromptIntoInput(block);
+}
+
+// Attach a "quote in reply" (❝) button to a main-channel message bubble. The
+// buttons are absolutely positioned via CSS, so insertion order in the DOM does
+// not affect layout. Safe no-op if the bubble is missing.
+function _wireQuoteBtn(bubble, role, text) {
+  if (!bubble) return null;
+  const btn = document.createElement('button');
+  btn.className = 'quote-btn';
+  btn.title = 'Quote this message in your reply';
+  btn.setAttribute('aria-label', 'Quote this message in your reply');
+  btn.textContent = '❝';
+  btn.addEventListener('click', function () {
+    quoteMessageIntoInput(role, text);
+    this.classList.add('quoted');
+    setTimeout(() => this.classList.remove('quoted'), 800);
+  });
+  bubble.insertBefore(btn, bubble.firstChild);
+  return btn;
 }
 
 // Save whatever is currently typed in the main prompt box as a new library
