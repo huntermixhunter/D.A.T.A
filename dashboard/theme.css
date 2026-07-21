@@ -2533,6 +2533,62 @@ html, body {
 }
 .textsize-reset:hover { border-color: var(--data-orange); color: var(--data-orange); }
 
+/* ── Speaker filter popover ───────────────────────────────
+   Anchored to the chat toolbar; narrows the conversation to one voice.
+   Reuses the text-size popover chrome for a consistent look. */
+#chat-rolefilter-btn.active { border-color: var(--data-blue); color: var(--data-blue); }
+.chat-rolefilter-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(6,6,14,0.97);
+  border: 1px solid var(--data-orange2);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+  z-index: 40;
+  min-width: 190px;
+}
+.chat-rolefilter-menu[hidden] { display: none; }
+.rolefilter-opts { display: flex; gap: 6px; }
+.rolefilter-opt {
+  flex: 1;
+  background: rgba(10,10,22,0.9);
+  border: 1px solid #2a2a3a;
+  color: var(--data-orange2);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  padding: 6px 6px;
+  border-radius: 3px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.rolefilter-opt:hover { border-color: var(--data-blue); color: var(--data-blue); }
+.rolefilter-opt.selected {
+  border-color: var(--data-blue);
+  color: var(--data-bg, #06060e);
+  background: var(--data-blue);
+}
+.rolefilter-status {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: #888;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Speaker-filter display rules — hide the non-matching voice. Everything
+   stays in the DOM so find / outline / export are unaffected. */
+#chat-window.rolefilter-captain > .chat-message.data { display: none; }
+#chat-window.rolefilter-data > .chat-message.user { display: none; }
+
 /* ── Find in conversation ─────────────────────────────────
    Slim search bar that drops in below the chat panel header. Styled to sit
    flush with the LCARS chrome; the highlight + active-match colours reuse the

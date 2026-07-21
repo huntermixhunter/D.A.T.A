@@ -194,6 +194,7 @@
                 <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
+                <button class="fullscreen-btn" id="chat-rolefilter-btn" onclick="toggleRoleFilterMenu()" title="Filter conversation by speaker" aria-haspopup="true" aria-expanded="false">👥</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
 
@@ -205,6 +206,20 @@
                   <span class="textsize-value" id="chat-textsize-value">100%</span>
                   <button class="textsize-step big" onclick="stepChatTextSize(1)" title="Larger text" aria-label="Larger text">A+</button>
                   <button class="textsize-reset" onclick="resetChatTextSize()" title="Reset to default size">RESET</button>
+                </div>
+
+                <!-- SPEAKER FILTER — narrows the main conversation to just the
+                     Captain's messages or just DATA's replies, so a long
+                     transcript can be skimmed one voice at a time. The choice
+                     persists across sessions and applies live to new messages.
+                     Hidden until the 👥 pill is clicked. -->
+                <div class="chat-rolefilter-menu" id="chat-rolefilter-menu" hidden role="group" aria-label="Filter conversation by speaker">
+                  <div class="rolefilter-opts">
+                    <button class="rolefilter-opt" id="rolefilter-opt-all" data-role="all" onclick="setChatRoleFilter('all')" title="Show every message">ALL</button>
+                    <button class="rolefilter-opt" id="rolefilter-opt-captain" data-role="captain" onclick="setChatRoleFilter('captain')" title="Show only the Captain's messages">CAPTAIN</button>
+                    <button class="rolefilter-opt" id="rolefilter-opt-data" data-role="data" onclick="setChatRoleFilter('data')" title="Show only DATA's replies">DATA</button>
+                  </div>
+                  <span class="rolefilter-status" id="rolefilter-status" aria-live="polite"></span>
                 </div>
               </div>
             </div>
