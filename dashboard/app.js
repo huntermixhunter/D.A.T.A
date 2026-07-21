@@ -505,6 +505,7 @@ window.addEventListener('DOMContentLoaded', () => {
   bootCaptains();
   initChatInputResizer();
   _loadChatFontScale();
+  _loadChatRoleFilter();
   initJumpLatest();
   initChatDraft();
   // A fresh dashboard load means no project is attached to the main pane.
@@ -1060,6 +1061,9 @@ function appendMessage(role, text) {
   win.appendChild(msg);
   if (wasPinned) win.scrollTop = win.scrollHeight;
   else _updateJumpLatest(true);
+  // Keep the speaker-filter status line accurate as messages stream in; the
+  // CSS hides non-matching bubbles automatically via the window class.
+  if (typeof _chatRoleFilter !== 'undefined' && _chatRoleFilter !== 'all') applyChatRoleFilter();
   return msg;
 }
 
@@ -8628,6 +8632,102 @@ function _closeTextSizeOnOutside(e) {
 
 function _closeTextSizeOnEsc(e) {
   if (e.key === 'Escape') toggleTextSizeMenu(false);
+}
+
+// ── Speaker filter ───────────────────────────────────────
+// Narrows the main channel to a single voice — just the Captain, or just
+// DATA — so a long transcript can be skimmed one side at a time. The filter
+// is a display-only toggle: it drives a class on #chat-window and CSS hides
+// the non-matching bubbles, so nothing is removed and it composes cleanly
+// with find, outline and export (all of which still see every message in the
+// DOM). The choice is stored in localStorage and re-applied to new messages
+// as they stream in, and the pill stays lit while a filter is active so it is
+// never a mystery why messages are hidden.
+const _CHAT_ROLE_FILTER_KEY = 'data.chatRoleFilter';
+const _CHAT_ROLE_FILTER_MODES = ['all', 'captain', 'data'];
+let _chatRoleFilter = 'all';
+
+function _loadChatRoleFilter() {
+  try {
+    const raw = localStorage.getItem(_CHAT_ROLE_FILTER_KEY);
+    if (_CHAT_ROLE_FILTER_MODES.includes(raw)) _chatRoleFilter = raw;
+  } catch (e) {}
+  applyChatRoleFilter();
+}
+
+function applyChatRoleFilter() {
+  const win = document.getElementById('chat-window');
+  if (win) {
+    win.classList.toggle('rolefilter-captain', _chatRoleFilter === 'captain');
+    win.classList.toggle('rolefilter-data', _chatRoleFilter === 'data');
+  }
+  const active = _chatRoleFilter !== 'all';
+  const btn = document.getElementById('chat-rolefilter-btn');
+  if (btn) btn.classList.toggle('active', active);
+  // Highlight the chosen option in the menu.
+  _CHAT_ROLE_FILTER_MODES.forEach(m => {
+    const opt = document.getElementById('rolefilter-opt-' + m);
+    if (opt) opt.classList.toggle('selected', m === _chatRoleFilter);
+  });
+  // Status line: how many of the total messages are currently shown.
+  const status = document.getElementById('rolefilter-status');
+  if (status) {
+    if (!active) {
+      status.textContent = 'Showing all messages';
+    } else if (win) {
+      const msgs = win.querySelectorAll('.chat-message');
+      let total = 0, shown = 0;
+      msgs.forEach(m => {
+        if (m.id === 'thinking-msg') return;      // transient, not a real turn
+        total++;
+        if (m.offsetParent !== null) shown++;      // visible (not display:none)
+      });
+      const who = _chatRoleFilter === 'captain' ? 'Captain' : 'DATA';
+      status.textContent = `Showing ${shown} of ${total} — ${who} only`;
+    }
+  }
+}
+
+function setChatRoleFilter(mode) {
+  if (!_CHAT_ROLE_FILTER_MODES.includes(mode)) return;
+  _chatRoleFilter = mode;
+  try {
+    if (mode === 'all') localStorage.removeItem(_CHAT_ROLE_FILTER_KEY);
+    else localStorage.setItem(_CHAT_ROLE_FILTER_KEY, mode);
+  } catch (e) {}
+  applyChatRoleFilter();
+  playDataSound('confirm');
+}
+
+function toggleRoleFilterMenu(force) {
+  const menu = document.getElementById('chat-rolefilter-menu');
+  const btn  = document.getElementById('chat-rolefilter-btn');
+  if (!menu) return;
+  const show = (typeof force === 'boolean') ? force : menu.hidden;
+  menu.hidden = !show;
+  if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  if (show) {
+    applyChatRoleFilter();
+    setTimeout(() => {
+      document.addEventListener('click', _closeRoleFilterOnOutside);
+      document.addEventListener('keydown', _closeRoleFilterOnEsc);
+    }, 0);
+  } else {
+    document.removeEventListener('click', _closeRoleFilterOnOutside);
+    document.removeEventListener('keydown', _closeRoleFilterOnEsc);
+  }
+}
+
+function _closeRoleFilterOnOutside(e) {
+  const menu = document.getElementById('chat-rolefilter-menu');
+  const btn  = document.getElementById('chat-rolefilter-btn');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+  toggleRoleFilterMenu(false);
+}
+
+function _closeRoleFilterOnEsc(e) {
+  if (e.key === 'Escape') toggleRoleFilterMenu(false);
 }
 
 // ── Export conversation ──────────────────────────────────
