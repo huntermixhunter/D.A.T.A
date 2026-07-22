@@ -507,6 +507,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _loadChatFontScale();
   initJumpLatest();
   initChatDraft();
+  initUnreadIndicator();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -1018,6 +1019,93 @@ function initJumpLatest() {
   _updateJumpLatest(false);
 }
 
+// ── Unread reply indicator (browser tab) ──────────────────────────
+// When the Captain switches to another tab or window, DATA may still be
+// finishing a reply. This surfaces the number of unseen DATA messages in
+// the browser tab title — "(2) DATA Interface" — plus a small red dot on
+// the favicon, so a reply that lands in the background doesn't go unnoticed.
+// Everything resets the instant the tab regains focus. Purely cosmetic:
+// no storage, no network, and the title/favicon are restored exactly.
+const _UNREAD_BASE_TITLE = document.title;
+let _unreadCount = 0;
+let _faviconEl = null;
+let _faviconOriginalHref = null;
+
+function _isTabHidden() {
+  // Only count when the tab is genuinely not visible — avoids false badges
+  // when focus merely sits in devtools or another same-page element.
+  return document.hidden === true;
+}
+
+function _renderUnreadTitle() {
+  document.title = _unreadCount > 0
+    ? `(${_unreadCount > 99 ? '99+' : _unreadCount}) ${_UNREAD_BASE_TITLE}`
+    : _UNREAD_BASE_TITLE;
+}
+
+function _setFaviconBadge(show) {
+  if (!_faviconEl) return;
+  if (!show) {
+    if (_faviconOriginalHref !== null) _faviconEl.href = _faviconOriginalHref;
+    return;
+  }
+  try {
+    const size = 32;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const draw = (baseImg) => {
+      ctx.clearRect(0, 0, size, size);
+      if (baseImg) {
+        ctx.drawImage(baseImg, 0, 0, size, size);
+      } else {
+        // Fallback base if the .ico can't be rasterised into an <img>.
+        ctx.fillStyle = '#0a0f14';
+        ctx.fillRect(0, 0, size, size);
+      }
+      const r = 8;
+      ctx.beginPath();
+      ctx.arc(size - r, r, r, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff3b30';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#000';
+      ctx.stroke();
+      _faviconEl.href = canvas.toDataURL('image/png');
+    };
+    const img = new Image();
+    img.onload = () => draw(img);
+    img.onerror = () => draw(null);
+    img.src = _faviconOriginalHref || 'favicon.ico';
+  } catch (e) {
+    // Canvas unsupported — the title count still conveys the unread state.
+  }
+}
+
+function _bumpUnread() {
+  _unreadCount += 1;
+  _renderUnreadTitle();
+  _setFaviconBadge(true);
+}
+
+function _clearUnread() {
+  if (_unreadCount === 0) return;
+  _unreadCount = 0;
+  _renderUnreadTitle();
+  _setFaviconBadge(false);
+}
+
+function initUnreadIndicator() {
+  _faviconEl = document.querySelector('link[rel~="icon"]');
+  if (_faviconEl) _faviconOriginalHref = _faviconEl.getAttribute('href');
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _clearUnread();
+  });
+  window.addEventListener('focus', _clearUnread);
+}
+
 function appendMessage(role, text) {
   const win = document.getElementById('chat-window');
   const msg = document.createElement('div');
@@ -1060,6 +1148,8 @@ function appendMessage(role, text) {
   win.appendChild(msg);
   if (wasPinned) win.scrollTop = win.scrollHeight;
   else _updateJumpLatest(true);
+  // Surface backgrounded DATA replies in the tab title / favicon.
+  if (isData && _isTabHidden()) _bumpUnread();
   return msg;
 }
 
