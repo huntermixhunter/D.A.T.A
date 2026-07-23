@@ -2533,6 +2533,82 @@ html, body {
 }
 .textsize-reset:hover { border-color: var(--data-orange); color: var(--data-orange); }
 
+/* ── Conversation stats popover ───────────────────────────
+   Dropdown anchored under the 📊 pill; same framing as the text-size menu but
+   laid out as a small key/value table. */
+.chat-stats-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  width: 232px;
+  padding: 10px 12px 8px;
+  background: rgba(6,6,14,0.97);
+  border: 1px solid var(--data-orange2);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+  z-index: 40;
+}
+.chat-stats-menu[hidden] { display: none; }
+.chat-stats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.chat-stats-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--data-orange2);
+}
+.chat-stats-close {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  transition: color 0.15s;
+}
+.chat-stats-close:hover { color: var(--data-orange); }
+.chat-stats-body { display: flex; flex-direction: column; gap: 1px; }
+.chat-stats-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+}
+.chat-stats-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #9aa;
+  white-space: nowrap;
+}
+.chat-stats-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--data-text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.chat-stats-sub {
+  font-size: 10px;
+  font-weight: 400;
+  color: #667;
+  letter-spacing: 0.02em;
+}
+.chat-stats-empty {
+  font-size: 11px;
+  color: #778;
+  padding: 4px 0;
+  text-align: center;
+}
+
 /* ── Find in conversation ─────────────────────────────────
    Slim search bar that drops in below the chat panel header. Styled to sit
    flush with the LCARS chrome; the highlight + active-match colours reuse the

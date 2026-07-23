@@ -8630,6 +8630,138 @@ function _closeTextSizeOnEsc(e) {
   if (e.key === 'Escape') toggleTextSizeMenu(false);
 }
 
+// ── Conversation statistics ──────────────────────────────
+// A lightweight, at-a-glance summary of the main channel. Everything is derived
+// straight from the rendered DOM the moment the popover opens (mirroring the
+// export walker), so there's no parallel data store to keep in sync and it
+// always reflects exactly what the Captain sees. Purely additive and read-only.
+const _STATS_WPM = 200;   // average adult reading speed, for the reading-time estimate
+
+function toggleChatStats(force) {
+  const menu = document.getElementById('chat-stats-menu');
+  const btn  = document.getElementById('chat-stats-btn');
+  if (!menu) return;
+  const show = (typeof force === 'boolean') ? force : menu.hidden;
+  menu.hidden = !show;
+  if (btn) {
+    btn.classList.toggle('active', show);
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  }
+  if (show) {
+    _renderChatStats();
+    playDataSound('confirm');
+    // Dismiss on the next outside click or Escape.
+    setTimeout(() => {
+      document.addEventListener('click', _closeChatStatsOnOutside);
+      document.addEventListener('keydown', _closeChatStatsOnEsc);
+    }, 0);
+  } else {
+    document.removeEventListener('click', _closeChatStatsOnOutside);
+    document.removeEventListener('keydown', _closeChatStatsOnEsc);
+  }
+}
+
+function _closeChatStatsOnOutside(e) {
+  const menu = document.getElementById('chat-stats-menu');
+  const btn  = document.getElementById('chat-stats-btn');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+  toggleChatStats(false);
+}
+
+function _closeChatStatsOnEsc(e) {
+  if (e.key === 'Escape') toggleChatStats(false);
+}
+
+// Parse a rendered "HH:MM:SS" (or "HH:MM") timestamp into seconds-since-midnight,
+// or null if it doesn't look like a clock time. Used only to estimate the span
+// of the session; the timestamps carry no date, so a span that appears to run
+// backwards (a conversation crossing midnight) is simply treated as unknown.
+function _statsTsSeconds(txt) {
+  const m = /(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(txt || '');
+  if (!m) return null;
+  return (+m[1]) * 3600 + (+m[2]) * 60 + (+(m[3] || 0));
+}
+
+function _statsFormatDuration(sec) {
+  if (sec <= 0) return '—';
+  const h = Math.floor(sec / 3600);
+  const mnt = Math.round((sec % 3600) / 60);
+  if (h > 0) return mnt > 0 ? `${h}h ${mnt}m` : `${h}h`;
+  if (mnt > 0) return `${mnt} min`;
+  return '< 1 min';
+}
+
+// Walk the main channel and tally counts, words, characters, the longest turn,
+// and the first/last timestamps. Returns a plain object the renderer formats.
+function _computeChatStats() {
+  const win = document.getElementById('chat-window');
+  const msgs = win ? win.querySelectorAll('.chat-message') : [];
+  const s = {
+    total: 0, captain: 0, data: 0, words: 0, chars: 0,
+    longest: 0, longestWho: '', firstTs: null, lastTs: null,
+  };
+  msgs.forEach(msg => {
+    if (msg.id === 'thinking-msg') return;                 // live status bubble
+    if (msg.classList.contains('ask-options-card')) return; // interactive card, no transcript text
+    const textEl = msg.querySelector('.text');
+    if (!textEl) return;
+    const body = (textEl.innerText || textEl.textContent || '').trim();
+    if (!body) return;
+
+    const isData = msg.classList.contains('data');
+    s.total++;
+    if (isData) s.data++; else s.captain++;
+
+    const w = body.split(/\s+/).filter(Boolean).length;
+    s.words += w;
+    s.chars += body.length;
+    if (w > s.longest) { s.longest = w; s.longestWho = isData ? 'DATA' : 'Captain'; }
+
+    const tsEl = msg.querySelector('.timestamp');
+    const secs = _statsTsSeconds(tsEl ? tsEl.textContent.trim() : '');
+    if (secs != null) {
+      if (s.firstTs == null) s.firstTs = secs;
+      s.lastTs = secs;
+    }
+  });
+  return s;
+}
+
+function _renderChatStats() {
+  const body = document.getElementById('chat-stats-body');
+  if (!body) return;
+  const s = _computeChatStats();
+
+  if (s.total === 0) {
+    body.innerHTML = `<div class="chat-stats-empty">No messages yet.</div>`;
+    return;
+  }
+
+  const readMin = s.words > 0 ? Math.max(1, Math.ceil(s.words / _STATS_WPM)) : 0;
+  const span = (s.firstTs != null && s.lastTs != null && s.lastTs >= s.firstTs)
+    ? _statsFormatDuration(s.lastTs - s.firstTs)
+    : '—';
+  const nf = n => n.toLocaleString('en-US');
+
+  const rows = [
+    ['Messages', nf(s.total)],
+    ['Captain', `${nf(s.captain)}<span class="chat-stats-sub"> · you</span>`],
+    ['DATA', `${nf(s.data)}<span class="chat-stats-sub"> · replies</span>`],
+    ['Words', nf(s.words)],
+    ['Characters', nf(s.chars)],
+    ['Reading time', readMin > 0 ? `~${readMin} min` : '—'],
+    ['Longest turn', s.longest > 0 ? `${nf(s.longest)} words<span class="chat-stats-sub"> · ${s.longestWho}</span>` : '—'],
+    ['Session span', span],
+  ];
+
+  body.innerHTML = rows.map(([label, val]) => `
+    <div class="chat-stats-row">
+      <span class="chat-stats-label">${label}</span>
+      <span class="chat-stats-val">${val}</span>
+    </div>`).join('');
+}
+
 // ── Export conversation ──────────────────────────────────
 // Walks the main channel's rendered messages and builds a plain-text Markdown
 // transcript, then triggers a browser download. Reads straight from the DOM so
