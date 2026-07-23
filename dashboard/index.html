@@ -194,6 +194,7 @@
                 <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
+                <button class="fullscreen-btn" id="chat-stats-btn" onclick="toggleChatStats()" title="Conversation stats — messages, words, reading time" aria-haspopup="true" aria-expanded="false">📊</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
 
@@ -205,6 +206,21 @@
                   <span class="textsize-value" id="chat-textsize-value">100%</span>
                   <button class="textsize-step big" onclick="stepChatTextSize(1)" title="Larger text" aria-label="Larger text">A+</button>
                   <button class="textsize-reset" onclick="resetChatTextSize()" title="Reset to default size">RESET</button>
+                </div>
+
+                <!-- CONVERSATION STATS — an at-a-glance summary of the main
+                     channel: message counts (Captain vs DATA), word/character
+                     totals, an estimated reading time, and the session span.
+                     Computed live from the DOM each time it opens, so it always
+                     reflects the current conversation. Hidden until the 📊 pill
+                     is clicked. -->
+                <div class="chat-stats-menu" id="chat-stats-menu" hidden role="group" aria-label="Conversation statistics">
+                  <div class="chat-stats-head">
+                    <span class="chat-stats-title">CONVERSATION STATS</span>
+                    <button class="chat-stats-close" onclick="toggleChatStats(false)"
+                            title="Close (Esc)" aria-label="Close stats">✕</button>
+                  </div>
+                  <div class="chat-stats-body" id="chat-stats-body"></div>
                 </div>
               </div>
             </div>
