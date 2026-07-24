@@ -346,6 +346,19 @@
                   <button class="send-btn" id="send-btn" onclick="sendMessage()">TRANSMIT</button>
                   <button class="stop-btn" id="stop-btn" onclick="stopData()" style="display:none">ABORT</button>
                 </div>
+                <!-- PROMPT METER — live word / character / estimated-token count
+                     for the message being composed. Complements the CONTEXT
+                     BUDGET gauge in the sidebar: it tells the Captain how heavy
+                     the *outgoing* prompt is before it's sent. Stays hidden
+                     while the box is empty, then turns amber (large) and red
+                     (very large) as the draft grows. -->
+                <div class="prompt-meter" id="prompt-meter" hidden aria-live="off">
+                  <span class="prompt-meter-item"><b id="prompt-meter-words">0</b>&nbsp;words</span>
+                  <span class="prompt-meter-sep" aria-hidden="true">·</span>
+                  <span class="prompt-meter-item"><b id="prompt-meter-chars">0</b>&nbsp;chars</span>
+                  <span class="prompt-meter-sep" aria-hidden="true">·</span>
+                  <span class="prompt-meter-item">~<b id="prompt-meter-tokens">0</b>&nbsp;tokens</span>
+                </div>
               </div>
             </div>
             <!-- project panes added dynamically -->

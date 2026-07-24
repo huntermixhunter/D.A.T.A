@@ -507,6 +507,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _loadChatFontScale();
   initJumpLatest();
   initChatDraft();
+  initPromptMeter();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -657,6 +658,62 @@ function initChatDraft() {
     if (_chatDraftTimer) clearTimeout(_chatDraftTimer);
     _chatDraftTimer = setTimeout(() => _saveChatDraft(input.value), 400);
   });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PROMPT METER — live word / character / estimated-token readout for the
+// main-channel composer. Purely a compose-time aid: it never touches what is
+// sent, only reflects the current textarea contents. Token count is a rough
+// heuristic (~4 chars per token, floored by word count) — good enough to gauge
+// prompt weight against the sidebar CONTEXT BUDGET without a real tokenizer.
+// ══════════════════════════════════════════════════════════════════
+const _PROMPT_METER_WARN_TOKENS  = 1500;  // amber — a large prompt
+const _PROMPT_METER_HEAVY_TOKENS = 4000;  // red   — a very large prompt
+
+// Rough token estimate for a plain string. Real tokenizers split on subwords,
+// but chars/4 tracks English prose closely and is cheap to run on every
+// keystroke. We floor at word count so short-but-many-word text isn't
+// undercounted, and never report a token count above the character count.
+function _estimateTokens(text) {
+  if (!text) return 0;
+  const chars = text.length;
+  const words = (text.trim().match(/\S+/g) || []).length;
+  return Math.min(chars, Math.max(Math.ceil(chars / 4), words));
+}
+
+function _updatePromptMeter() {
+  const bar = document.getElementById('prompt-meter');
+  if (!bar) return;
+  const input = document.getElementById('chat-input');
+  const text = input ? input.value : '';
+  const chars = text.length;
+
+  // Empty box → keep the meter out of the way entirely.
+  if (chars === 0) { bar.hidden = true; return; }
+
+  const words = (text.trim().match(/\S+/g) || []).length;
+  const tokens = _estimateTokens(text);
+
+  const w = document.getElementById('prompt-meter-words');
+  const c = document.getElementById('prompt-meter-chars');
+  const t = document.getElementById('prompt-meter-tokens');
+  if (w) w.textContent = words.toLocaleString();
+  if (c) c.textContent = chars.toLocaleString();
+  if (t) t.textContent = tokens.toLocaleString();
+
+  bar.classList.toggle('heavy', tokens >= _PROMPT_METER_HEAVY_TOKENS);
+  bar.classList.toggle('warn',
+    tokens >= _PROMPT_METER_WARN_TOKENS && tokens < _PROMPT_METER_HEAVY_TOKENS);
+  bar.hidden = false;
+}
+
+function initPromptMeter() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  // Typing (and any dictation path that dispatches 'input') keeps it current.
+  input.addEventListener('input', _updatePromptMeter);
+  // Reflect a restored draft / prefilled text on first paint.
+  _updatePromptMeter();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1290,6 +1347,7 @@ async function sendMessage() {
 
   input.value = '';
   clearChatDraft();        // transmitted — the saved draft is no longer needed
+  _updatePromptMeter();    // box is empty now — hide the compose-time meter
   _lastActiveWsId = null;  // sending into main pane = main pane is last-active
 
   // Bubble preview — show the text plus a small list of attached files.

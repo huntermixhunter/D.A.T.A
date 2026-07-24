@@ -2114,6 +2114,37 @@ html, body {
   from { opacity: 0; transform: translateY(-3px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Prompt meter — a quiet, right-aligned readout of the composed message's
+   size (words / chars / ~tokens). Sits just under the input row and only
+   appears once there is text to measure. Colour escalates from neutral ->
+   amber -> red as the draft grows, mirroring the sidebar CONTEXT BUDGET cues. */
+.prompt-meter {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 0;
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6f7690;
+  user-select: none;
+  transition: color 160ms ease;
+}
+.prompt-meter[hidden] { display: none; }
+.prompt-meter b {
+  font-weight: 700;
+  color: #9aa2c0;
+  transition: color 160ms ease;
+}
+.prompt-meter-sep { opacity: 0.5; }
+.prompt-meter.warn { color: #d8973a; }
+.prompt-meter.warn b { color: #ffbe5c; }
+.prompt-meter.heavy { color: #d85a5a; }
+.prompt-meter.heavy b { color: #ff7a7a; }
+
 .attachment-chip {
   display: inline-flex;
   align-items: center;
