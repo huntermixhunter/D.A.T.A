@@ -2869,6 +2869,27 @@ mark.chat-find-hl.active {
   padding-right: 78px;
 }
 
+/* ── Prompt-recall hint ────────────────────────────────────
+   A faint "↑ recall last prompt" cue that appears only while the empty
+   composer is focused and there is sent-prompt history to walk. Sits low on
+   the left, clear of the inline voice/attach buttons on the right, and never
+   intercepts clicks so it can't get in the way of typing. */
+.composer-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 7px;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #4c4c66;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+.composer-hint[hidden] { display: none; }
+
 /* ── Voice + dictation buttons (inline row, anchored inside textarea) ── */
 .input-right-btns {
   display: flex;

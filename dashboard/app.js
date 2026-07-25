@@ -395,6 +395,19 @@ function handleInputKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
+    return;
+  }
+  // Shell-style prompt recall. No modifier (Alt+↑ etc. keep their behavior).
+  // ENTERING recall requires the caret at the very start of the box so normal
+  // cursor movement is untouched; once walking history, ↑/↓ navigate freely
+  // until the Captain types (which drops back to live editing).
+  if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  const el = e.target;
+  if (e.key === 'ArrowUp') {
+    const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
+    if ((_histIndex !== null || atStart) && recallPromptHistory(-1)) e.preventDefault();
+  } else if (e.key === 'ArrowDown') {
+    if (_histIndex !== null && recallPromptHistory(1)) e.preventDefault();
   }
 }
 
@@ -653,10 +666,108 @@ function initChatDraft() {
   // during fast typing while still capturing the latest text well before a
   // reload could lose it.
   input.addEventListener('input', () => {
+    // Manual typing always ends an in-progress history recall so the next ↑
+    // starts fresh from the newest prompt (matches shell/Slack behavior).
+    if (!_histSyncing) { _histIndex = null; _histStash = ''; }
     if (_chatDraftRestored) { _chatDraftRestored = false; _hideDraftNotice(); }
     if (_chatDraftTimer) clearTimeout(_chatDraftTimer);
     _chatDraftTimer = setTimeout(() => _saveChatDraft(input.value), 400);
+    _updateComposerHint();
   });
+
+  // Reveal the "↑ recall" affordance only while the empty box is focused.
+  input.addEventListener('focus', _updateComposerHint);
+  input.addEventListener('blur',  _updateComposerHint);
+  _updateComposerHint();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PROMPT HISTORY RECALL — shell-style ↑ / ↓ through sent prompts
+// ══════════════════════════════════════════════════════════════════
+// Every transmitted Captain prompt is remembered (capped + persisted). In the
+// main composer, ArrowUp with the caret at the very start walks back through
+// prior prompts and ArrowDown walks forward — exactly like a terminal or the
+// Slack message box. The live draft you were mid-typing is stashed on the
+// first ↑ and restored when you step back past the newest entry, so recall
+// never eats unsent text. Caret-gated so normal multi-line cursor movement is
+// left completely untouched.
+const _PROMPT_HIST_KEY = 'data.promptHistory';
+const _PROMPT_HIST_MAX = 50;
+let _promptHistory = _loadPromptHistory();
+let _histIndex = null;    // null = editing live; else an index into _promptHistory
+let _histStash = '';      // the live draft saved when recall began
+let _histSyncing = false; // guard so programmatic value writes don't reset nav
+
+function _loadPromptHistory() {
+  try {
+    const raw = localStorage.getItem(_PROMPT_HIST_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((s) => typeof s === 'string' && s.trim()) : [];
+  } catch (e) { return []; }
+}
+
+// Record a freshly-sent prompt. Consecutive duplicates are collapsed so
+// hammering the same message doesn't bloat the ring.
+function _pushPromptHistory(text) {
+  text = (text || '').trim();
+  if (text) {
+    const last = _promptHistory[_promptHistory.length - 1];
+    if (last !== text) {
+      _promptHistory.push(text);
+      if (_promptHistory.length > _PROMPT_HIST_MAX) {
+        _promptHistory = _promptHistory.slice(-_PROMPT_HIST_MAX);
+      }
+      try { localStorage.setItem(_PROMPT_HIST_KEY, JSON.stringify(_promptHistory)); } catch (e) {}
+    }
+  }
+  // A send always ends any in-progress recall.
+  _histIndex = null;
+  _histStash = '';
+  _updateComposerHint();
+}
+
+// Walk the history. dir < 0 = older (↑); dir > 0 = newer (↓). Returns true when
+// it consumed the keystroke so the caller can preventDefault the caret move.
+function recallPromptHistory(dir) {
+  const input = document.getElementById('chat-input');
+  if (!input || !_promptHistory.length) return false;
+
+  if (_histIndex === null) {
+    if (dir > 0) return false;               // not navigating yet — ↓ is a no-op
+    _histStash = input.value;                // remember the unsent draft
+    _histIndex = _promptHistory.length - 1;  // newest entry first
+  } else {
+    _histIndex += dir;
+  }
+
+  if (_histIndex < 0) {
+    _histIndex = 0;                           // clamp at the oldest entry
+  } else if (_histIndex >= _promptHistory.length) {
+    _histIndex = null;                        // stepped forward past the newest
+  }
+
+  _histSyncing = true;
+  input.value = _histIndex === null ? _histStash : _promptHistory[_histIndex];
+  _histSyncing = false;
+  const end = input.value.length;
+  try { input.setSelectionRange(end, end); } catch (e) {}
+  _saveChatDraft(input.value);
+  _updateComposerHint();
+  return true;
+}
+
+// Toggle the "↑ recall last prompt" affordance: visible only when the empty
+// composer is focused, there is history to recall, and we're not already
+// mid-recall (once you're walking history the hint would just be noise).
+function _updateComposerHint() {
+  const hint = document.getElementById('composer-hint');
+  const input = document.getElementById('chat-input');
+  if (!hint || !input) return;
+  const show = _promptHistory.length > 0
+    && document.activeElement === input
+    && input.value.length === 0
+    && _histIndex === null;
+  hint.hidden = !show;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1289,6 +1400,7 @@ async function sendMessage() {
   _renderAttachmentTray('main');
 
   input.value = '';
+  _pushPromptHistory(text); // remember for shell-style ↑ / ↓ recall
   clearChatDraft();        // transmitted — the saved draft is no longer needed
   _lastActiveWsId = null;  // sending into main pane = main pane is last-active
 

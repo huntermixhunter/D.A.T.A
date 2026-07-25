@@ -342,6 +342,10 @@
                              accept="image/*,application/pdf,audio/*,text/*,.md,.markdown,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.toml,.html,.css,.sh,.bat,.ps1,.csv,.log,.mp3,.m4a,.m4r,.wav,.ogg,.webm,.aac,.flac,.opus"
                              onchange="handleAttachmentFiles(this.files); this.value=''"/>
                     </div>
+                    <!-- Shell-style recall affordance: shown only while the box
+                         is empty + focused and prior prompts exist. Press ↑ to
+                         walk back through sent prompts, ↓ to walk forward. -->
+                    <span class="composer-hint" id="composer-hint" hidden aria-hidden="true">↑ recall last prompt</span>
                   </div>
                   <button class="send-btn" id="send-btn" onclick="sendMessage()">TRANSMIT</button>
                   <button class="stop-btn" id="stop-btn" onclick="stopData()" style="display:none">ABORT</button>
