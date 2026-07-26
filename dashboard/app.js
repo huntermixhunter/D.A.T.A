@@ -392,9 +392,100 @@ function _updateQueueBadge() {
 }
 
 function handleInputKey(e) {
+  // Markdown formatting shortcuts on the composer. Ctrl/Cmd + B/I/E/K wrap the
+  // current selection, mirroring the format bar buttons. Alt is excluded so we
+  // don't clobber OS/browser combos.
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+    const k = (e.key || '').toLowerCase();
+    const map = { b: 'bold', i: 'italic', e: 'code', k: 'link' };
+    if (map[k]) {
+      e.preventDefault();
+      formatChatInput(map[k], (e.target && e.target.id) || 'chat-input');
+      return;
+    }
+  }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
+  }
+}
+
+// ── Composer markdown formatting ─────────────────────────────
+// Wrap/unwrap the composer's current selection in markdown syntax. Chat bubbles
+// render markdown (renderMarkdown), so these give the Captain one-click bold,
+// code, links, lists, etc. Every mutation dispatches an `input` event so draft
+// auto-save and textarea autogrow stay in sync. Works on the main #chat-input
+// and any project-pane textarea passed by id.
+function _applyInput(ta, value, selStart, selEnd) {
+  ta.value = value;
+  ta.focus();
+  try { ta.setSelectionRange(selStart, selEnd); } catch {}
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function _wrapInline(ta, marker) {
+  const v = ta.value, ml = marker.length;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const before = v.slice(0, s), sel = v.slice(s, e), after = v.slice(e);
+  // Markers already just outside the selection → unwrap them.
+  if (before.slice(-ml) === marker && after.slice(0, ml) === marker) {
+    _applyInput(ta, before.slice(0, -ml) + sel + after.slice(ml), s - ml, e - ml);
+    return;
+  }
+  // Markers sit inside the selection → strip them.
+  if (sel.length >= 2 * ml && sel.slice(0, ml) === marker && sel.slice(-ml) === marker) {
+    const inner = sel.slice(ml, -ml);
+    _applyInput(ta, before + inner + after, s, e - 2 * ml);
+    return;
+  }
+  // Empty selection → drop the markers and park the cursor between them.
+  if (s === e) {
+    _applyInput(ta, before + marker + marker + after, s + ml, s + ml);
+    return;
+  }
+  _applyInput(ta, before + marker + sel + marker + after, s + ml, e + ml);
+}
+function _prefixLines(ta, prefix) {
+  const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+  const lineStart = v.lastIndexOf('\n', s - 1) + 1;
+  let lineEnd = v.indexOf('\n', e);
+  if (lineEnd === -1) lineEnd = v.length;
+  const lines = v.slice(lineStart, lineEnd).split('\n');
+  const done = lines.every(l => l.trim() === '' || l.startsWith(prefix));
+  const out = lines.map(l => {
+    if (l.trim() === '') return l;
+    return done ? (l.startsWith(prefix) ? l.slice(prefix.length) : l) : prefix + l;
+  }).join('\n');
+  _applyInput(ta, v.slice(0, lineStart) + out + v.slice(lineEnd),
+              lineStart, lineStart + out.length);
+}
+function _codeBlock(ta) {
+  const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+  const before = v.slice(0, s), sel = v.slice(s, e), after = v.slice(e);
+  const nlBefore = (s === 0 || before.endsWith('\n')) ? '' : '\n';
+  const nlAfter = (after === '' || after.startsWith('\n')) ? '' : '\n';
+  const insert = nlBefore + '```\n' + sel + '\n```' + nlAfter;
+  const inner = s + nlBefore.length + 4; // past the opening ```\n
+  _applyInput(ta, before + insert + after, inner, inner + sel.length);
+}
+function _linkMd(ta) {
+  const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+  const before = v.slice(0, s), after = v.slice(e);
+  const label = v.slice(s, e) || 'text';
+  const md = '[' + label + '](url)';
+  const urlStart = s + label.length + 3; // [label](
+  _applyInput(ta, before + md + after, urlStart, urlStart + 3);
+}
+function formatChatInput(kind, inputId) {
+  const ta = document.getElementById(inputId || 'chat-input');
+  if (!ta || ta.disabled) return;
+  switch (kind) {
+    case 'bold':      _wrapInline(ta, '**'); break;
+    case 'italic':    _wrapInline(ta, '*');  break;
+    case 'code':      _wrapInline(ta, '`');  break;
+    case 'codeblock': _codeBlock(ta);        break;
+    case 'link':      _linkMd(ta);           break;
+    case 'list':      _prefixLines(ta, '- '); break;
+    case 'quote':     _prefixLines(ta, '> '); break;
   }
 }
 
