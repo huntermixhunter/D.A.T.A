@@ -322,6 +322,26 @@
                           onclick="discardChatDraft()"
                           title="Discard the restored draft">DISCARD</button>
                 </div>
+                <!-- Markdown formatting toolbar — wraps the current selection
+                     in the composer with markdown syntax. Chat bubbles render
+                     markdown, so this makes bold/code/links/lists one click. -->
+                <div class="format-bar" id="chat-format-bar" role="toolbar" aria-label="Text formatting">
+                  <button type="button" class="format-btn" data-fmt="bold"
+                          onclick="formatChatInput('bold')" title="Bold (Ctrl+B)" aria-label="Bold"><b>B</b></button>
+                  <button type="button" class="format-btn" data-fmt="italic"
+                          onclick="formatChatInput('italic')" title="Italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
+                  <button type="button" class="format-btn" data-fmt="code"
+                          onclick="formatChatInput('code')" title="Inline code (Ctrl+E)" aria-label="Inline code">&lt;&gt;</button>
+                  <button type="button" class="format-btn" data-fmt="codeblock"
+                          onclick="formatChatInput('codeblock')" title="Code block" aria-label="Code block">▤</button>
+                  <button type="button" class="format-btn" data-fmt="link"
+                          onclick="formatChatInput('link')" title="Link (Ctrl+K)" aria-label="Link">🔗</button>
+                  <span class="format-bar-sep" aria-hidden="true"></span>
+                  <button type="button" class="format-btn" data-fmt="list"
+                          onclick="formatChatInput('list')" title="Bulleted list" aria-label="Bulleted list">•—</button>
+                  <button type="button" class="format-btn" data-fmt="quote"
+                          onclick="formatChatInput('quote')" title="Blockquote" aria-label="Blockquote">❝</button>
+                </div>
                 <div class="input-row">
                   <div class="input-prefix">CAPTAIN ›</div>
                   <div class="input-wrapper has-attach">
