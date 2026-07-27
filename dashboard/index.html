@@ -192,6 +192,7 @@
               <div class="panel-pills">
                 <button class="fullscreen-btn" id="chat-find-btn" onclick="toggleChatFind()" title="Find in conversation (Ctrl+F)">🔍</button>
                 <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
+                <button class="fullscreen-btn" id="chat-density-btn" onclick="toggleDensityMenu()" title="Message density — spacing between messages" aria-haspopup="true" aria-expanded="false">⇕</button>
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
@@ -205,6 +206,18 @@
                   <span class="textsize-value" id="chat-textsize-value">100%</span>
                   <button class="textsize-step big" onclick="stepChatTextSize(1)" title="Larger text" aria-label="Larger text">A+</button>
                   <button class="textsize-reset" onclick="resetChatTextSize()" title="Reset to default size">RESET</button>
+                </div>
+
+                <!-- MESSAGE DENSITY — controls the vertical spacing between
+                     messages and bubble padding across every conversation pane.
+                     A scanning companion to the "A" text-size control: Compact
+                     packs more history on screen, Comfortable spreads it out.
+                     Persists across sessions. Hidden until the "⇕" pill is
+                     clicked. -->
+                <div class="chat-density-menu" id="chat-density-menu" hidden role="group" aria-label="Message density">
+                  <button class="density-opt" data-density="compact" onclick="setChatDensity('compact')" title="Tightly packed — more messages on screen">Compact</button>
+                  <button class="density-opt" data-density="cozy" onclick="setChatDensity('cozy')" title="Default spacing">Cozy</button>
+                  <button class="density-opt" data-density="comfortable" onclick="setChatDensity('comfortable')" title="Roomy — extra breathing space">Comfortable</button>
                 </div>
               </div>
             </div>

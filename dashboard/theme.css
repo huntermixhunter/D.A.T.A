@@ -2533,6 +2533,55 @@ html, body {
 }
 .textsize-reset:hover { border-color: var(--data-orange); color: var(--data-orange); }
 
+/* ── Message density menu ─────────────────────────────────
+   Dropdown of spacing presets, anchored under the "⇕" pill. Mirrors the
+   text-size menu so the two readability controls feel like a matched set. */
+.chat-density-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(6,6,14,0.97);
+  border: 1px solid var(--data-orange2);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+  z-index: 40;
+}
+.chat-density-menu[hidden] { display: none; }
+.density-opt {
+  background: rgba(10,10,22,0.9);
+  border: 1px solid #2a2a3a;
+  color: var(--data-orange2);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 3px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.density-opt:hover { border-color: var(--data-blue); color: var(--data-blue); }
+.density-opt.active {
+  border-color: var(--data-orange);
+  color: #000;
+  background: var(--data-orange);
+}
+
+/* Density presets — driven by data-chat-density on #chats-wrapper. Tunes the
+   inter-message gap and bubble padding across every conversation pane. "cozy"
+   is the default and matches the base .chat-window / .bubble values. */
+.chats-wrapper[data-chat-density="compact"] .chat-window { gap: 8px; }
+.chats-wrapper[data-chat-density="compact"] .bubble { padding: 7px 12px; }
+.chats-wrapper[data-chat-density="comfortable"] .chat-window { gap: 26px; }
+.chats-wrapper[data-chat-density="comfortable"] .bubble { padding: 16px 20px; }
+
 /* ── Find in conversation ─────────────────────────────────
    Slim search bar that drops in below the chat panel header. Styled to sit
    flush with the LCARS chrome; the highlight + active-match colours reuse the
