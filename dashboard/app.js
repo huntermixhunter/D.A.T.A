@@ -505,6 +505,7 @@ window.addEventListener('DOMContentLoaded', () => {
   bootCaptains();
   initChatInputResizer();
   _loadChatFontScale();
+  _loadChatDensity();
   initJumpLatest();
   initChatDraft();
   // A fresh dashboard load means no project is attached to the main pane.
@@ -8628,6 +8629,74 @@ function _closeTextSizeOnOutside(e) {
 
 function _closeTextSizeOnEsc(e) {
   if (e.key === 'Escape') toggleTextSizeMenu(false);
+}
+
+// ── Message density ──────────────────────────────────────
+// Controls the vertical rhythm of every conversation pane by driving the
+// data-chat-density attribute on #chats-wrapper (CSS reads it to tune the
+// message gap and bubble padding). Compact fits more history on screen for
+// scanning; Comfortable spreads it out for focused reading. A companion to
+// the text-size control; the choice persists in localStorage.
+const _CHAT_DENSITY_KEY = 'chat-density';
+const _CHAT_DENSITIES   = ['compact', 'cozy', 'comfortable'];
+let _chatDensity = 'cozy';
+
+function _loadChatDensity() {
+  const raw = localStorage.getItem(_CHAT_DENSITY_KEY);
+  if (_CHAT_DENSITIES.indexOf(raw) !== -1) _chatDensity = raw;
+  applyChatDensity();
+}
+
+function applyChatDensity() {
+  const wrap = document.getElementById('chats-wrapper');
+  if (wrap) wrap.setAttribute('data-chat-density', _chatDensity);
+  document.querySelectorAll('#chat-density-menu .density-opt').forEach(btn => {
+    const on = btn.getAttribute('data-density') === _chatDensity;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
+function setChatDensity(mode) {
+  if (_CHAT_DENSITIES.indexOf(mode) === -1) return;
+  _chatDensity = mode;
+  try { localStorage.setItem(_CHAT_DENSITY_KEY, mode); } catch (e) {}
+  applyChatDensity();
+  playDataSound('confirm');
+}
+
+function toggleDensityMenu(force) {
+  const menu = document.getElementById('chat-density-menu');
+  const btn  = document.getElementById('chat-density-btn');
+  if (!menu) return;
+  const show = (typeof force === 'boolean') ? force : menu.hidden;
+  menu.hidden = !show;
+  if (btn) {
+    btn.classList.toggle('active', show);
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  }
+  if (show) {
+    applyChatDensity();
+    setTimeout(() => {
+      document.addEventListener('click', _closeDensityOnOutside);
+      document.addEventListener('keydown', _closeDensityOnEsc);
+    }, 0);
+  } else {
+    document.removeEventListener('click', _closeDensityOnOutside);
+    document.removeEventListener('keydown', _closeDensityOnEsc);
+  }
+}
+
+function _closeDensityOnOutside(e) {
+  const menu = document.getElementById('chat-density-menu');
+  const btn  = document.getElementById('chat-density-btn');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+  toggleDensityMenu(false);
+}
+
+function _closeDensityOnEsc(e) {
+  if (e.key === 'Escape') toggleDensityMenu(false);
 }
 
 // ── Export conversation ──────────────────────────────────
