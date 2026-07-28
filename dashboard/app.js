@@ -1415,6 +1415,10 @@ async function _dispatchChatMessage(text, attachments) {
             if (!streamMsg) {
               thoughtEl.classList.add('done');
               streamMsg = _startStreamBubble(chatWin);
+              // Stash the prompt that produced this reply so the finalized
+              // bubble can offer a one-click "ask again" regenerate.
+              streamMsg.__sourcePrompt = text;
+              streamMsg.__sourceAtt = attachments;
               if (speakReply) _speakStreamBegin();
             }
             _appendStreamToken(streamMsg, payload.text);
@@ -1463,7 +1467,7 @@ async function _dispatchChatMessage(text, attachments) {
     if (serverError && !streamMsg) {
       clearInterval(_streamTimerInterval); _streamTimerInterval = null;
       thoughtEl.remove();   // don't strand the thought card when no reply followed
-      appendMessage('data', `⚠ ${serverError}`);
+      _attachRegenButton(appendMessage('data', `⚠ ${serverError}`), text, attachments);
       setStatus('STREAM ERROR');
       addLog(`Stream error: ${serverError}`);
     }
@@ -1483,11 +1487,11 @@ async function _dispatchChatMessage(text, attachments) {
       // No bytes for IDLE_LIMIT_MS — tunnel/worker stalled. The reply is saved
       // to conversation_history.json before `done` is sent, so Data retains the
       // context even though this window can't repaint it (no history rehydrate).
-      appendMessage('data', `⏱ The connection went silent for ${IDLE_LIMIT_MS / 1000}s and was aborted, Captain. The reply likely completed server-side — I've kept it in memory, so just continue the conversation (the exact text is in conversation_history.json if you need it).`);
+      _attachRegenButton(appendMessage('data', `⏱ The connection went silent for ${IDLE_LIMIT_MS / 1000}s and was aborted, Captain. The reply likely completed server-side — I've kept it in memory, so just continue the conversation (the exact text is in conversation_history.json if you need it).`), text, attachments);
       setStatus('STREAM STALLED');
       addLog('Stream went silent — aborted by idle watchdog');
     } else {
-      appendMessage('data', offlineResponse(text));
+      _attachRegenButton(appendMessage('data', offlineResponse(text)), text, attachments);
       setStatus('BRIDGE OFFLINE — LOCAL MODE');
       addLog('Bridge server not connected');
     }
@@ -1647,6 +1651,53 @@ function _finalizeStreamBubble(streamMsg) {
     bubble.insertBefore(copyBtn, bubble.firstChild);
     bubble.insertBefore(ttsBtn, bubble.firstChild);
   }
+  _attachRegenButton(streamMsg, streamMsg.__sourcePrompt, streamMsg.__sourceAtt);
+}
+
+// ── Ask again (regenerate a reply) ────────────────────────────────
+// Every real Data reply remembers the Captain prompt that produced it. The
+// ↻ button re-submits that exact prompt as a fresh turn, so a stalled, thin,
+// or unsatisfying answer can be retried with a single click instead of the
+// Captain re-typing it. Works from any reply in the log, current or old.
+function _attachRegenButton(msgEl, prompt, attachments) {
+  if (!msgEl) return;
+  const bubble = msgEl.querySelector('.bubble');
+  if (!bubble || bubble.querySelector('.regen-btn')) return;
+  const text = (prompt == null) ? '' : String(prompt);
+  const att = Array.isArray(attachments) ? attachments.slice() : [];
+  if (!text.trim() && att.length === 0) return;   // nothing to resend
+  const btn = document.createElement('button');
+  btn.className = 'regen-btn';
+  btn.title = 'Ask again — resend this prompt for a fresh reply';
+  btn.textContent = '↻';
+  btn.addEventListener('click', () => _askAgain(text, att));
+  bubble.insertBefore(btn, bubble.firstChild);
+}
+
+// Re-submit a prompt exactly as if the Captain had transmitted it again. If
+// Data is mid-reply the retry is queued (same path as a manual follow-up), so
+// it never collides with an in-flight stream.
+function _askAgain(prompt, attachments) {
+  const att = Array.isArray(attachments) ? attachments.slice() : [];
+  const text = (prompt == null) ? '' : String(prompt);
+  if (!text.trim() && att.length === 0) return;
+  _mainChatUsed = true;
+  _lastActiveWsId = null;
+  let bubbleText = text;
+  if (att.length) {
+    const list = att.map(a => `📎 ${a.name}`).join('\n');
+    bubbleText = text ? `${text}\n\n${list}` : list;
+  }
+  const bubble = appendMessage('user', bubbleText);
+  addLog(`Captain (retry): ${(text || `[${att.length} attachment(s)]`).substring(0, 30)}...`);
+  if (isThinking) {
+    _messageQueue.push({ text, bubble, attachments: att });
+    _updateQueueBadge();
+    addLog(`Queued retry (#${_messageQueue.length}) — will send when Data finishes`);
+    return;
+  }
+  _inFlightUserBubble = bubble;
+  _dispatchChatMessage(text, att);
 }
 
 function offlineResponse(text) {
