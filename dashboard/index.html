@@ -194,6 +194,7 @@
                 <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
+                <button class="fullscreen-btn" id="chat-enter-btn" onclick="toggleEnterModeMenu()" title="Enter-key behavior — how the Enter key sends messages" aria-haspopup="true" aria-expanded="false">⏎</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
 
@@ -205,6 +206,29 @@
                   <span class="textsize-value" id="chat-textsize-value">100%</span>
                   <button class="textsize-step big" onclick="stepChatTextSize(1)" title="Larger text" aria-label="Larger text">A+</button>
                   <button class="textsize-reset" onclick="resetChatTextSize()" title="Reset to default size">RESET</button>
+                </div>
+
+                <!-- ENTER-KEY BEHAVIOR — chooses whether a bare Enter sends the
+                     message (chat style) or inserts a newline so Ctrl/⌘+Enter
+                     sends (composer style). Preference persists across sessions
+                     and applies to every chat window. Hidden until the ⏎ pill
+                     is clicked. -->
+                <div class="chat-enter-menu" id="chat-enter-menu" hidden role="group" aria-label="Enter-key behavior">
+                  <div class="chat-enter-menu-title">WHEN I PRESS ENTER</div>
+                  <button class="enter-mode-opt" id="enter-mode-enter" onclick="setEnterMode('enter')">
+                    <span class="enter-mode-check" aria-hidden="true">✓</span>
+                    <span class="enter-mode-body">
+                      <span class="enter-mode-name">Send message</span>
+                      <span class="enter-mode-hint">Shift+Enter for a new line</span>
+                    </span>
+                  </button>
+                  <button class="enter-mode-opt" id="enter-mode-mod" onclick="setEnterMode('mod')">
+                    <span class="enter-mode-check" aria-hidden="true">✓</span>
+                    <span class="enter-mode-body">
+                      <span class="enter-mode-name">Insert a new line</span>
+                      <span class="enter-mode-hint">Ctrl/⌘+Enter to send</span>
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
