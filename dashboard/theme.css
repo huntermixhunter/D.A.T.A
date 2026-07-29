@@ -2533,6 +2533,72 @@ html, body {
 }
 .textsize-reset:hover { border-color: var(--data-orange); color: var(--data-orange); }
 
+/* ── Enter-key behaviour menu ─────────────────────────────
+   Small dropdown anchored under the ⏎ toolbar pill. Two radio-style options
+   let the Captain choose whether a bare Enter sends or inserts a newline. */
+.chat-enter-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  width: 232px;
+  background: rgba(6,6,14,0.97);
+  border: 1px solid var(--data-orange2);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+  z-index: 40;
+}
+.chat-enter-menu[hidden] { display: none; }
+.chat-enter-menu-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #888;
+  padding: 2px 2px 4px;
+}
+.enter-mode-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  background: rgba(10,10,22,0.9);
+  border: 1px solid #2a2a3a;
+  border-radius: 3px;
+  padding: 7px 9px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.enter-mode-opt:hover { border-color: var(--data-blue); }
+.enter-mode-opt.active {
+  border-color: var(--data-orange);
+  background: rgba(255,153,0,0.08);
+}
+.enter-mode-check {
+  color: var(--data-orange);
+  font-weight: 700;
+  line-height: 1.3;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.enter-mode-opt.active .enter-mode-check { opacity: 1; }
+.enter-mode-body { display: flex; flex-direction: column; gap: 2px; }
+.enter-mode-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--data-text);
+}
+.enter-mode-hint {
+  font-size: 10px;
+  color: #8a8a9a;
+  letter-spacing: 0.02em;
+}
+/* Subtle accent on the ⏎ pill when the non-default (newline) mode is active. */
+.fullscreen-btn#chat-enter-btn.mod { color: var(--data-orange); }
+
 /* ── Find in conversation ─────────────────────────────────
    Slim search bar that drops in below the chat panel header. Styled to sit
    flush with the LCARS chrome; the highlight + active-match colours reuse the

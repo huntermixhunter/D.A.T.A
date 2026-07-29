@@ -391,8 +391,27 @@ function _updateQueueBadge() {
   btn.textContent = n > 0 ? `ABORT (+${n})` : 'ABORT';
 }
 
+// ── Enter-key send behaviour ─────────────────────────────
+// Two modes, persisted in localStorage and shared by every chat window:
+//   'enter' (default) — a bare Enter sends; Shift+Enter makes a new line.
+//   'mod'             — Enter makes a new line; Ctrl/⌘+Enter sends.
+// Writers who paste or compose multi-line prompts prefer 'mod'; quick chatters
+// prefer 'enter'. _enterShouldSend() is the single source of truth so the main
+// composer and every project pane stay in sync.
+const _CHAT_ENTER_MODE_KEY = 'chat-enter-mode';
+let CHAT_ENTER_MODE = (localStorage.getItem(_CHAT_ENTER_MODE_KEY) === 'mod') ? 'mod' : 'enter';
+
+// Returns true when this keydown should send the message (and be prevented from
+// inserting a newline). Callers handle the send themselves.
+function _enterShouldSend(e) {
+  if (e.key !== 'Enter' || e.isComposing) return false;
+  const mod = e.ctrlKey || e.metaKey;
+  if (CHAT_ENTER_MODE === 'mod') return mod;      // Ctrl/⌘+Enter sends
+  return !e.shiftKey && !mod;                      // bare Enter sends
+}
+
 function handleInputKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (_enterShouldSend(e)) {
     e.preventDefault();
     sendMessage();
   }
@@ -505,6 +524,7 @@ window.addEventListener('DOMContentLoaded', () => {
   bootCaptains();
   initChatInputResizer();
   _loadChatFontScale();
+  _applyEnterMode();
   initJumpLatest();
   initChatDraft();
   // A fresh dashboard load means no project is attached to the main pane.
@@ -7703,7 +7723,7 @@ function addChatPane(wsId, name, path) {
 
   pane.querySelector('.chat-pane-close').addEventListener('click', () => closeProjectWorkspace(wsId));
   pane.querySelector(`#${inputId}`).addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendProjectMessage(wsId); }
+    if (_enterShouldSend(e)) { e.preventDefault(); sendProjectMessage(wsId); }
   });
   pane.querySelector(`#pane-send-ws${wsId}`).addEventListener('click', () => sendProjectMessage(wsId));
   // Wire this pane's prompt-box resize handle. Persist height per project path
@@ -8628,6 +8648,59 @@ function _closeTextSizeOnOutside(e) {
 
 function _closeTextSizeOnEsc(e) {
   if (e.key === 'Escape') toggleTextSizeMenu(false);
+}
+
+// ── Enter-key behaviour menu ─────────────────────────────
+// Reflects the persisted CHAT_ENTER_MODE onto the two radio-style options and
+// updates the composer placeholders so the hint matches the active mode.
+function _applyEnterMode() {
+  const optEnter = document.getElementById('enter-mode-enter');
+  const optMod   = document.getElementById('enter-mode-mod');
+  if (optEnter) optEnter.classList.toggle('active', CHAT_ENTER_MODE === 'enter');
+  if (optMod)   optMod.classList.toggle('active', CHAT_ENTER_MODE === 'mod');
+  const btn = document.getElementById('chat-enter-btn');
+  if (btn) btn.classList.toggle('mod', CHAT_ENTER_MODE === 'mod');
+}
+
+function setEnterMode(mode) {
+  CHAT_ENTER_MODE = (mode === 'mod') ? 'mod' : 'enter';
+  try { localStorage.setItem(_CHAT_ENTER_MODE_KEY, CHAT_ENTER_MODE); } catch (e) {}
+  _applyEnterMode();
+  playDataSound('confirm');
+}
+
+function toggleEnterModeMenu(force) {
+  const menu = document.getElementById('chat-enter-menu');
+  const btn  = document.getElementById('chat-enter-btn');
+  if (!menu) return;
+  const show = (typeof force === 'boolean') ? force : menu.hidden;
+  menu.hidden = !show;
+  if (btn) {
+    btn.classList.toggle('active', show);
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  }
+  if (show) {
+    _applyEnterMode();
+    setTimeout(() => {
+      document.addEventListener('click', _closeEnterModeOnOutside);
+      document.addEventListener('keydown', _closeEnterModeOnEsc);
+    }, 0);
+  } else {
+    document.removeEventListener('click', _closeEnterModeOnOutside);
+    document.removeEventListener('keydown', _closeEnterModeOnEsc);
+  }
+}
+
+function _closeEnterModeOnOutside(e) {
+  const menu = document.getElementById('chat-enter-menu');
+  const btn  = document.getElementById('chat-enter-btn');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+  toggleEnterModeMenu(false);
+}
+
+function _closeEnterModeOnEsc(e) {
+  if (e.key === 'Escape') toggleEnterModeMenu(false);
 }
 
 // ── Export conversation ──────────────────────────────────
@@ -10727,7 +10800,7 @@ async function ecTriage() {
 
 // Enter runs the agent; Shift+Enter inserts a newline for multi-line commands.
 function ecAgentKey(ev) {
-  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); ecAgent(); }
+  if (_enterShouldSend(ev)) { ev.preventDefault(); ecAgent(); }
 }
 // Grow the prompt textarea to fit its content (bounded by the CSS max-height).
 // Yields once the Captain has dragged the box to a manual height so autogrow
