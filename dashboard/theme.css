@@ -778,6 +778,41 @@ html, body {
   font-size: 10px;
   top: 3px;
 }
+/* Ordered (numbered) list — real <ol> with orange monospace markers. */
+.md-olist {
+  margin: 4px 0;
+  padding-left: 22px;
+  list-style: decimal;
+}
+.md-olist li { padding: 2px 0 2px 2px; }
+.md-olist li::marker {
+  color: var(--data-orange);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+/* Headings — DATA-orange section labels inside chat replies. */
+.md-h {
+  color: var(--data-orange2);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin: 10px 0 4px 0;
+  line-height: 1.3;
+}
+.md-h:first-child { margin-top: 0; }
+.md-h1 { font-size: 1.25em; border-bottom: 1px solid #2a2a4a; padding-bottom: 3px; }
+.md-h2 { font-size: 1.12em; }
+.md-h3 { font-size: 1.02em; color: var(--data-yellow); }
+/* Blockquote — indented callout with an orange left rule. */
+.md-quote {
+  margin: 6px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--data-orange);
+  background: rgba(255, 153, 0, 0.05);
+  border-radius: 0 3px 3px 0;
+  color: #c9c9e0;
+}
+.md-quote .md-p { margin: 2px 0; }
+.md-quote .md-gap { height: 4px; }
 .md-code {
   font-family: var(--font-mono);
   font-size: 11px;

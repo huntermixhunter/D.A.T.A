@@ -1742,24 +1742,72 @@ function renderMarkdown(raw) {
 
   const lines = escaped.split('\n');
   const out = [];
-  let inList = false;
+  // Block-level state: bullet list, numbered list, and blockquote can each be
+  // "open" across consecutive lines. flushBlocks() closes whichever are open so
+  // the next block starts clean.
+  let inList = false, inOList = false, inQuote = false;
+  const flushBlocks = () => {
+    if (inList)  { out.push('</ul>');         inList  = false; }
+    if (inOList) { out.push('</ol>');         inOList = false; }
+    if (inQuote) { out.push('</blockquote>'); inQuote = false; }
+  };
 
   for (const line of lines) {
+    // Horizontal rule — must be checked before the list rules so "---" is not
+    // mistaken for a bullet.
     if (/^-{3,}$/.test(line.trim())) {
-      if (inList) { out.push('</ul>'); inList = false; }
+      flushBlocks();
       out.push('<hr class="md-hr">');
       continue;
     }
+
+    // Heading — "# " through "###### ", clamped to three visual levels.
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      flushBlocks();
+      const level = Math.min(heading[1].length, 3);
+      out.push(`<div class="md-h md-h${level}">${_inlineMd(heading[2].trim())}</div>`);
+      continue;
+    }
+
+    // Blockquote — "> text". The leading '>' was HTML-escaped to "&gt;" up top,
+    // so match either form. Consecutive quote lines share one <blockquote>.
+    const quote = /^(?:&gt;|>)\s?(.*)$/.exec(line);
+    if (quote) {
+      if (inList)  { out.push('</ul>'); inList  = false; }
+      if (inOList) { out.push('</ol>'); inOList = false; }
+      if (!inQuote) { out.push('<blockquote class="md-quote">'); inQuote = true; }
+      const inner = quote[1].trim();
+      out.push(inner === '' ? '<div class="md-gap"></div>'
+                            : '<p class="md-p">' + _inlineMd(inner) + '</p>');
+      continue;
+    }
+
+    // Ordered list — "1. ", "2) ", etc. Rendered as a real <ol>.
+    const ordered = /^\d{1,3}[.)]\s+(.*)$/.exec(line);
+    if (ordered) {
+      if (inList)  { out.push('</ul>');         inList  = false; }
+      if (inQuote) { out.push('</blockquote>'); inQuote = false; }
+      if (!inOList) { out.push('<ol class="md-olist">'); inOList = true; }
+      out.push('<li>' + _inlineMd(ordered[1]) + '</li>');
+      continue;
+    }
+
+    // Unordered list — "- " or "* ".
     if (/^[-*] /.test(line)) {
+      if (inOList) { out.push('</ol>');         inOList = false; }
+      if (inQuote) { out.push('</blockquote>'); inQuote = false; }
       if (!inList) { out.push('<ul class="md-list">'); inList = true; }
       out.push('<li>' + _inlineMd(line.replace(/^[-*] /, '')) + '</li>');
       continue;
     }
-    if (inList) { out.push('</ul>'); inList = false; }
+
+    // Plain line — close any open block, then emit a paragraph or gap.
+    flushBlocks();
     if (line.trim() === '') { out.push('<div class="md-gap"></div>'); continue; }
     out.push('<p class="md-p">' + _inlineMd(line) + '</p>');
   }
-  if (inList) out.push('</ul>');
+  flushBlocks();
   return out.join('');
 }
 
