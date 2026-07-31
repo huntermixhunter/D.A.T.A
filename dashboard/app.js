@@ -1018,6 +1018,72 @@ function initJumpLatest() {
   _updateJumpLatest(false);
 }
 
+// ── Relative timestamps ────────────────────────────────────────────
+// Every chat bubble stamps its wall-clock time. When "relative mode" is
+// on (toolbar 🕒 pill), those stamps read as "just now / 5m ago / 2h ago"
+// and refresh on a 30s tick, while the exact clock time stays available
+// on hover. The preference persists across sessions. Purely presentational
+// — the underlying epoch is kept in data-ts so we can switch back losslessly.
+const RELTIME_KEY = 'data_chat_reltime';
+let _relTimeMode = false;
+
+function _fmtClock(d) { return d.toLocaleTimeString('en-US', { hour12: false }); }
+function _fmtFull(d)  { return d.toLocaleString('en-US', { hour12: false }); }
+
+function _relTime(ms) {
+  const diff = Date.now() - ms;
+  if (diff < 0)      return 'just now';
+  if (diff < 45000)  return 'just now';
+  const m = Math.round(diff / 60000);
+  if (m < 60)        return m + 'm ago';
+  const h = Math.round(diff / 3600000);
+  if (h < 24)        return h + 'h ago';
+  const dd = Math.round(diff / 86400000);
+  if (dd < 7)        return dd + 'd ago';
+  return _fmtClock(new Date(ms));
+}
+
+// Returns the full `.timestamp` element markup for a freshly created bubble.
+function _tsHTML() {
+  const d = new Date();
+  const ms = d.getTime();
+  const shown = _relTimeMode ? _relTime(ms) : _fmtClock(d);
+  return `<div class="timestamp" data-ts="${ms}" title="${_fmtFull(d)}">${shown}</div>`;
+}
+
+// Re-render every stamped timestamp in the current mode.
+function _refreshRelTimes() {
+  document.querySelectorAll('.timestamp[data-ts]').forEach(el => {
+    const ms = Number(el.getAttribute('data-ts'));
+    if (!ms) return;
+    el.textContent = _relTimeMode ? _relTime(ms) : _fmtClock(new Date(ms));
+  });
+}
+
+function _applyRelTimeBtn() {
+  const btn = document.getElementById('chat-reltime-btn');
+  if (!btn) return;
+  btn.classList.toggle('active', _relTimeMode);
+  btn.setAttribute('aria-pressed', _relTimeMode ? 'true' : 'false');
+  btn.title = _relTimeMode
+    ? 'Timestamps: relative (click for clock time)'
+    : 'Timestamps: clock time (click for relative)';
+}
+
+function toggleRelativeTime() {
+  _relTimeMode = !_relTimeMode;
+  try { localStorage.setItem(RELTIME_KEY, _relTimeMode ? '1' : '0'); } catch (e) {}
+  _applyRelTimeBtn();
+  _refreshRelTimes();
+}
+
+(function _initRelTime() {
+  try { _relTimeMode = localStorage.getItem(RELTIME_KEY) === '1'; } catch (e) {}
+  _applyRelTimeBtn();
+  // Keep "Nm ago" honest without hammering the DOM.
+  setInterval(() => { if (_relTimeMode) _refreshRelTimes(); }, 30000);
+})();
+
 function appendMessage(role, text) {
   const win = document.getElementById('chat-window');
   const msg = document.createElement('div');
@@ -1035,7 +1101,7 @@ function appendMessage(role, text) {
       <button class="copy-btn" title="Copy">⧉</button>
       <div class="sender">${senderLabel}</div>
       <div class="text md-content">${renderMarkdown(text)}</div>
-      <div class="timestamp">${ts}</div>
+      ${_tsHTML()}
     </div>
   `;
 
@@ -1597,7 +1663,7 @@ function _startStreamBubble(winEl) {
     <div class="bubble">
       <div class="sender">${crewLabel(MAIN_CHAT_CREW).toUpperCase()}</div>
       <div class="text streaming"></div>
-      <div class="timestamp">${ts}</div>
+      ${_tsHTML()}
     </div>
   `;
   const wasPinned = _isPinnedToBottom(winEl);
@@ -8444,7 +8510,7 @@ function appendMessageToPane(winEl, role, text, crewId) {
       <button class="copy-btn" title="Copy">⧉</button>
       <div class="sender">${sender}</div>
       <div class="text md-content">${renderMarkdown(text)}</div>
-      <div class="timestamp">${ts}</div>
+      ${_tsHTML()}
     </div>
   `;
   if (isData) {
