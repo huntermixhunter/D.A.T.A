@@ -2476,6 +2476,8 @@ html, body {
 }
 /* Active state while the text-size popover is open. */
 #chat-textsize-btn.active { border-color: var(--data-blue); color: var(--data-blue); }
+/* Active state while relative-time mode is engaged. */
+#chat-reltime-btn.active { border-color: var(--data-green); color: var(--data-green); }
 
 /* ── Text size (readability) popover ──────────────────────
    Anchored to the chat toolbar; scales all conversation text. */
