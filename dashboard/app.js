@@ -1734,6 +1734,59 @@ function _inlineMd(text) {
   return text.replace(/L(\d+)/g, (_m, i) => slots[+i]);
 }
 
+// ── GitHub-flavored markdown tables ────────────────────────────────────────
+// DATA frequently answers with pipe tables (comparisons, schedules, specs).
+// These helpers turn a  header / |---| divider / rows  block into a real
+// <table>, honouring per-column :--: alignment. Called from renderMarkdown.
+
+// True when a line is a table delimiter row: cells of optional-colon dashes,
+// e.g.  | --- | :--: | ---: |   (surrounding pipes optional). Must contain a
+// dash so a bare paragraph never trips it.
+function _isTableDivider(line) {
+  const t = line.trim();
+  if (t.indexOf('-') === -1) return false;
+  return /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?$/.test(t);
+}
+
+// Split one table row into trimmed cell strings. Drops the optional leading /
+// trailing pipe and treats a backslash-escaped \| as a literal pipe.
+function _splitTableRow(line) {
+  const t = line.trim().replace(/^\|/, '').replace(/\|\s*$/, '');
+  const cells = [];
+  let cur = '';
+  for (let k = 0; k < t.length; k++) {
+    if (t[k] === '\\' && t[k + 1] === '|') { cur += '|'; k++; continue; }
+    if (t[k] === '|') { cells.push(cur.trim()); cur = ''; continue; }
+    cur += t[k];
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+// Map a delimiter cell (":--", "--:", ":-:") to a CSS text-align value.
+function _cellAlign(cell) {
+  const c = cell.trim();
+  const l = c.startsWith(':'), r = c.endsWith(':');
+  if (l && r) return 'center';
+  if (r) return 'right';
+  if (l) return 'left';
+  return '';
+}
+
+function _renderTable(header, aligns, rows) {
+  const cols = header.length;
+  const at = (i) => aligns[i] ? ` style="text-align:${aligns[i]}"` : '';
+  let html = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+  for (let c = 0; c < cols; c++) html += `<th${at(c)}>${_inlineMd(header[c] || '')}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const row of rows) {
+    html += '<tr>';
+    for (let c = 0; c < cols; c++) html += `<td${at(c)}>${_inlineMd(row[c] || '')}</td>`;
+    html += '</tr>';
+  }
+  return html + '</tbody></table></div>';
+}
+
 function renderMarkdown(raw) {
   const escaped = raw
     .replace(/&/g, '&amp;')
@@ -1743,23 +1796,48 @@ function renderMarkdown(raw) {
   const lines = escaped.split('\n');
   const out = [];
   let inList = false;
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
 
-  for (const line of lines) {
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Table: a header row with a pipe, immediately followed by a delimiter
+    // row whose cell count matches. Falls through to normal rendering when it
+    // doesn't line up, so stray pipes in prose are left untouched.
+    if (line.indexOf('|') !== -1 && i + 1 < lines.length && _isTableDivider(lines[i + 1])) {
+      const header = _splitTableRow(line);
+      const aligns = _splitTableRow(lines[i + 1]).map(_cellAlign);
+      if (header.length > 0 && header.length === aligns.length) {
+        closeList();
+        const rows = [];
+        let j = i + 2;
+        while (j < lines.length && lines[j].trim() !== '' && lines[j].indexOf('|') !== -1) {
+          rows.push(_splitTableRow(lines[j]));
+          j++;
+        }
+        out.push(_renderTable(header, aligns, rows));
+        i = j;
+        continue;
+      }
+    }
+
     if (/^-{3,}$/.test(line.trim())) {
-      if (inList) { out.push('</ul>'); inList = false; }
+      closeList();
       out.push('<hr class="md-hr">');
-      continue;
+      i++; continue;
     }
     if (/^[-*] /.test(line)) {
       if (!inList) { out.push('<ul class="md-list">'); inList = true; }
       out.push('<li>' + _inlineMd(line.replace(/^[-*] /, '')) + '</li>');
-      continue;
+      i++; continue;
     }
-    if (inList) { out.push('</ul>'); inList = false; }
-    if (line.trim() === '') { out.push('<div class="md-gap"></div>'); continue; }
+    closeList();
+    if (line.trim() === '') { out.push('<div class="md-gap"></div>'); i++; continue; }
     out.push('<p class="md-p">' + _inlineMd(line) + '</p>');
+    i++;
   }
-  if (inList) out.push('</ul>');
+  closeList();
   return out.join('');
 }
 
