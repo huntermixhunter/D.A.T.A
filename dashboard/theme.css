@@ -788,6 +788,40 @@ html, body {
   color: var(--data-teal);
 }
 
+/* Markdown table — GitHub-style pipe tables DATA emits for comparisons,
+   schedules and specs. Wrapper scrolls horizontally on narrow panes so a
+   wide table never blows out the chat bubble. */
+.md-table-wrap {
+  margin: 6px 0;
+  overflow-x: auto;
+  border: 1px solid #2a2a4a;
+  border-radius: 3px;
+  background: #0a0a12;
+}
+.md-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.md-table th,
+.md-table td {
+  padding: 4px 10px;
+  border: 1px solid #2a2a4a;
+  text-align: left;
+  vertical-align: top;
+}
+.md-table thead th {
+  background: #15152a;
+  color: var(--data-orange, #FF9900);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.md-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
+.md-table tbody tr:hover { background: rgba(255, 153, 0, 0.06); }
+.md-table .md-code { font-size: 11px; }
+
 /* Markdown URL — DATA-orange underlined link, opens in a new tab. */
 .md-link {
   color: var(--data-orange, #FF9900);
