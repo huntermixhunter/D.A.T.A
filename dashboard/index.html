@@ -194,6 +194,7 @@
                 <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
+                <button class="fullscreen-btn" id="chat-progress-btn" onclick="toggleChatProgress()" title="Reading-progress rail — show/hide the scroll-position bar" aria-pressed="true">◔</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
 
@@ -284,6 +285,20 @@
               </div>
 
               <div class="chat-window-wrap">
+                <!-- READING-PROGRESS RAIL — a slim bar pinned to the top of the
+                     main chat that fills as the Captain scrolls through the
+                     conversation, giving orientation in long threads. Click,
+                     drag, or use the arrow keys to scrub to any position.
+                     Toggle via the ◔ pill; visibility persists in localStorage. -->
+                <div class="chat-progress-rail" id="chat-progress-rail"
+                     role="slider" tabindex="0"
+                     aria-label="Conversation reading progress — drag to scrub"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+                     title="Reading progress — click or drag to scrub the conversation">
+                  <div class="chat-progress-fill" id="chat-progress-fill"></div>
+                  <div class="chat-progress-thumb" id="chat-progress-thumb" aria-hidden="true"></div>
+                  <span class="chat-progress-readout" id="chat-progress-readout" aria-hidden="true">0%</span>
+                </div>
                 <div class="chat-window" id="chat-window">
                   <div class="chat-message data">
                     <div class="avatar">◉</div>

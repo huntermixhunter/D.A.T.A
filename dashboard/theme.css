@@ -709,6 +709,89 @@ html, body {
   .jump-latest.visible { transform: none; }
   .jump-latest.has-new::after { animation: none; }
 }
+
+/* ── Reading-progress rail ───────────────────────────────────────
+   A slim, scrubbable bar pinned to the top of the main chat window that
+   fills as the Captain scrolls through the conversation. Overlays the
+   window's top padding so it never covers message text. Interactive:
+   click/drag/keyboard scrubs the window. Hidden via the ◔ toolbar pill. */
+.chat-progress-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 136, 0, 0.14);
+  cursor: pointer;
+  touch-action: none;
+  transition: height 0.12s ease, opacity 0.18s ease;
+}
+.chat-progress-rail.hidden { display: none; }
+/* Nothing to scroll yet — dim it so it doesn't imply a false position. */
+.chat-progress-rail.empty { opacity: 0.35; cursor: default; }
+.chat-progress-rail:hover,
+.chat-progress-rail.scrubbing,
+.chat-progress-rail:focus-visible { height: 9px; }
+.chat-progress-rail:focus-visible { outline: 1px solid var(--data-orange, #ffb000); outline-offset: 0; }
+.chat-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--data-orange2, #ff8800), var(--data-orange, #ffb000));
+  box-shadow: 0 0 6px rgba(255, 136, 0, 0.35);
+  transition: width 0.08s linear;
+}
+.chat-progress-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 3px;
+  height: 12px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--data-orange, #ffb000);
+  box-shadow: 0 0 5px rgba(255, 176, 0, 0.6);
+  transform: translateY(-50%) scaleY(0);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.12s ease, opacity 0.12s ease, left 0.08s linear;
+}
+.chat-progress-rail:hover .chat-progress-thumb,
+.chat-progress-rail.scrubbing .chat-progress-thumb,
+.chat-progress-rail:focus-visible .chat-progress-thumb {
+  opacity: 1;
+  transform: translateY(-50%) scaleY(1);
+}
+.chat-progress-rail.empty .chat-progress-thumb { opacity: 0; }
+.chat-progress-readout {
+  position: absolute;
+  top: 11px;
+  right: 8px;
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--data-orange, #ffb000);
+  background: rgba(12, 12, 12, 0.9);
+  border: 1px solid rgba(255, 136, 0, 0.3);
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.chat-progress-rail:hover .chat-progress-readout,
+.chat-progress-rail.scrubbing .chat-progress-readout,
+.chat-progress-rail:focus-visible .chat-progress-readout {
+  opacity: 1;
+}
+.chat-progress-rail.empty .chat-progress-readout { opacity: 0 !important; }
+@media (prefers-reduced-motion: reduce) {
+  .chat-progress-rail,
+  .chat-progress-fill,
+  .chat-progress-thumb { transition: none; }
+}
 .chat-window::-webkit-scrollbar { width: 4px; }
 .chat-window::-webkit-scrollbar-track { background: #0a0a0a; }
 .chat-window::-webkit-scrollbar-thumb { background: var(--data-orange2); border-radius: 2px; }
@@ -2476,6 +2559,8 @@ html, body {
 }
 /* Active state while the text-size popover is open. */
 #chat-textsize-btn.active { border-color: var(--data-blue); color: var(--data-blue); }
+/* Reading-progress pill lit orange while the rail is shown (the "on" state). */
+#chat-progress-btn.active { border-color: var(--data-orange2, #ff8800); color: var(--data-orange, #ffb000); }
 
 /* ── Text size (readability) popover ──────────────────────
    Anchored to the chat toolbar; scales all conversation text. */
