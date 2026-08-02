@@ -506,6 +506,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initChatInputResizer();
   _loadChatFontScale();
   initJumpLatest();
+  initChatProgress();
   initChatDraft();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
@@ -989,6 +990,9 @@ function _jumpLatestEls() {
 // hasNew=true when called because content just arrived, so we can flag it
 // only in the case where the Captain isn't already at the bottom.
 function _updateJumpLatest(hasNew) {
+  // Content just changed → refresh the reading-progress rail too, since a new
+  // bubble grows scrollHeight without firing a scroll event when scrolled up.
+  _updateChatProgress();
   const { win, btn } = _jumpLatestEls();
   if (!win || !btn) return;
   const pinned = _isPinnedToBottom(win, _JUMP_LATEST_THRESHOLD);
@@ -1016,6 +1020,138 @@ function initJumpLatest() {
   // Manual scroll toward the bottom should retire the pill immediately.
   win.addEventListener('scroll', () => _updateJumpLatest(false), { passive: true });
   _updateJumpLatest(false);
+}
+
+// ── Reading-progress rail ──────────────────────────────────────────
+// A slim bar pinned to the top of the main chat window that reflects how far
+// the Captain has scrolled through the conversation. It complements the
+// jump-to-latest pill (a jump button) and the outline (a list of turns) by
+// giving continuous positional orientation in long threads. The rail is
+// interactive: clicking, dragging, or pressing the arrow keys scrubs the
+// window to that fraction. Visibility is toggled from the ◔ toolbar pill and
+// persists across sessions. Pure client-side; no backend involvement.
+const _CHAT_PROGRESS_KEY = 'data.chatProgress';
+let _chatProgressOn = true;
+function _chatProgressEls() {
+  return {
+    win: document.getElementById('chat-window'),
+    rail: document.getElementById('chat-progress-rail'),
+    fill: document.getElementById('chat-progress-fill'),
+    thumb: document.getElementById('chat-progress-thumb'),
+    readout: document.getElementById('chat-progress-readout'),
+    btn: document.getElementById('chat-progress-btn'),
+  };
+}
+// Recompute the fill/thumb/readout from the window's current scroll position.
+function _updateChatProgress() {
+  const { win, rail, fill, thumb, readout } = _chatProgressEls();
+  if (!win || !rail) return;
+  const scrollable = win.scrollHeight - win.clientHeight;
+  // Nothing to scroll yet → dim the rail so it doesn't imply a position.
+  if (scrollable <= 1) {
+    rail.classList.add('empty');
+    rail.setAttribute('aria-valuenow', '0');
+    if (fill) fill.style.width = '0%';
+    if (thumb) thumb.style.left = '0%';
+    if (readout) readout.textContent = '0%';
+    return;
+  }
+  rail.classList.remove('empty');
+  const frac = Math.min(1, Math.max(0, win.scrollTop / scrollable));
+  const pct = Math.round(frac * 100);
+  if (fill) fill.style.width = pct + '%';
+  if (thumb) thumb.style.left = pct + '%';
+  if (readout) readout.textContent = pct + '%';
+  rail.setAttribute('aria-valuenow', String(pct));
+}
+// Scrub the window to the given horizontal fraction [0..1] of the rail.
+function _seekChatProgress(frac, smooth) {
+  const { win } = _chatProgressEls();
+  if (!win) return;
+  const scrollable = win.scrollHeight - win.clientHeight;
+  if (scrollable <= 1) return;
+  const top = Math.round(Math.min(1, Math.max(0, frac)) * scrollable);
+  win.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
+}
+// Map a pointer x-coordinate to a fraction across the rail's width.
+function _chatProgressFracFromEvent(e, rail) {
+  const box = rail.getBoundingClientRect();
+  if (box.width <= 0) return 0;
+  return (e.clientX - box.left) / box.width;
+}
+// Show or hide the rail. `force` (bool) sets an explicit state; omit to flip.
+function toggleChatProgress(force) {
+  const { rail, btn } = _chatProgressEls();
+  const show = (typeof force === 'boolean') ? force : !_chatProgressOn;
+  _chatProgressOn = show;
+  try { localStorage.setItem(_CHAT_PROGRESS_KEY, show ? 'on' : 'off'); } catch (_) {}
+  if (rail) rail.classList.toggle('hidden', !show);
+  if (btn) {
+    btn.classList.toggle('active', show);
+    btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+  }
+  if (show) _updateChatProgress();
+}
+function initChatProgress() {
+  const { win, rail } = _chatProgressEls();
+  if (!win || !rail) return;
+  // Restore the saved show/hide preference (default: shown).
+  let pref = 'on';
+  try { pref = localStorage.getItem(_CHAT_PROGRESS_KEY) || 'on'; } catch (_) {}
+  toggleChatProgress(pref !== 'off');
+
+  // Keep the rail in sync with scrolling and with content/size changes.
+  win.addEventListener('scroll', _updateChatProgress, { passive: true });
+  window.addEventListener('resize', _updateChatProgress);
+  // A single observer on the window catches both viewport-size and
+  // content-height changes (messages streaming in grow scrollHeight).
+  if (typeof ResizeObserver !== 'undefined') {
+    try {
+      const ro = new ResizeObserver(_updateChatProgress);
+      ro.observe(win);
+      if (win.firstElementChild) ro.observe(win.firstElementChild);
+    } catch (_) {}
+  }
+
+  // Click / drag scrubbing via pointer events.
+  let dragging = false;
+  const onMove = (e) => {
+    if (!dragging) return;
+    _seekChatProgress(_chatProgressFracFromEvent(e, rail), false);
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    rail.classList.remove('scrubbing');
+  };
+  rail.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    rail.classList.add('scrubbing');
+    rail.focus();
+    _seekChatProgress(_chatProgressFracFromEvent(e, rail), false);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+
+  // Keyboard scrubbing for accessibility (role="slider").
+  rail.addEventListener('keydown', (e) => {
+    const now = parseInt(rail.getAttribute('aria-valuenow') || '0', 10) || 0;
+    let next = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp')   next = now + 5;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = now - 5;
+    else if (e.key === 'Home')  next = 0;
+    else if (e.key === 'End')   next = 100;
+    else if (e.key === 'PageUp')   next = now + 20;
+    else if (e.key === 'PageDown') next = now - 20;
+    if (next === null) return;
+    e.preventDefault();
+    _seekChatProgress(Math.min(100, Math.max(0, next)) / 100, true);
+  });
+
+  _updateChatProgress();
 }
 
 function appendMessage(role, text) {
