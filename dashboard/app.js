@@ -588,6 +588,94 @@ function initChatInputResizer() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// EXPANDED COMPOSER — full-screen distraction-free writing surface
+// ══════════════════════════════════════════════════════════════════
+// The inline prompt box is great for a quick line, but writing a long,
+// multi-paragraph transmission in a 2-row textarea (even a resized one)
+// is cramped. This overlay pops the composer into a large, centred
+// editor. It mirrors the main #chat-input in real time — so the existing
+// draft auto-save keeps firing and collapsing never loses a keystroke —
+// and Transmit routes straight through the normal sendMessage() path.
+function _composerExpandEls() {
+  return {
+    overlay: document.getElementById('composer-expand-overlay'),
+    big:     document.getElementById('composer-expand-input'),
+    main:    document.getElementById('chat-input'),
+    count:   document.getElementById('composer-expand-count'),
+  };
+}
+
+function _composerExpandCount() {
+  const { big, count } = _composerExpandEls();
+  if (!big || !count) return;
+  const v = big.value;
+  const words = v.trim() ? v.trim().split(/\s+/).length : 0;
+  count.textContent = `${words} word${words === 1 ? '' : 's'} · ${v.length} char${v.length === 1 ? '' : 's'}`;
+}
+
+// Mirror the big editor back into the real composer, then poke the main
+// input's own 'input' listener so draft auto-save runs exactly as if the
+// Captain had typed there directly.
+function _composerExpandSync() {
+  const { big, main } = _composerExpandEls();
+  if (!big || !main) return;
+  main.value = big.value;
+  try { main.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+  _composerExpandCount();
+}
+
+function _composerExpandKey(e) {
+  if (e.key === 'Escape') { e.preventDefault(); closeComposerExpand(); return; }
+  // Ctrl/Cmd+Enter = transmit, regardless of the Enter send-behavior setting;
+  // a bare Enter always inserts a newline here (this is a writing surface).
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    transmitFromComposerExpand();
+  }
+}
+
+function openComposerExpand() {
+  const { overlay, big, main } = _composerExpandEls();
+  if (!overlay || !big || !main) return;
+  big.value = main.value;
+  overlay.hidden = false;
+  document.body.classList.add('composer-expand-open');
+  _composerExpandCount();
+  // Focus at the end so the Captain keeps typing where they left off.
+  setTimeout(() => {
+    big.focus();
+    try { big.setSelectionRange(big.value.length, big.value.length); } catch (e) {}
+  }, 0);
+  playDataSound('confirm');
+}
+
+function closeComposerExpand() {
+  const { overlay, big, main } = _composerExpandEls();
+  if (!overlay) return;
+  // Live sync already keeps main in step, but flush once more to be safe.
+  if (big && main) {
+    main.value = big.value;
+    try { main.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+  }
+  overlay.hidden = true;
+  document.body.classList.remove('composer-expand-open');
+  if (main) {
+    main.focus();
+    try { main.setSelectionRange(main.value.length, main.value.length); } catch (e) {}
+  }
+}
+
+function transmitFromComposerExpand() {
+  const { big, main } = _composerExpandEls();
+  if (main && big) {
+    main.value = big.value;
+    try { main.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+  }
+  closeComposerExpand();
+  sendMessage();
+}
+
+// ══════════════════════════════════════════════════════════════════
 // MAIN-CHAT DRAFT AUTO-SAVE — never lose a half-typed transmission
 // ══════════════════════════════════════════════════════════════════
 // A long prompt can vanish in an instant: an accidental Ctrl+R, a tab
@@ -8976,6 +9064,8 @@ document.addEventListener('keydown', (e) => {
   const chatPanel = document.getElementById('panel-chat');
   const active = chatPanel && chatPanel.classList.contains('active');
   if (e.key === 'Escape') {
+    const cx = document.getElementById('composer-expand-overlay');
+    if (cx && !cx.hidden) { e.preventDefault(); closeComposerExpand(); return; }
     const bar = document.getElementById('prompt-lib-bar');
     if (bar && !bar.hidden) { e.preventDefault(); togglePromptLibrary(false); }
     return;
@@ -8984,6 +9074,14 @@ document.addEventListener('keydown', (e) => {
     if (!active) return;
     e.preventDefault();
     togglePromptLibrary();
+  }
+  // Ctrl/Cmd+Shift+E — pop the composer into the full-screen editor.
+  if ((e.key === 'e' || e.key === 'E') && (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+    if (!active) return;
+    const overlay = document.getElementById('composer-expand-overlay');
+    e.preventDefault();
+    if (overlay && !overlay.hidden) closeComposerExpand();
+    else openComposerExpand();
   }
 });
 
