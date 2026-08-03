@@ -6262,3 +6262,173 @@ body.theme-minimal .settings-toggle-cap:hover {
   .ec-body.reading .ec-list { display: none; }
   .ec-body:not(.reading) .ec-reader { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   EXPANDED COMPOSER — full-screen distraction-free writing surface
+   Toggle button lives in .input-right-btns; the overlay mirrors the
+   inline #chat-input so collapsing never loses text.
+   ══════════════════════════════════════════════════════════════════ */
+.expand-btn {
+  background: #0d0d18;
+  border: 1px solid #2a2a3a;
+  color: #aaa;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+}
+.expand-btn:hover {
+  background: #141428;
+  border-color: var(--data-orange);
+  color: var(--data-orange);
+  transform: scale(1.05);
+}
+.expand-btn:active { transform: scale(0.95); }
+
+.composer-expand-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 4vw;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(3px);
+  animation: composerExpandFade 0.14s ease-out;
+}
+.composer-expand-overlay[hidden] { display: none; }
+
+@keyframes composerExpandFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.composer-expand-panel {
+  width: min(1100px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--data-bg2);
+  border: 1px solid var(--data-orange2);
+  border-radius: 6px;
+  box-shadow: 0 0 32px rgba(255, 153, 0, 0.18);
+  overflow: hidden;
+}
+
+.composer-expand-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #22222e;
+  background: rgba(255, 153, 0, 0.04);
+}
+.composer-expand-title {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: var(--data-orange);
+}
+.composer-expand-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #777;
+  margin-left: auto;
+}
+.composer-expand-close {
+  background: transparent;
+  border: 1px solid #2a2a3a;
+  color: #aaa;
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.composer-expand-close:hover {
+  border-color: var(--data-orange);
+  color: var(--data-orange);
+  background: #141428;
+}
+
+.composer-expand-input {
+  flex: 1 1 auto;
+  width: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  background: var(--data-bg);
+  color: #e6e6ef;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1.6;
+  padding: 20px 22px;
+  letter-spacing: 0.01em;
+}
+.composer-expand-input::placeholder { color: #555; }
+
+.composer-expand-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-top: 1px solid #22222e;
+  background: rgba(255, 153, 0, 0.03);
+}
+.composer-expand-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: #666;
+}
+.composer-expand-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+}
+.composer-expand-done,
+.composer-expand-send {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  padding: 8px 18px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+.composer-expand-done {
+  background: transparent;
+  border: 1px solid #2a2a3a;
+  color: #aaa;
+}
+.composer-expand-done:hover {
+  border-color: var(--data-orange);
+  color: var(--data-orange);
+}
+.composer-expand-send {
+  background: var(--data-orange);
+  border: 1px solid var(--data-orange);
+  color: #000;
+  font-weight: 700;
+}
+.composer-expand-send:hover { background: var(--data-orange2); border-color: var(--data-orange2); }
+.composer-expand-done:active,
+.composer-expand-send:active { transform: scale(0.97); }
+
+body.composer-expand-open { overflow: hidden; }

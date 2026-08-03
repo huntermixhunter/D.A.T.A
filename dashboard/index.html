@@ -334,6 +334,10 @@
                       onfocus="setActiveInput(this.id)"
                     ></textarea>
                     <div class="input-right-btns">
+                      <button class="expand-btn" id="composer-expand-btn" type="button"
+                              onclick="openComposerExpand()"
+                              title="Expand editor — full-screen distraction-free writing (Ctrl+Shift+E)"
+                              aria-haspopup="dialog">⤢</button>
                       <button class="dictate-btn" id="dictate-btn" data-target-input="chat-input" onclick="toggleDictation(this)" title="Dictate to text box">🎙</button>
                       <button class="attach-btn" id="attach-btn" type="button"
                               onclick="document.getElementById('attach-file-input').click()"
@@ -345,6 +349,33 @@
                   </div>
                   <button class="send-btn" id="send-btn" onclick="sendMessage()">TRANSMIT</button>
                   <button class="stop-btn" id="stop-btn" onclick="stopData()" style="display:none">ABORT</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Full-screen distraction-free composer. Mirrors the main
+                 #chat-input two ways so drafts keep saving; Transmit routes
+                 straight through the normal sendMessage() path. -->
+            <div class="composer-expand-overlay" id="composer-expand-overlay" hidden
+                 role="dialog" aria-modal="true" aria-label="Expanded message editor">
+              <div class="composer-expand-panel">
+                <div class="composer-expand-head">
+                  <span class="composer-expand-title">CAPTAIN › COMPOSE</span>
+                  <span class="composer-expand-count" id="composer-expand-count">0 words · 0 chars</span>
+                  <button class="composer-expand-close" type="button"
+                          onclick="closeComposerExpand()"
+                          title="Collapse editor (Esc) — keeps your text">✕</button>
+                </div>
+                <textarea id="composer-expand-input" class="composer-expand-input"
+                          placeholder="Write freely — your text stays in the composer when you collapse."
+                          oninput="_composerExpandSync()"
+                          onkeydown="_composerExpandKey(event)"></textarea>
+                <div class="composer-expand-foot">
+                  <span class="composer-expand-hint">Ctrl+Enter to transmit · Esc to collapse</span>
+                  <div class="composer-expand-actions">
+                    <button class="composer-expand-done" type="button" onclick="closeComposerExpand()">DONE</button>
+                    <button class="composer-expand-send" type="button" onclick="transmitFromComposerExpand()">TRANSMIT</button>
+                  </div>
                 </div>
               </div>
             </div>
