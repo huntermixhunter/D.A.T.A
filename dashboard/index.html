@@ -440,8 +440,18 @@
               </label>
               <label class="orders-field">
                 <span>SCHEDULE — cron syntax (min hr dom mon dow)</span>
-                <input type="text" id="orders-field-cron" placeholder="0 8 * * *  (daily at 08:00)"/>
+                <input type="text" id="orders-field-cron" placeholder="0 8 * * *  (daily at 08:00)" autocomplete="off" spellcheck="false"/>
               </label>
+              <div class="orders-cron-preview" id="orders-cron-preview" aria-live="polite"></div>
+              <div class="orders-cron-presets" id="orders-cron-presets">
+                <span class="orders-cron-presets-label">QUICK:</span>
+                <button type="button" class="orders-cron-preset" data-cron="0 8 * * *">Daily 8am</button>
+                <button type="button" class="orders-cron-preset" data-cron="0 * * * *">Hourly</button>
+                <button type="button" class="orders-cron-preset" data-cron="0 8 * * 1-5">Weekdays 8am</button>
+                <button type="button" class="orders-cron-preset" data-cron="0 9 * * 1">Mondays 9am</button>
+                <button type="button" class="orders-cron-preset" data-cron="0 0 1 * *">Monthly 1st</button>
+                <button type="button" class="orders-cron-preset" data-cron="*/15 * * * *">Every 15 min</button>
+              </div>
               <label class="orders-field">
                 <span>PROMPT — what Data should do when this fires</span>
                 <textarea id="orders-field-prompt" rows="4" placeholder="Pull the latest AI tool news, summarize the top 3 items..."></textarea>

@@ -2517,12 +2517,14 @@ async function refreshStandingOrders() {
       const row = document.createElement('div');
       row.className = 'order-row' + (o.enabled ? '' : ' disabled');
       const nextTxt = o.next_run ? `NEXT ${new Date(o.next_run * 1000).toLocaleString()}` : '';
+      const cronHuman = describeCron(o.cron);
+      const cronTitle = cronHuman.ok ? cronHuman.text : o.cron;
       row.innerHTML = `
         <div class="order-info">
           <div class="order-name">${escapeHtml(o.name)}</div>
           <div class="order-prompt">${escapeHtml(o.prompt)}</div>
         </div>
-        <div class="order-cron">${escapeHtml(o.cron)}</div>
+        <div class="order-cron" title="${escapeHtml(cronTitle)}">${escapeHtml(o.cron)}${cronHuman.ok ? `<span class="order-cron-human">${escapeHtml(cronHuman.text)}</span>` : ''}</div>
         <div class="order-next">${nextTxt}</div>
         <div class="order-actions">
           <button class="order-btn" data-action="toggle">${o.enabled ? 'PAUSE' : 'ENABLE'}</button>
@@ -2548,6 +2550,151 @@ function escapeHtml(s) {
   ));
 }
 
+// ── Human-readable cron preview ─────────────────────────────
+// Translates a standard 5-field cron expression (min hr dom mon dow)
+// into plain English so users don't have to decode raw cron syntax.
+const _CRON_DOW  = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const _CRON_MON  = ['January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+const _CRON_MACROS = {
+  '@yearly':   '0 0 1 1 *',  '@annually': '0 0 1 1 *',
+  '@monthly':  '0 0 1 * *',  '@weekly':   '0 0 * * 0',
+  '@daily':    '0 0 * * *',  '@midnight': '0 0 * * *',
+  '@hourly':   '0 * * * *',
+};
+
+function _cronPad(n) { return String(n).padStart(2, '0'); }
+function _cronOrdinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+function _cronList(items) {
+  if (items.length <= 1) return items.join('');
+  return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
+}
+
+// Expand one cron field into its matching values, or null if malformed.
+function _cronField(raw, min, max, names) {
+  let f = String(raw).trim();
+  if (!f) return null;
+  // Allow three-letter names (JAN, MON, …) in month / weekday fields.
+  if (names) {
+    f = f.replace(/[a-z]{3,}/gi, (m) => {
+      const i = names.findIndex((n) => n.toLowerCase().startsWith(m.toLowerCase()));
+      return i === -1 ? m : String(i);
+    });
+  }
+  const values = new Set();
+  let stepEvery = null;
+  const starStep = f.match(/^\*\/(\d+)$/);
+  if (starStep) stepEvery = parseInt(starStep[1], 10);
+  for (const part of f.split(',')) {
+    if (!part) return null;
+    let step = 1, range = part;
+    const slash = part.split('/');
+    if (slash.length === 2) {
+      step = parseInt(slash[1], 10);
+      range = slash[0];
+      if (!(step >= 1)) return null;
+    } else if (slash.length > 2) return null;
+    let lo, hi;
+    if (range === '*') { lo = min; hi = max; }
+    else if (range.includes('-')) {
+      const [a, b] = range.split('-');
+      lo = parseInt(a, 10); hi = parseInt(b, 10);
+    } else {
+      lo = parseInt(range, 10);
+      hi = slash.length === 2 ? max : lo;   // "5/10" = 5 to max, step 10
+    }
+    if (!Number.isInteger(lo) || !Number.isInteger(hi)) return null;
+    if (lo < min || hi > max || lo > hi) return null;
+    for (let v = lo; v <= hi; v += step) values.add(v);
+  }
+  if (!values.size) return null;
+  return { values: [...values].sort((a, b) => a - b), isAll: values.size === (max - min + 1), stepEvery };
+}
+
+function describeCron(expr) {
+  let s = String(expr || '').trim().toLowerCase();
+  if (!s) return { ok: false, text: 'Enter a schedule — e.g. 0 8 * * * (daily at 08:00)' };
+  if (_CRON_MACROS[s]) s = _CRON_MACROS[s];
+  const parts = s.split(/\s+/);
+  if (parts.length !== 5) {
+    return { ok: false, text: 'Need 5 fields: minute hour day-of-month month day-of-week' };
+  }
+  const [minF, hourF, domF, monF, dowF] = parts;
+  const mn  = _cronField(minF, 0, 59);
+  const hr  = _cronField(hourF, 0, 23);
+  const dom = _cronField(domF, 1, 31);
+  const mon = _cronField(monF, 1, 12, ['', ..._CRON_MON]);
+  let   dow = _cronField(dowF, 0, 7, _CRON_DOW.concat('Sunday'));
+  if (!mn || !hr || !dom || !mon || !dow) {
+    return { ok: false, text: 'Invalid schedule — check the field values and ranges' };
+  }
+  // Normalise weekday 7 → 0 (both mean Sunday).
+  const dowVals = [...new Set(dow.values.map((d) => d % 7))].sort((a, b) => a - b);
+  const dowAll  = dowVals.length === 7;
+
+  // Day-of-week phrase (e.g. "on weekdays", "every Monday").
+  const dowPhrase = () => {
+    const set = dowVals.join(',');
+    if (set === '1,2,3,4,5') return 'on weekdays';
+    if (set === '0,6') return 'on weekends';
+    return 'on ' + _cronList(dowVals.map((d) => _CRON_DOW[d]));
+  };
+  const domPhrase = () => 'on the ' + _cronList(dom.values.map(_cronOrdinal)) + ' of the month';
+  const monPhrase = () => ' in ' + _cronList(mon.values.map((m) => _CRON_MON[m - 1]));
+
+  const dayBits = [];
+  if (!dowAll) dayBits.push(dowPhrase());
+  if (!dom.isAll) dayBits.push(domPhrase());
+  const daySuffix = (dayBits.length ? ' ' + dayBits.join(' and ') : '') + (mon.isAll ? '' : monPhrase());
+
+  let base;
+  if (hr.isAll) {
+    // Sub-hourly / hourly schedules.
+    if (mn.isAll) base = 'Every minute';
+    else if (mn.stepEvery) base = `Every ${mn.stepEvery} minutes`;
+    else if (mn.values.length === 1) {
+      base = mn.values[0] === 0 ? 'Every hour, on the hour'
+                                : `At ${_cronPad(mn.values[0])} minutes past every hour`;
+    } else base = `At minutes ${_cronList(mn.values.map(_cronPad))} past every hour`;
+    return { ok: true, text: base + daySuffix + '.' };
+  }
+
+  // Specific hour(s).
+  if (mn.values.length === 1 && !mn.stepEvery) {
+    const m = mn.values[0];
+    const times = hr.values.map((h) => `${_cronPad(h)}:${_cronPad(m)}`);
+    const lead = dayBits.length ? '' : 'Every day ';
+    base = `${lead}at ${_cronList(times)}`;
+    // When a day constraint exists, phrase it as the subject: "On weekdays at 08:30".
+    if (dayBits.length) {
+      base = _cronList(dayBits) + ' at ' + _cronList(times);
+      base = base.charAt(0).toUpperCase() + base.slice(1);
+    } else {
+      base = base.charAt(0).toUpperCase() + base.slice(1);
+    }
+    return { ok: true, text: base + (mon.isAll ? '' : monPhrase()) + '.' };
+  }
+
+  // Fallback: minute + hour both multi-valued.
+  const mDesc = mn.isAll ? 'every minute' : (mn.stepEvery ? `every ${mn.stepEvery} min` : `minutes ${_cronList(mn.values.map(_cronPad))}`);
+  const hDesc = `hours ${_cronList(hr.values.map(_cronPad))}`;
+  base = `At ${mDesc} of ${hDesc}`;
+  return { ok: true, text: base + daySuffix + (mon.isAll ? '' : monPhrase()) + '.' };
+}
+
+function _updateCronPreview() {
+  const el = document.getElementById('orders-cron-preview');
+  const input = document.getElementById('orders-field-cron');
+  if (!el || !input) return;
+  const res = describeCron(input.value);
+  el.textContent = res.text;
+  el.classList.toggle('invalid', !res.ok);
+  el.classList.toggle('valid', res.ok);
+}
+
 function openNewStandingOrderDialog(existing) {
   _editingOrderId = existing?.id || null;
   document.getElementById('orders-dialog-title').textContent =
@@ -2562,6 +2709,24 @@ function openNewStandingOrderDialog(existing) {
     .map(p => `<option value="${p.id}"${(existing?.provider || _lastKnownActiveProvider) === p.id ? ' selected' : ''}${p.available ? '' : ' disabled'}>${p.available ? p.label : p.label + ' — n/a'}</option>`)
     .join('');
   document.getElementById('orders-dialog').classList.remove('hidden');
+
+  // Wire the live cron preview + quick presets (once).
+  const cronInput = document.getElementById('orders-field-cron');
+  if (cronInput && !cronInput._cronPreviewWired) {
+    cronInput._cronPreviewWired = true;
+    cronInput.addEventListener('input', _updateCronPreview);
+    const presets = document.getElementById('orders-cron-presets');
+    if (presets) {
+      presets.addEventListener('click', (e) => {
+        const btn = e.target.closest('.orders-cron-preset');
+        if (!btn) return;
+        cronInput.value = btn.dataset.cron;
+        _updateCronPreview();
+        cronInput.focus();
+      });
+    }
+  }
+  _updateCronPreview();
 }
 
 function closeStandingOrderDialog() {
