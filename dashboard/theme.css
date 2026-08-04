@@ -1753,6 +1753,69 @@ html, body {
   color: var(--data-yellow);
   letter-spacing: 0.15em;
 }
+
+/* Live human-readable cron preview + quick presets */
+.orders-cron-preview {
+  margin: -2px 0 2px;
+  padding: 5px 9px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  border-left: 3px solid #2a2a2a;
+  background: #06060e;
+  min-height: 14px;
+}
+.orders-cron-preview::before {
+  content: '▸ ';
+  opacity: 0.7;
+}
+.orders-cron-preview.valid {
+  color: var(--data-teal);
+  border-left-color: var(--data-teal);
+}
+.orders-cron-preview.invalid {
+  color: var(--data-red);
+  border-left-color: var(--data-red);
+}
+.orders-cron-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 4px;
+}
+.orders-cron-presets-label {
+  color: var(--data-yellow);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  opacity: 0.8;
+}
+.orders-cron-preset {
+  background: #0a0a14;
+  border: 1px solid #2a2a2a;
+  color: var(--data-teal);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.orders-cron-preset:hover {
+  border-color: var(--data-teal);
+  color: #fff;
+}
+.order-cron-human {
+  display: block;
+  margin-top: 3px;
+  color: var(--data-teal);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
 .orders-dialog-actions {
   display: flex;
   justify-content: flex-end;
