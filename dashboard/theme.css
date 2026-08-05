@@ -713,6 +713,59 @@ html, body {
 .chat-window::-webkit-scrollbar-track { background: #0a0a0a; }
 .chat-window::-webkit-scrollbar-thumb { background: var(--data-orange2); border-radius: 2px; }
 
+/* ── Drag-and-drop attach overlay ───────────────────────────────────
+   Covers the whole main pane while files are dragged in from the OS. Its
+   children get pointer-events:none so drag/drop events keep bubbling to the
+   pane listener (which owns the drop). Shown by app.js via .active. */
+.chat-dropzone {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.74);
+  backdrop-filter: blur(1.5px);
+  opacity: 0;
+  transition: opacity 0.14s ease;
+  pointer-events: none;
+}
+.chat-dropzone.active { opacity: 1; }
+.chat-dropzone-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 44px;
+  border: 2px dashed var(--data-orange);
+  border-radius: 12px;
+  background: rgba(255, 153, 0, 0.06);
+  box-shadow: 0 0 24px rgba(255, 153, 0, 0.18);
+  text-align: center;
+}
+.chat-dropzone-icon {
+  font-size: 40px;
+  line-height: 1;
+  color: var(--data-orange);
+}
+.chat-dropzone-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--data-orange);
+}
+.chat-dropzone-sub {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--data-blue);
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-dropzone { transition: none; }
+}
+
 .chat-message {
   display: flex;
   gap: 12px;
@@ -2301,6 +2354,8 @@ html, body {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  /* Positioning context for the drag-and-drop attach overlay. */
+  position: relative;
 }
 /* A class selector outranks the UA [hidden] rule, so without this the
    "closed" main pane stays rendered — leaving two panes stacked in a
