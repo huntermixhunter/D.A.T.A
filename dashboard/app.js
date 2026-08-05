@@ -507,6 +507,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _loadChatFontScale();
   initJumpLatest();
   initChatDraft();
+  initChatDropzone();
   // A fresh dashboard load means no project is attached to the main pane.
   // Clear any stale project cwd the bridge kept in memory from a prior
   // set_project_path / project load so the default first window opens with
@@ -517,6 +518,83 @@ window.addEventListener('DOMContentLoaded', () => {
     body: JSON.stringify({ path: '' }),
   }).catch(() => {});
 });
+
+// ── Drag-and-drop attachments ──────────────────────────────────────
+// Let the Captain drag files straight from the desktop onto the main channel
+// instead of hunting for the "+" button. Files route through the exact same
+// handleAttachmentFiles() pipeline (classify → size-gate → base64 → tray), so
+// server handling, provider gating, and the removable chips are all inherited.
+//
+// Scoped to the main pane. A drag-counter tracks enter/leave so the overlay
+// doesn't flicker as the pointer crosses child elements, and we only react to
+// drags that actually carry files (not text selections). A window-level guard
+// swallows misdrops elsewhere in the page so the browser never navigates away
+// to open the dropped file.
+function _dragHasFiles(e) {
+  const dt = e.dataTransfer;
+  if (!dt) return false;
+  // types is a DOMStringList; 'Files' appears for OS file drags.
+  const types = dt.types;
+  if (!types) return false;
+  return Array.from(types).includes('Files');
+}
+
+function initChatDropzone() {
+  const pane = document.getElementById('pane-main');
+  const overlay = document.getElementById('chat-dropzone');
+  if (!pane || !overlay) return;
+
+  let depth = 0;
+  const show = () => {
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    overlay.classList.add('active');
+  };
+  const hide = () => {
+    depth = 0;
+    overlay.classList.remove('active');
+    overlay.hidden = true;
+    overlay.setAttribute('aria-hidden', 'true');
+  };
+
+  pane.addEventListener('dragenter', (e) => {
+    if (!_dragHasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    show();
+  });
+  pane.addEventListener('dragover', (e) => {
+    if (!_dragHasFiles(e)) return;
+    // Must preventDefault on dragover or the browser rejects the drop.
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+  pane.addEventListener('dragleave', (e) => {
+    if (!_dragHasFiles(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) hide();
+  });
+  pane.addEventListener('drop', (e) => {
+    if (!_dragHasFiles(e)) return;
+    e.preventDefault();
+    hide();
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) {
+      handleAttachmentFiles(files, 'main');
+      const input = document.getElementById('chat-input');
+      if (input) input.focus();
+    }
+  });
+
+  // Guard the rest of the page: without this, dropping a file anywhere outside
+  // the pane makes the browser open it and blow away the dashboard.
+  window.addEventListener('dragover', (e) => {
+    if (_dragHasFiles(e)) e.preventDefault();
+  });
+  window.addEventListener('drop', (e) => {
+    if (_dragHasFiles(e) && !pane.contains(e.target)) e.preventDefault();
+  });
+}
 
 // ── Resizable prompt box ───────────────────────────────────────────
 // The handle above the main chat textarea lets the Captain drag the prompt

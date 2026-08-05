@@ -347,6 +347,18 @@
                   <button class="stop-btn" id="stop-btn" onclick="stopData()" style="display:none">ABORT</button>
                 </div>
               </div>
+
+              <!-- DRAG-AND-DROP ATTACH — covers the whole main pane while the
+                   Captain drags files in from the desktop. app.js reveals it on
+                   dragenter (only for real file drags) and routes dropped files
+                   through the same pipeline as the + attach button. -->
+              <div class="chat-dropzone" id="chat-dropzone" hidden aria-hidden="true">
+                <div class="chat-dropzone-inner">
+                  <div class="chat-dropzone-icon">⭳</div>
+                  <div class="chat-dropzone-title">Drop files to attach</div>
+                  <div class="chat-dropzone-sub">Images · PDFs · text/code · audio</div>
+                </div>
+              </div>
             </div>
             <!-- project panes added dynamically -->
           </div>
