@@ -1637,6 +1637,85 @@ html, body {
   text-align: center;
   letter-spacing: 0.1em;
 }
+/* Filter / sort toolbar above the orders list */
+.orders-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid #1c1c2a;
+  font-family: var(--font-mono);
+}
+.orders-toolbar[hidden] { display: none; }
+.orders-search {
+  flex: 1 1 200px;
+  min-width: 140px;
+  background: #0a0a14;
+  border: 1px solid #333;
+  color: #ccc;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+}
+.orders-search:focus {
+  outline: none;
+  border-color: var(--data-orange);
+  color: #fff;
+}
+.orders-search::placeholder { color: #555; }
+.orders-status-tabs { display: flex; gap: 4px; }
+.orders-status-tab {
+  background: transparent;
+  border: 1px solid #333;
+  color: #888;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 5px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.orders-status-tab:hover { color: var(--data-orange); border-color: var(--data-orange); }
+.orders-status-tab.active {
+  color: #0a0a14;
+  background: var(--data-orange);
+  border-color: var(--data-orange);
+  font-weight: 700;
+}
+.orders-sort-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #777;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+.orders-sort {
+  background: #0a0a14;
+  border: 1px solid #333;
+  color: #ccc;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 5px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.orders-sort:focus { outline: none; border-color: var(--data-orange); }
+.orders-filter-count {
+  color: var(--data-blue);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  margin-left: auto;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .orders-filter-count { margin-left: 0; }
+}
+
 .order-row {
   background: #0a0a14;
   border-left: 4px solid var(--data-orange);

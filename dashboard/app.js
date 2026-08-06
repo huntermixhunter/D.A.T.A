@@ -2498,47 +2498,134 @@ function toggleForce() {
 // ═══════════════════════════════════════════════════════════
 let _editingOrderId = null;
 
+// Client-side filter/sort state for the Standing Orders list. The orders are
+// fetched once by refreshStandingOrders(); the toolbar narrows and reorders
+// this cached copy without re-hitting the bridge.
+let _allStandingOrders = [];
+let _ordersStatusFilter = localStorage.getItem('orders-status-filter') || 'all';
+let _ordersSortKey      = localStorage.getItem('orders-sort-key') || 'default';
+let _ordersSearchTerm   = '';
+let _ordersToolbarWired = false;
+
 async function refreshStandingOrders() {
   const list = document.getElementById('orders-list');
   if (!list) return;
+  _wireOrdersToolbar();
   list.innerHTML = '<div class="orders-empty">LOADING...</div>';
   try {
     const res = await fetch(`${API_BASE}/standing_orders`);
     const data = await res.json();
     const orders = data.orders || [];
+    _allStandingOrders = orders;
     const countEl = document.getElementById('orders-count');
     if (countEl) countEl.textContent = `${orders.length} ORDER${orders.length === 1 ? '' : 'S'}`;
+    const toolbar = document.getElementById('orders-toolbar');
+    if (toolbar) toolbar.hidden = orders.length === 0;
     if (!orders.length) {
       list.innerHTML = '<div class="orders-empty">NO STANDING ORDERS. Press + NEW ORDER or ask Data to add one.</div>';
+      const fc = document.getElementById('orders-filter-count');
+      if (fc) fc.textContent = '';
       return;
     }
-    list.innerHTML = '';
-    for (const o of orders) {
-      const row = document.createElement('div');
-      row.className = 'order-row' + (o.enabled ? '' : ' disabled');
-      const nextTxt = o.next_run ? `NEXT ${new Date(o.next_run * 1000).toLocaleString()}` : '';
-      row.innerHTML = `
-        <div class="order-info">
-          <div class="order-name">${escapeHtml(o.name)}</div>
-          <div class="order-prompt">${escapeHtml(o.prompt)}</div>
-        </div>
-        <div class="order-cron">${escapeHtml(o.cron)}</div>
-        <div class="order-next">${nextTxt}</div>
-        <div class="order-actions">
-          <button class="order-btn" data-action="toggle">${o.enabled ? 'PAUSE' : 'ENABLE'}</button>
-          <button class="order-btn" data-action="run">RUN NOW</button>
-          <button class="order-btn" data-action="edit">EDIT</button>
-          <button class="order-btn danger" data-action="delete">DELETE</button>
-        </div>
-      `;
-      row.querySelector('[data-action="toggle"]').onclick = () => _toggleStandingOrder(o.id, !o.enabled);
-      row.querySelector('[data-action="run"]').onclick    = () => _runStandingOrderNow(o.id);
-      row.querySelector('[data-action="edit"]').onclick   = () => openNewStandingOrderDialog(o);
-      row.querySelector('[data-action="delete"]').onclick = () => _deleteStandingOrder(o.id, o.name);
-      list.appendChild(row);
-    }
+    _renderStandingOrdersList();
   } catch (e) {
     list.innerHTML = `<div class="orders-empty">ERROR: ${escapeHtml(e.message || String(e))}</div>`;
+  }
+}
+
+// Wire up the toolbar controls once, and reflect any persisted state onto them.
+function _wireOrdersToolbar() {
+  if (_ordersToolbarWired) return;
+  const search = document.getElementById('orders-search');
+  const sort   = document.getElementById('orders-sort');
+  const tabs   = document.querySelectorAll('.orders-status-tab');
+  if (!search || !sort || !tabs.length) return; // toolbar markup not present
+  search.addEventListener('input', () => {
+    _ordersSearchTerm = search.value.trim().toLowerCase();
+    _renderStandingOrdersList();
+  });
+  sort.value = _ordersSortKey;
+  sort.addEventListener('change', () => {
+    _ordersSortKey = sort.value;
+    localStorage.setItem('orders-sort-key', _ordersSortKey);
+    _renderStandingOrdersList();
+  });
+  tabs.forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.status === _ordersStatusFilter);
+    tab.addEventListener('click', () => {
+      _ordersStatusFilter = tab.dataset.status;
+      localStorage.setItem('orders-status-filter', _ordersStatusFilter);
+      tabs.forEach(t => t.classList.toggle('active', t === tab));
+      _renderStandingOrdersList();
+    });
+  });
+  _ordersToolbarWired = true;
+}
+
+// Apply the current search term, status filter, and sort key to the cached
+// orders, then paint the list. Called on refresh and on any toolbar change.
+function _renderStandingOrdersList() {
+  const list = document.getElementById('orders-list');
+  if (!list) return;
+  const term = _ordersSearchTerm;
+  let orders = _allStandingOrders.filter(o => {
+    if (_ordersStatusFilter === 'active' && !o.enabled) return false;
+    if (_ordersStatusFilter === 'paused' && o.enabled)  return false;
+    if (term) {
+      const hay = `${o.name || ''} ${o.prompt || ''} ${o.cron || ''}`.toLowerCase();
+      if (!hay.includes(term)) return false;
+    }
+    return true;
+  });
+
+  if (_ordersSortKey === 'name') {
+    orders = orders.slice().sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+  } else if (_ordersSortKey === 'next') {
+    // Orders with an upcoming run first (soonest → latest); undated ones last.
+    const big = Number.MAX_SAFE_INTEGER;
+    orders = orders.slice().sort((a, b) => (a.next_run || big) - (b.next_run || big));
+  } else if (_ordersSortKey === 'status') {
+    orders = orders.slice().sort((a, b) => (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0));
+  }
+
+  const fc = document.getElementById('orders-filter-count');
+  if (fc) {
+    const total = _allStandingOrders.length;
+    fc.textContent = orders.length === total
+      ? `${total} SHOWN`
+      : `${orders.length} / ${total} SHOWN`;
+  }
+
+  if (!orders.length) {
+    list.innerHTML = '<div class="orders-empty">NO ORDERS MATCH THIS FILTER.</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const o of orders) {
+    const row = document.createElement('div');
+    row.className = 'order-row' + (o.enabled ? '' : ' disabled');
+    const nextTxt = o.next_run ? `NEXT ${new Date(o.next_run * 1000).toLocaleString()}` : '';
+    row.innerHTML = `
+      <div class="order-info">
+        <div class="order-name">${escapeHtml(o.name)}</div>
+        <div class="order-prompt">${escapeHtml(o.prompt)}</div>
+      </div>
+      <div class="order-cron">${escapeHtml(o.cron)}</div>
+      <div class="order-next">${nextTxt}</div>
+      <div class="order-actions">
+        <button class="order-btn" data-action="toggle">${o.enabled ? 'PAUSE' : 'ENABLE'}</button>
+        <button class="order-btn" data-action="run">RUN NOW</button>
+        <button class="order-btn" data-action="edit">EDIT</button>
+        <button class="order-btn danger" data-action="delete">DELETE</button>
+      </div>
+    `;
+    row.querySelector('[data-action="toggle"]').onclick = () => _toggleStandingOrder(o.id, !o.enabled);
+    row.querySelector('[data-action="run"]').onclick    = () => _runStandingOrderNow(o.id);
+    row.querySelector('[data-action="edit"]').onclick   = () => openNewStandingOrderDialog(o);
+    row.querySelector('[data-action="delete"]').onclick = () => _deleteStandingOrder(o.id, o.name);
+    list.appendChild(row);
   }
 }
 
