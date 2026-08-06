@@ -428,6 +428,29 @@
               </div>
             </div>
           </div>
+          <!-- Filter / sort toolbar for the orders list. Purely client-side:
+               narrows and reorders what refreshStandingOrders() has already
+               loaded, without re-hitting the bridge. -->
+          <div class="orders-toolbar" id="orders-toolbar" hidden>
+            <input type="text" id="orders-search" class="orders-search"
+                   placeholder="Filter orders by name, prompt, or schedule…"
+                   aria-label="Filter standing orders" autocomplete="off"/>
+            <div class="orders-status-tabs" role="group" aria-label="Filter by status">
+              <button class="orders-status-tab active" data-status="all">ALL</button>
+              <button class="orders-status-tab" data-status="active">ACTIVE</button>
+              <button class="orders-status-tab" data-status="paused">PAUSED</button>
+            </div>
+            <label class="orders-sort-label">
+              SORT
+              <select id="orders-sort" class="orders-sort" aria-label="Sort standing orders">
+                <option value="default">Default</option>
+                <option value="name">Name (A–Z)</option>
+                <option value="next">Next run</option>
+                <option value="status">Status</option>
+              </select>
+            </label>
+            <span class="orders-filter-count" id="orders-filter-count"></span>
+          </div>
           <div id="orders-list" class="orders-list"></div>
 
           <!-- New / edit order dialog -->
