@@ -2622,6 +2622,116 @@ async function _deleteStandingOrder(id, name) {
   refreshStandingOrders();
 }
 
+// ── Backup & restore — export the roster to JSON, import it back ──
+// Uses only the existing GET /standing_orders and POST /standing_orders
+// endpoints, so a backup made on one machine can be restored on another.
+async function exportStandingOrders() {
+  try {
+    const res = await fetch(`${API_BASE}/standing_orders`);
+    const data = await res.json();
+    const orders = data.orders || [];
+    if (!orders.length) { addLog('No standing orders to export.'); return; }
+    // Keep only the portable fields — drop runtime state (id, next_run, …).
+    const clean = orders.map(o => ({
+      name:            o.name,
+      cron:            o.cron,
+      prompt:          o.prompt,
+      provider:        o.provider,
+      enabled:         !!o.enabled,
+      notify_telegram: !!o.notify_telegram,
+    }));
+    const payload = {
+      kind:        'data-standing-orders',
+      version:     1,
+      exported_at: new Date().toISOString(),
+      count:       clean.length,
+      orders:      clean,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    a.href = url;
+    a.download = `standing-orders-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    addLog(`Exported ${clean.length} standing order${clean.length === 1 ? '' : 's'}.`);
+    playDataSound('confirm');
+  } catch (e) {
+    addLog('Standing order export failed: ' + (e.message || e));
+    playDataSound('error');
+  }
+}
+
+async function importStandingOrders(input) {
+  const file = input && input.files && input.files[0];
+  // Reset so choosing the same file again still fires onchange.
+  if (input) input.value = '';
+  if (!file) return;
+
+  let text;
+  try { text = await file.text(); }
+  catch (e) { addLog('Import failed: could not read file.'); playDataSound('error'); return; }
+
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch (e) { addLog('Import failed: file is not valid JSON.'); playDataSound('error'); return; }
+
+  const raw = Array.isArray(parsed) ? parsed
+            : (parsed && Array.isArray(parsed.orders) ? parsed.orders : null);
+  if (!raw) { addLog('Import failed: no "orders" list found in file.'); playDataSound('error'); return; }
+
+  // Normalize + validate. Unknown/missing providers fall back to the active
+  // one so a backup from a machine with different providers still restores.
+  const known    = new Set((_providersCache || []).map(p => p.id));
+  const fallback = _lastKnownActiveProvider || 'claude-cli';
+  const valid = [];
+  let skipped = 0;
+  for (const o of raw) {
+    if (!o || typeof o !== 'object') { skipped++; continue; }
+    const name   = String(o.name   || '').trim();
+    const cron   = String(o.cron   || '').trim();
+    const prompt = String(o.prompt || '').trim();
+    if (!name || !cron || !prompt) { skipped++; continue; }
+    let provider = String(o.provider || '').trim();
+    if (!provider || (known.size && !known.has(provider))) provider = fallback;
+    valid.push({
+      name:            name.slice(0, 80),
+      cron,
+      prompt,
+      provider,
+      enabled:         o.enabled !== false,
+      notify_telegram: !!o.notify_telegram,
+    });
+  }
+
+  if (!valid.length) {
+    addLog('Import failed: no valid orders (each needs a name, schedule, and prompt).');
+    playDataSound('error');
+    return;
+  }
+
+  const extra = skipped ? ` (${skipped} entr${skipped === 1 ? 'y' : 'ies'} skipped as incomplete)` : '';
+  if (!confirm(`Import ${valid.length} standing order${valid.length === 1 ? '' : 's'}?${extra}\n\nThey will be ADDED to your current roster — existing orders are left untouched and duplicates are not merged.`)) return;
+
+  let ok = 0, fail = 0;
+  for (const payload of valid) {
+    try {
+      const res  = await fetch(`${API_BASE}/standing_orders`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && !data.error) ok++; else fail++;
+    } catch (e) { fail++; }
+  }
+  addLog(`Import complete: ${ok} order${ok === 1 ? '' : 's'} added${fail ? `, ${fail} failed` : ''}.`);
+  playDataSound(fail ? 'error' : 'confirm');
+  refreshStandingOrders();
+}
+
 // ═══════════════════════════════════════════════════════════
 // SKILLS PANEL (legacy — page removed from nav, function kept for safety)
 // ═══════════════════════════════════════════════════════════

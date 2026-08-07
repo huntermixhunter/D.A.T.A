@@ -424,6 +424,9 @@
               <div class="panel-pills">
                 <span class="pill orange" id="orders-count">-- ORDERS</span>
                 <button class="data-btn-sm yellow" onclick="refreshStandingOrders()">REFRESH</button>
+                <button class="data-btn-sm teal" onclick="exportStandingOrders()" title="Download all standing orders as a JSON backup">EXPORT</button>
+                <button class="data-btn-sm teal" onclick="document.getElementById('orders-import-file').click()" title="Restore standing orders from a JSON backup file">IMPORT</button>
+                <input type="file" id="orders-import-file" accept="application/json,.json" hidden onchange="importStandingOrders(this)"/>
                 <button class="data-btn-sm orange" onclick="openNewStandingOrderDialog()">+ NEW ORDER</button>
               </div>
             </div>
