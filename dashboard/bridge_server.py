@@ -576,7 +576,14 @@ def _switch_active_user(uid: str) -> dict:
 DATA_BRIDGE_TOKEN = os.environ.get("DATA_BRIDGE_TOKEN", "").strip()
 PYTHON_EXE  = Path(sys.executable)   # the interpreter running this bridge
 PORT = int(os.environ.get("DATA_PORT", "7777"))
-MODEL = "claude-opus-4-8"
+# Alias auto-ride (locked 2026-08-07): pass the Claude CLI tier alias — NOT a
+# pinned version id — to `--model`, so the newest Opus/Sonnet/Haiku the
+# subscription can serve rides in automatically when Anthropic ships it, with
+# zero code change. The alias resolves at call time inside the CLI.
+OPUS_ALIAS   = "opus"
+SONNET_ALIAS = "sonnet"
+HAIKU_ALIAS  = "haiku"
+MODEL = OPUS_ALIAS
 BRIDGE_MODE = "cli"   # "cli" = Standard Mode (subscription, Opus) — API mode is disabled by Captain order
 
 # ── Multi-provider rig ─────────────────────────────────────────
@@ -1118,22 +1125,22 @@ def _current_provider_id() -> str:
 
 PROVIDERS = {
     "claude-cli": {
-        "label":       "Claude Opus 4.8 (Subscription)",
-        "model":       "claude-opus-4-8",
+        "label":       "Claude Opus (Subscription — latest)",
+        "model":       OPUS_ALIAS,   # auto-rides to newest Opus
         "kind":        "subprocess",
         "executables": ["claude", "claude.exe"],
         "install_hint": "Install Claude Code: https://docs.claude.com/en/docs/claude-code",
     },
     "claude-cli-sonnet": {
-        "label":       "Claude Sonnet 4.6 (Subscription — Fast)",
-        "model":       "claude-sonnet-4-6",
+        "label":       "Claude Sonnet (Subscription — Fast)",
+        "model":       SONNET_ALIAS,   # auto-rides to newest Sonnet
         "kind":        "subprocess",
         "executables": ["claude", "claude.exe"],
         "install_hint": "Install Claude Code: https://docs.claude.com/en/docs/claude-code",
     },
     "claude-cli-haiku": {
-        "label":       "Claude Haiku 4.5 (Subscription — Fastest)",
-        "model":       "claude-haiku-4-5-20251001",
+        "label":       "Claude Haiku (Subscription — Fastest)",
+        "model":       HAIKU_ALIAS,   # auto-rides to newest Haiku
         "kind":        "subprocess",
         "executables": ["claude", "claude.exe"],
         "install_hint": "Install Claude Code: https://docs.claude.com/en/docs/claude-code",
@@ -3297,6 +3304,11 @@ def _load_soul(mode: str = "api") -> str:
     p_cfg     = PROVIDERS.get(ACTIVE_PROVIDER, {})
     p_label   = p_cfg.get("label", ACTIVE_PROVIDER)
     p_model   = p_cfg.get("model", MODEL)
+    # Alias auto-ride: the Claude CLI tier aliases resolve to the newest model of
+    # that tier at call time. Report them as `claude-<tier>-latest` so the identity
+    # rule below still sees the "claude" substring and reports honestly.
+    if p_model in ("opus", "sonnet", "haiku"):
+        p_model = f"claude-{p_model}-latest"
     p_kind    = p_cfg.get("kind", "subprocess")
     transport = {
         "subprocess": "subprocess via the bridge server",
@@ -6387,7 +6399,7 @@ def _mail_llm(prompt: str, system: str, tier: str = "claude-cli-haiku",
     exe = _provider_executable("claude-cli")
     if not exe:
         return ""
-    model = cfg.get("model", "claude-opus-4-8")
+    model = cfg.get("model", OPUS_ALIAS)
     sf = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
     sf.write(system); sf.close()
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
@@ -6841,7 +6853,7 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
         soul_file = tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, encoding="utf-8")
         soul_file.write(soul_cli); soul_file.close()
-        log.info(f"[CLI] subprocess starting — model=claude-opus-4-8 prompt_len={len(prompt)} exe={claude_exe}")
+        log.info(f"[CLI] subprocess starting — model={OPUS_ALIAS} prompt_len={len(prompt)} exe={claude_exe}")
         cli_env = {k: v for k, v in os.environ.items() if k != 'ANTHROPIC_API_KEY'}
         # Silence Node's DEP0169 (url.parse) and other deprecation warnings the
         # bundled CLI emits on newer Node runtimes; preserve any user NODE_OPTIONS.
@@ -6855,7 +6867,7 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
         # prompt from stdin when no positional prompt is given.
         result = subprocess.run(
             [claude_exe, "--print", "--output-format", "text",
-             "--model", "claude-opus-4-8",
+             "--model", OPUS_ALIAS,
              "--dangerously-skip-permissions",
              "--system-prompt-file", soul_file.name],
             input=prompt,
@@ -6956,7 +6968,7 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     # Model comes from the *current* provider's config (honors thread-local
     # voice override) so claude-cli, claude-cli-sonnet, claude-cli-haiku each
     # get the right model id passed to the CLI.
-    cli_model = PROVIDERS.get(_current_provider_id(), {}).get("model", "claude-opus-4-8")
+    cli_model = PROVIDERS.get(_current_provider_id(), {}).get("model", OPUS_ALIAS)
     send_sse('thinking', f"*Standard Mode ({cli_model}) — initiating*")
     soul_file_path = None
     try:
@@ -9147,6 +9159,9 @@ def build_msd() -> dict:
 # Per-model approximate context windows (input tokens). Used to compute the
 # remaining headroom shown in the CONTEXT BUDGET sidebar panel.
 _MODEL_CONTEXT_WINDOWS = {
+    "opus":                    200_000,  # tier aliases (alias auto-ride) — the live model strings
+    "sonnet":                  200_000,
+    "haiku":                   200_000,
     "claude-fable-5":          200_000,  # 1M-capable; capped to 200K like siblings for the sidebar
     "claude-opus-4-8":         200_000,
     "claude-opus-4-7":         200_000,  # legacy — kept so older history doesn't NaN the sidebar
@@ -9330,7 +9345,7 @@ def _compact_memory_file() -> dict:
         # preservation. Pennies per run beats losing years of context.
         proc = subprocess.run(
             [cli, "--print", "--output-format", "text",
-             "--model", "claude-opus-4-8",
+             "--model", OPUS_ALIAS,
              "--dangerously-skip-permissions"],
             input=instructions, text=True, encoding="utf-8", errors="replace",
             capture_output=True, timeout=600, env=cli_env,
@@ -11790,7 +11805,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/model":
             global MODEL
             new_model = data.get("model", "")
-            allowed = ("claude-sonnet-4-6", "claude-opus-4-8")
+            allowed = ("sonnet", "opus", "claude-sonnet-4-6", "claude-opus-4-8")
             if new_model not in allowed:
                 self._json({"error": f"model must be one of {allowed}"}, 400)
                 return
