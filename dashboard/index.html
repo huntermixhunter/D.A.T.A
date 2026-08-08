@@ -381,6 +381,16 @@
               <button class="data-btn-sm green" onclick="createDocsFolder()" title="Create a new project folder">+ NEW FOLDER</button>
               <button class="data-btn-sm yellow" onclick="addProjectTab()" title="Browse to any folder">BROWSE…</button>
               <button class="data-btn-sm blue" id="docs-view-toggle" onclick="toggleDocsView()" title="Switch between card grid and node graph">VIEW: GRID</button>
+              <div class="docs-filter-wrap">
+                <input type="text" id="docs-filter-input" class="docs-filter-input"
+                       placeholder="Filter projects…" autocomplete="off" spellcheck="false"
+                       oninput="filterDocsProjects(this.value)"
+                       onkeydown="if(event.key==='Escape'){this.value='';filterDocsProjects('');this.blur();}"
+                       aria-label="Filter projects by name or path"/>
+                <button class="docs-filter-clear" id="docs-filter-clear" hidden
+                        onclick="clearDocsFilter()" title="Clear filter" aria-label="Clear filter">✕</button>
+                <span class="docs-filter-count" id="docs-filter-count" hidden></span>
+              </div>
             </div>
             <div class="docs-hint">Select a project — opens a new workspace tab rooted in that folder and a new com window.</div>
             <div class="docs-project-grid" id="docs-project-grid">
