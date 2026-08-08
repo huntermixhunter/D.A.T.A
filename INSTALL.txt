@@ -49,9 +49,29 @@ You will need TWO things:
 (Chromebook: first turn on Linux - Settings > About ChromeOS > Linux -
  then open the Terminal app.)
 
-1. Unzip this folder.
-2. In a terminal, go into the folder and run:
+MAC USERS - READ THIS FIRST. macOS locks anything you download until you
+approve it once, so the installer or even this file may refuse to open
+with an "unidentified developer" or "damaged" warning. That is normal,
+not a broken download. The fastest fix needs no typing:
+
+   1. If DATA opened in a disk-image (.dmg) window, drag the DATA folder
+      onto your Desktop first (a disk image is read-only and cannot be
+      unlocked in place). A .zip just needs unzipping.
+   2. Open the "install" folder, RIGHT-CLICK the file
+      "mac_first_run.command" and choose "Open" (a plain double-click is
+      blocked the first time; right-click > Open gets past it).
+   3. Click "Open". A Terminal window unlocks DATA, runs the installer,
+      and offers to launch. That is the whole setup.
+
+   Prefer the Terminal, or on Linux/Chromebook? See the numbered steps
+   below. Full plain-language version: READ-ME-FIRST-MAC.txt.
+
+1. Unzip this folder (Mac: first drag it out of the .dmg if you got one).
+2. In a terminal, go into the folder. Mac only: remove the download lock
+   from every file first, then install:
+       xattr -dr com.apple.quarantine .
        bash install/install.sh
+   (Linux / Chromebook skip the xattr line - just run install.sh.)
 3. Then launch it:
        ./start_data.sh
    Open http://localhost:7777 in your browser (use Chrome for voice

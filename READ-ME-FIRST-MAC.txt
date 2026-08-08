@@ -1,0 +1,70 @@
+========================================================================
+  DATA on a Mac — READ THIS FIRST  (60-second setup)
+========================================================================
+
+If the README or the installer will not open, and you see warnings like
+"unidentified developer", "cannot be opened", or "damaged" — that is
+normal. It is not broken. macOS locks anything you download until you
+approve it once. Here is how to unlock DATA. Pick the path that matches
+what you downloaded.
+
+------------------------------------------------------------------------
+  EASIEST WAY  (no typing)
+------------------------------------------------------------------------
+1. If DATA opened in a disk-image window (a .dmg), DRAG the DATA folder
+   onto your Desktop first. (A disk image is locked, so you must copy the
+   folder out of it before it can be unlocked.) If you downloaded a .zip,
+   just double-click it to unzip and continue.
+
+2. Open the DATA folder, then the "install" folder inside it.
+
+3. RIGHT-CLICK (or hold Control and click) the file named:
+       mac_first_run.command
+   and choose "Open" from the menu. Do NOT just double-click it — the
+   first time, a plain double-click is blocked. The right-click "Open"
+   gives you an "Open" button that gets past the warning.
+
+4. Click "Open" in the small dialog. A black Terminal window appears and
+   does everything for you: it unlocks DATA, runs the installer, and
+   offers to launch. Answer the questions it asks (pressing Return is
+   usually the right choice). Done.
+
+------------------------------------------------------------------------
+  DO IT BY HAND  (if you prefer the Terminal)
+------------------------------------------------------------------------
+1. Copy the DATA folder somewhere you can write to (Desktop is fine).
+2. Open the Terminal app (Applications > Utilities > Terminal).
+3. Type  cd  followed by a space, then drag the DATA folder onto the
+   Terminal window and press Return. You are now "inside" the folder.
+4. Paste these two lines, one at a time, pressing Return after each:
+
+       xattr -dr com.apple.quarantine .
+       bash install/install.sh
+
+   The first line removes the macOS lock from every file. The second
+   installs DATA.
+5. Launch it:
+
+       ./start_data.sh
+
+   Your browser opens to  http://localhost:7777
+
+------------------------------------------------------------------------
+  WHAT THE "xattr" LINE DOES  (plain English)
+------------------------------------------------------------------------
+Every file you download gets an invisible "came from the internet" tag.
+Gatekeeper, the macOS safety guard, refuses to run tagged programs. The
+xattr line strips that tag from the DATA folder so Gatekeeper stops
+blocking it. It only touches the DATA folder, nothing else on your Mac,
+and it is completely reversible (re-downloading re-adds the tag).
+
+------------------------------------------------------------------------
+  STILL STUCK?
+------------------------------------------------------------------------
+- "operation not permitted" when running xattr: you are still inside the
+  read-only disk image. Copy the DATA folder to your Desktop and try
+  again from there.
+- Full walkthrough and how to connect your AI: see INSTALL.txt and
+  README.md in this same folder (they open fine once DATA is unlocked).
+
+========================================================================

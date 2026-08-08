@@ -106,6 +106,15 @@ bash install/install.sh
 ./start_data.sh
 ```
 
+> **macOS, downloaded a .dmg or .zip?** macOS locks downloaded files until you
+> approve them once (Gatekeeper), so the installer may refuse to run with an
+> "unidentified developer" or "damaged" warning. Easiest fix, no typing: drag the
+> DATA folder out of the disk image onto your Desktop, then **right-click**
+> `install/mac_first_run.command` and choose **Open** — it clears the lock, runs
+> the installer, and offers to launch. Prefer the Terminal? Run
+> `xattr -dr com.apple.quarantine .` from the DATA folder before `install.sh`. Full
+> plain-language walkthrough: [READ-ME-FIRST-MAC.txt](READ-ME-FIRST-MAC.txt).
+
 ### Chromebook
 
 1. Turn on the Linux development environment: **Settings → About ChromeOS → Linux**.
