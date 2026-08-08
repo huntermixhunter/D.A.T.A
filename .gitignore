@@ -33,6 +33,15 @@ dashboard/test_output_*.wav
 dashboard/assets/faces/*.backup_*
 dashboard/assets/faces/*.bak-*
 
+# Dated file snapshots (.bak-/.backup- side-saves), repo-wide.
+# Written by in-place edits before a risky change. These are point-in-time
+# copies of files git already versions, so git is the backup — and on a
+# public repo a stray one could ship a pre-scrub copy to buyers.
+*.bak
+*.bak-*
+*.backup-*
+*.backup_*
+
 # Internal IP/legal working docs — never ship to buyers
 COPYRIGHT_REGISTRATION.md
 
