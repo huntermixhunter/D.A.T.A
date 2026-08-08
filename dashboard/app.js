@@ -3005,8 +3005,38 @@ async function loadDocsProjects(force = false) {
       grid.innerHTML = '<div class="docs-empty">No project folders found.</div>';
       return;
     }
-    grid.innerHTML = '';
-    folders.forEach(f => {
+    docsProjectsCache = folders;
+    renderDocsCards();
+    docsLoaded = true;
+    addLog(`Documents: ${folders.length} projects available`);
+  } catch (e) {
+    grid.innerHTML = '<div class="docs-empty">Could not scan Documents — bridge offline?</div>';
+    addLog('Documents scan failed: ' + e.message);
+  }
+}
+
+// -- DOCUMENTS -- quick filter for the project launcher grid ----
+// The full folder list is cached on scan so typing filters in-place
+// (by name or path) without re-hitting the bridge.
+let docsProjectsCache = [];
+let docsFilterText = '';
+
+function renderDocsCards() {
+  const grid = document.getElementById('docs-project-grid');
+  if (!grid) return;
+  const q = docsFilterText.trim().toLowerCase();
+  const matches = q
+    ? docsProjectsCache.filter(f =>
+        f.label.toLowerCase().includes(q) || (f.path || '').toLowerCase().includes(q))
+    : docsProjectsCache;
+
+  grid.innerHTML = '';
+  if (!docsProjectsCache.length) {
+    grid.innerHTML = '<div class="docs-empty">No project folders found.</div>';
+  } else if (!matches.length) {
+    grid.innerHTML = `<div class="docs-empty">No projects match “${escapeHtml(docsFilterText)}”.</div>`;
+  } else {
+    matches.forEach(f => {
       const card = document.createElement('button');
       card.className = 'docs-project-card';
       card.title = f.path;
@@ -3016,12 +3046,33 @@ async function loadDocsProjects(force = false) {
       card.addEventListener('click', () => openDocsProject(f.path, f.label));
       grid.appendChild(card);
     });
-    docsLoaded = true;
-    addLog(`Documents: ${folders.length} projects available`);
-  } catch (e) {
-    grid.innerHTML = '<div class="docs-empty">Could not scan Documents — bridge offline?</div>';
-    addLog('Documents scan failed: ' + e.message);
   }
+
+  // Filter chrome: show a live "X / Y" count and the clear button only while filtering.
+  const countEl = document.getElementById('docs-filter-count');
+  const clearEl = document.getElementById('docs-filter-clear');
+  if (countEl) {
+    if (q) {
+      countEl.textContent = `${matches.length} / ${docsProjectsCache.length}`;
+      countEl.hidden = false;
+    } else {
+      countEl.hidden = true;
+    }
+  }
+  if (clearEl) clearEl.hidden = !q;
+}
+
+function filterDocsProjects(value) {
+  docsFilterText = value || '';
+  renderDocsCards();
+}
+
+function clearDocsFilter() {
+  const input = document.getElementById('docs-filter-input');
+  if (input) input.value = '';
+  docsFilterText = '';
+  renderDocsCards();
+  if (input) input.focus();
 }
 
 
