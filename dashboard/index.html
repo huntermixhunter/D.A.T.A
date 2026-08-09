@@ -517,12 +517,16 @@
         <div class="right-divider"></div>
 
         <div class="right-section">
-          <div class="section-label">ACTIVITY LOG</div>
-          <div class="activity-log" id="activity-log">
-            <div class="log-entry">System initialized</div>
-            <div class="log-entry">SOUL.md loaded</div>
-            <div class="log-entry">Awaiting Captain</div>
+          <div class="section-label activity-log-head">
+            <span>ACTIVITY LOG</span>
+            <span class="activity-log-tools">
+              <button class="activity-log-btn" id="activity-copy-btn" onclick="copyActivityLog(this)"
+                      title="Copy the activity log to the clipboard" aria-label="Copy activity log">⧉</button>
+              <button class="activity-log-btn" id="activity-clear-btn" onclick="clearActivityLog()"
+                      title="Clear the activity log" aria-label="Clear activity log">✕</button>
+            </span>
           </div>
+          <div class="activity-log" id="activity-log"></div>
         </div>
 
         <div class="right-divider"></div>

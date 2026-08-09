@@ -334,19 +334,123 @@ function openPath(path) {
 }
 
 // ── Activity log ──────────────────────────────────────────
+// ── Activity log ──────────────────────────────────────────────────
+// The right-panel activity log is the Captain's running record of what the
+// bridge and UI have been doing. It used to be timestamp-free and evaporated
+// on every reload, which made it useless for after-the-fact debugging ("when
+// did the tunnel drop?"). Entries now carry a HH:MM:SS stamp and the most
+// recent 20 persist to localStorage so they survive a refresh, plus copy/clear
+// controls in the header.
+const _ACTIVITY_LOG_KEY = 'data.activityLog';
+const _ACTIVITY_LOG_MAX = 20;
+let _activityLog = [];   // [{ t: epochMs, text }] — newest first
+
+function _fmtLogTime(ms) {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function _renderLogEntry(item, isNew) {
+  const entry = document.createElement('div');
+  entry.className = 'log-entry' + (isNew ? ' new' : '');
+  const time = document.createElement('span');
+  time.className = 'log-time';
+  time.textContent = _fmtLogTime(item.t);
+  const body = document.createElement('span');
+  body.className = 'log-text';
+  body.textContent = item.text;
+  entry.appendChild(time);
+  entry.appendChild(body);
+  return entry;
+}
+
+function _saveActivityLog() {
+  try {
+    localStorage.setItem(_ACTIVITY_LOG_KEY, JSON.stringify(_activityLog));
+  } catch (_) { /* quota / private mode — log still works in-memory */ }
+}
+
 function addLog(text) {
   const log = document.getElementById('activity-log');
-  const entry = document.createElement('div');
-  entry.className = 'log-entry new';
-  entry.textContent = text;
+  if (!log) return;
+  const item = { t: Date.now(), text: String(text) };
+  _activityLog.unshift(item);
+  while (_activityLog.length > _ACTIVITY_LOG_MAX) _activityLog.pop();
+  const entry = _renderLogEntry(item, true);
   log.insertBefore(entry, log.firstChild);
   // Previously auto-played the error sound on text-pattern matches, but that
   // misfired constantly on mobile where background polls (tunnel offline,
   // wake-word events, voice dictation aborts) push routine log lines through
   // every couple seconds. Sounds are now triggered only by explicit callers.
   setTimeout(() => entry.classList.remove('new'), 1000);
-  // Keep max 20 entries
-  while (log.children.length > 20) log.removeChild(log.lastChild);
+  // Keep max entries
+  while (log.children.length > _ACTIVITY_LOG_MAX) log.removeChild(log.lastChild);
+  _saveActivityLog();
+}
+
+// Restore persisted entries on load, or lay down the boot seed lines the very
+// first time (when there is nothing stored yet).
+function initActivityLog() {
+  const log = document.getElementById('activity-log');
+  if (!log) return;
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(_ACTIVITY_LOG_KEY) || 'null'); }
+  catch (_) { stored = null; }
+  if (Array.isArray(stored) && stored.length) {
+    _activityLog = stored
+      .filter(x => x && typeof x.text === 'string' && typeof x.t === 'number')
+      .slice(0, _ACTIVITY_LOG_MAX);
+    log.textContent = '';
+    // Stored order is newest-first; render in that same order.
+    for (const item of _activityLog) log.appendChild(_renderLogEntry(item, false));
+    return;
+  }
+  // Fresh install — seed the boot lines through addLog so they get stamped.
+  addLog('System initialized');
+  addLog('SOUL.md loaded');
+  addLog('Awaiting Captain');
+}
+
+function clearActivityLog() {
+  const log = document.getElementById('activity-log');
+  _activityLog = [];
+  if (log) log.textContent = '';
+  _saveActivityLog();
+  addLog('Activity log cleared');
+}
+
+async function copyActivityLog(btn) {
+  // Oldest-first, one "HH:MM:SS  text" line per entry — reads naturally when pasted.
+  const lines = _activityLog
+    .slice()
+    .reverse()
+    .map(i => `${_fmtLogTime(i.t)}  ${i.text}`);
+  const text = lines.join('\n');
+  const flash = (msg) => {
+    if (!btn) return;
+    const prev = btn.textContent;
+    btn.textContent = msg;
+    setTimeout(() => { btn.textContent = prev; }, 1200);
+  };
+  if (!text) { flash('∅'); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    flash('✓');
+  } catch (_) {
+    // Clipboard API blocked (insecure context / permissions) — fall back.
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      flash('✓');
+    } catch (_e) { flash('✕'); }
+  }
 }
 
 // ── Chat ──────────────────────────────────────────────────
@@ -501,6 +605,7 @@ function setPaneCrew(wsKey, id) {
 function setMainChatCrew(id) { setPaneCrew('main', id); }
 
 window.addEventListener('DOMContentLoaded', () => {
+  initActivityLog();
   _populatePaneCrewSelect('main', MAIN_CHAT_CREW);
   bootCaptains();
   initChatInputResizer();

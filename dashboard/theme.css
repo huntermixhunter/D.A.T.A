@@ -1521,8 +1521,55 @@ html, body {
   color: #555;
   padding: 2px 0;
   border-bottom: 1px solid #111;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
 }
 .log-entry.new { color: var(--data-green); animation: fadeSlideIn 0.3s ease; }
+.log-time {
+  flex: 0 0 auto;
+  color: var(--data-orange2);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.log-entry.new .log-time { color: var(--data-green); opacity: 0.9; }
+.log-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* Header row for the activity log — title on the left, copy/clear on the right. */
+.activity-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.activity-log-tools {
+  display: inline-flex;
+  gap: 4px;
+}
+.activity-log-btn {
+  background: transparent;
+  border: 1px solid var(--data-orange2);
+  color: var(--data-orange2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  width: 18px;
+  height: 16px;
+  padding: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.activity-log-btn:hover {
+  opacity: 1;
+  background: var(--data-orange2);
+  color: #000;
+}
 
 /* ── Mini matrix ────────────────────────────────────────── */
 #mini-matrix {
