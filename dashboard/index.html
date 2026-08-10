@@ -840,6 +840,33 @@
       </div>
     </div>
 
+    <!-- COMMAND PALETTE — Ctrl/Cmd+K quick launcher. A single searchable list
+         of every navigation target and common action (jump between panels,
+         open a Settings tab, toggle the theme, switch the active crew officer,
+         export the transcript, …) so the Captain can reach anything by typing
+         a couple of letters instead of hunting through the chrome. Built and
+         driven by the cmdPalette* fns in app.js; entirely client-side. -->
+    <div class="cmdk-overlay hidden" id="cmdk-overlay" role="dialog"
+         aria-modal="true" aria-label="Command palette" onclick="_cmdkBackdrop(event)">
+      <div class="cmdk-panel" role="none">
+        <div class="cmdk-search-row">
+          <span class="cmdk-search-icon" aria-hidden="true">⌘</span>
+          <input type="text" id="cmdk-input" class="cmdk-input"
+                 placeholder="Search commands — panels, settings, crew, actions…"
+                 autocomplete="off" autocorrect="off" autocapitalize="off"
+                 spellcheck="false" aria-label="Search commands"
+                 aria-controls="cmdk-list" aria-autocomplete="list">
+          <kbd class="cmdk-esc-hint">ESC</kbd>
+        </div>
+        <ul class="cmdk-list" id="cmdk-list" role="listbox" aria-label="Commands"></ul>
+        <div class="cmdk-footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+          <span><kbd>↵</kbd> run</span>
+          <span><kbd>esc</kbd> close</span>
+        </div>
+      </div>
+    </div>
+
   </div><!-- end app -->
 
   <!-- ── MSD — Master Systems Display modal (radial call-out layout) ─────

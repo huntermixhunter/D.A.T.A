@@ -6262,3 +6262,97 @@ body.theme-minimal .settings-toggle-cap:hover {
   .ec-body.reading .ec-list { display: none; }
   .ec-body:not(.reading) .ec-reader { display: none; }
 }
+
+/* ── Command palette (Ctrl/Cmd+K) ─────────────────────────────
+   A centered, backdrop-dimmed launcher. Styling leans on the existing
+   overlay language (mono type, orange accent, dark card, soft glow) so it
+   feels native to the bridge chrome. Sits above every other overlay. */
+.cmdk-overlay {
+  position: fixed; inset: 0; z-index: 10030;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 12vh 16px 16px;
+  animation: cmdk-fade 120ms ease-out both;
+}
+.cmdk-overlay.hidden { display: none !important; }
+@keyframes cmdk-fade { from { opacity: 0; } to { opacity: 1; } }
+.cmdk-panel {
+  width: min(620px, 96vw);
+  max-height: 70vh;
+  display: flex; flex-direction: column;
+  background: #08080f;
+  border: 1px solid var(--data-orange);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 42px rgba(255, 153, 0, 0.28),
+              0 24px 80px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  animation: cmdk-rise 140ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes cmdk-rise {
+  from { transform: translateY(-10px) scale(0.985); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.cmdk-search-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 153, 0, 0.22);
+  background: rgba(255, 153, 0, 0.04);
+}
+.cmdk-search-icon { color: var(--data-orange); font-size: 16px; opacity: 0.85; }
+.cmdk-input {
+  flex: 1 1 auto; min-width: 0;
+  background: transparent; border: none; outline: none;
+  color: var(--data-text); font-family: var(--font-mono); font-size: 15px;
+  letter-spacing: 0.3px;
+}
+.cmdk-input::placeholder { color: var(--data-text-dim); opacity: 0.8; }
+.cmdk-esc-hint {
+  font-size: 10px; color: var(--data-text-dim);
+  border: 1px solid rgba(255, 153, 0, 0.3); border-radius: 4px;
+  padding: 2px 6px; letter-spacing: 1px;
+}
+.cmdk-list {
+  list-style: none; margin: 0; padding: 6px;
+  overflow-y: auto; flex: 1 1 auto;
+}
+.cmdk-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 6px;
+  cursor: pointer; color: var(--data-text);
+  border: 1px solid transparent;
+}
+.cmdk-item.active {
+  background: rgba(255, 153, 0, 0.12);
+  border-color: rgba(255, 153, 0, 0.45);
+}
+.cmdk-item-icon { width: 20px; text-align: center; flex: 0 0 auto; font-size: 14px; }
+.cmdk-item-title { flex: 1 1 auto; font-size: 14px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.cmdk-item-hint {
+  flex: 0 0 auto; font-size: 11px; color: var(--data-text-dim);
+  max-width: 45%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cmdk-item.active .cmdk-item-hint { color: var(--data-yellow); }
+.cmdk-empty {
+  padding: 18px 12px; text-align: center;
+  color: var(--data-text-dim); font-size: 13px;
+}
+.cmdk-footer {
+  display: flex; gap: 16px; justify-content: center;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 153, 0, 0.18);
+  color: var(--data-text-dim); font-size: 11px;
+}
+.cmdk-footer kbd {
+  border: 1px solid rgba(255, 153, 0, 0.3); border-radius: 4px;
+  padding: 1px 5px; margin: 0 2px; color: var(--data-orange);
+}
+/* Cyber theme leans blue elsewhere; nudge the accent to match. */
+.theme-cyberpunk .cmdk-panel { border-color: var(--data-blue2); }
+.theme-cyberpunk .cmdk-item.active { border-color: rgba(68, 136, 255, 0.5);
+  background: rgba(68, 136, 255, 0.14); }
+@media (max-width: 620px) {
+  .cmdk-overlay { padding-top: 8vh; }
+  .cmdk-item-hint { display: none; }
+}
