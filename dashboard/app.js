@@ -10904,3 +10904,236 @@ async function openSystemVitalsWidget() {
     body.innerHTML = `<div class="widget-error">Could not read hardware: ${_wEsc(e.message || e)}</div>`;
   }
 }
+
+// ── Command palette (Ctrl/Cmd+K) ─────────────────────────────
+// A single searchable launcher for every navigation target and common action
+// in the dashboard. Instead of remembering where each control lives, the
+// Captain hits Ctrl/Cmd+K, types a few letters, and jumps straight to a panel,
+// a Settings tab, a crew officer, or a chat action. Entirely client-side and
+// self-contained: it just fans out to the existing showPanel/openSettings/…
+// functions, guarding every call so a missing function is skipped rather than
+// throwing. Nothing is persisted.
+let _cmdkOpen = false;
+let _cmdkItems = [];        // the currently-filtered, rendered command list
+let _cmdkActive = 0;        // index of the highlighted row
+let _cmdkPrevFocus = null;  // element to restore focus to on close
+
+// Small helper: only invoke a global fn if it actually exists in this build,
+// so the palette degrades gracefully across dashboard variants.
+function _cmdkCall(fnName, ...args) {
+  const fn = window[fnName];
+  if (typeof fn === 'function') { try { fn(...args); } catch (_) {} }
+}
+
+// Build the full command catalogue fresh each time the palette opens so
+// state-dependent labels (current theme, active crew) are always accurate.
+function _cmdkBuildCommands() {
+  const cmds = [
+    { icon: '🖥', title: 'Go to The Bridge', hint: 'Main chat channel',
+      keys: 'chat conversation bridge home main', run: () => _cmdkCall('showPanel', 'chat') },
+    { icon: '🧠', title: 'Go to Computer Cores', hint: 'Documents · Neural Matrix',
+      keys: 'matrix cores documents graph neural computer', run: () => _cmdkCall('showPanel', 'matrix') },
+    { icon: '📋', title: 'Go to Standing Orders', hint: 'Scheduled recurring tasks',
+      keys: 'orders standing cron schedule tasks automation', run: () => _cmdkCall('showPanel', 'orders') },
+    { icon: '🔌', title: 'Go to Connections', hint: 'Connected apps & widgets',
+      keys: 'connections widgets apps email tools launchers', run: () => _cmdkCall('showPanel', 'widgets') },
+
+    { icon: '⚙', title: 'Open Settings', hint: 'Control panel',
+      keys: 'settings preferences options config', run: () => _cmdkCall('openSettings') },
+    { icon: '🎨', title: 'Settings · Appearance', hint: 'Theme',
+      keys: 'settings appearance theme look', run: () => _cmdkCall('openSettingsTab', 'appearance') },
+    { icon: '🔊', title: 'Settings · Voice', hint: 'Crew voice & speech-to-text',
+      keys: 'settings voice speech tts stt whisper', run: () => _cmdkCall('openSettingsTab', 'voice') },
+    { icon: '🤖', title: 'Settings · Model', hint: 'Default language model',
+      keys: 'settings model llm brain provider', run: () => _cmdkCall('openSettingsTab', 'model') },
+    { icon: '⬆', title: 'Settings · Upgrades', hint: 'Hardware, skills, tools',
+      keys: 'settings upgrades store skills tools packages hardware', run: () => _cmdkCall('openSettingsTab', 'upgrades') },
+    { icon: '👥', title: 'Settings · Crew Personalities', hint: 'Edit officer personas',
+      keys: 'settings crew personalities persona officers', run: () => _cmdkCall('openSettingsTab', 'crew') },
+    { icon: '📓', title: 'Settings · Memory', hint: 'Persistent context',
+      keys: 'settings memory context remember', run: () => _cmdkCall('openSettingsTab', 'memory') },
+    { icon: '🗄', title: 'Settings · History', hint: 'Browse conversation archive',
+      keys: 'settings history archive past conversations search', run: () => _cmdkCall('openSettingsTab', 'history') },
+  ];
+
+  // Theme toggle — label reflects where it will take you.
+  const isCyber = document.body.classList.contains('theme-cyberpunk');
+  cmds.push({
+    icon: '🌓',
+    title: isCyber ? 'Switch theme → Minimal' : 'Switch theme → Cyber',
+    hint: 'Toggle visual theme',
+    keys: 'theme toggle minimal cyber dark appearance switch',
+    run: () => _cmdkCall('settingsSetTheme', isCyber ? 'minimal' : 'cyber'),
+  });
+
+  // Chat actions — each ensures the Bridge is visible first.
+  cmds.push(
+    { icon: '🔍', title: 'Find in conversation', hint: 'Search the chat',
+      keys: 'find search conversation chat ctrl f',
+      run: () => { _cmdkCall('showPanel', 'chat'); _cmdkCall('toggleChatFind', true); } },
+    { icon: '📑', title: 'Prompt library', hint: 'Insert a saved prompt',
+      keys: 'prompt library saved reusable snippets',
+      run: () => { _cmdkCall('showPanel', 'chat'); _cmdkCall('togglePromptLibrary', true); } },
+    { icon: '☰', title: 'Conversation outline', hint: 'Jump between messages',
+      keys: 'outline navigator jump toc conversation',
+      run: () => { _cmdkCall('showPanel', 'chat'); _cmdkCall('toggleChatOutline', true); } },
+    { icon: '⭳', title: 'Export conversation', hint: 'Download as Markdown',
+      keys: 'export download markdown transcript save conversation',
+      run: () => { _cmdkCall('showPanel', 'chat'); _cmdkCall('exportConversation'); } },
+    { icon: '✍', title: 'Focus message composer', hint: 'Start typing',
+      keys: 'compose write focus input message type',
+      run: () => { _cmdkCall('showPanel', 'chat'); const i = document.getElementById('chat-input'); if (i) i.focus(); } },
+    { icon: '➕', title: 'New standing order', hint: 'Schedule a recurring task',
+      keys: 'new standing order create cron schedule task add',
+      run: () => { _cmdkCall('showPanel', 'orders'); _cmdkCall('openNewStandingOrderDialog'); } },
+  );
+
+  // One command per crew officer, switching who answers on the main channel.
+  const labels = (typeof CREW_LABELS === 'object' && CREW_LABELS) ? CREW_LABELS : {};
+  const activeCrew = (typeof MAIN_CHAT_CREW === 'string') ? MAIN_CHAT_CREW : null;
+  Object.keys(labels).forEach(id => {
+    if (id === activeCrew) return;   // no point switching to the current officer
+    cmds.push({
+      icon: '🧑‍🚀',
+      title: 'Talk to ' + labels[id],
+      hint: 'Switch active crew officer',
+      keys: 'crew officer switch talk ' + id + ' ' + labels[id],
+      run: () => { _cmdkCall('showPanel', 'chat'); _cmdkCall('setMainChatCrew', id); },
+    });
+  });
+
+  return cmds;
+}
+
+// Case-insensitive subsequence match (fuzzy) — every char of the query must
+// appear in order somewhere in the haystack. Returns true/false only; ordering
+// is left to declaration order, which keeps the list stable and predictable.
+function _cmdkFuzzy(query, haystack) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const h = haystack.toLowerCase();
+  let qi = 0;
+  for (let hi = 0; hi < h.length && qi < q.length; hi++) {
+    if (h[hi] === q[qi]) qi++;
+  }
+  return qi === q.length;
+}
+
+function _cmdkRender() {
+  const input = document.getElementById('cmdk-input');
+  const list = document.getElementById('cmdk-list');
+  if (!list) return;
+  const query = (input ? input.value : '').trim();
+  const all = _cmdkAllCommands || [];
+  _cmdkItems = all.filter(c => _cmdkFuzzy(query, c.title + ' ' + (c.hint || '') + ' ' + (c.keys || '')));
+  _cmdkActive = 0;
+
+  if (!_cmdkItems.length) {
+    list.innerHTML = '<li class="cmdk-empty" aria-disabled="true">No matching commands</li>';
+    return;
+  }
+  list.innerHTML = _cmdkItems.map((c, i) =>
+    `<li class="cmdk-item${i === 0 ? ' active' : ''}" role="option" id="cmdk-opt-${i}" data-idx="${i}"
+         aria-selected="${i === 0 ? 'true' : 'false'}"
+         onmousemove="_cmdkHover(${i})" onclick="_cmdkRun(${i})">
+       <span class="cmdk-item-icon" aria-hidden="true">${c.icon || '›'}</span>
+       <span class="cmdk-item-title">${_wEsc(c.title)}</span>
+       ${c.hint ? `<span class="cmdk-item-hint">${_wEsc(c.hint)}</span>` : ''}
+     </li>`).join('');
+}
+
+function _cmdkHover(i) {
+  if (i === _cmdkActive) return;
+  _cmdkActive = i;
+  _cmdkPaintActive();
+}
+
+function _cmdkPaintActive() {
+  const list = document.getElementById('cmdk-list');
+  if (!list) return;
+  const rows = list.querySelectorAll('.cmdk-item');
+  rows.forEach((row, i) => {
+    const on = i === _cmdkActive;
+    row.classList.toggle('active', on);
+    row.setAttribute('aria-selected', on ? 'true' : 'false');
+    if (on) {
+      const input = document.getElementById('cmdk-input');
+      if (input) input.setAttribute('aria-activedescendant', row.id);
+      row.scrollIntoView({ block: 'nearest' });
+    }
+  });
+}
+
+function _cmdkMove(delta) {
+  if (!_cmdkItems.length) return;
+  _cmdkActive = (_cmdkActive + delta + _cmdkItems.length) % _cmdkItems.length;
+  _cmdkPaintActive();
+}
+
+function _cmdkRun(i) {
+  const cmd = _cmdkItems[typeof i === 'number' ? i : _cmdkActive];
+  if (!cmd) return;
+  closeCmdPalette();
+  // Defer so the overlay is fully torn down before the target UI (which may
+  // grab focus of its own) takes over.
+  setTimeout(() => { try { cmd.run(); } catch (_) {} }, 0);
+}
+
+let _cmdkAllCommands = [];
+
+function openCmdPalette() {
+  const ov = document.getElementById('cmdk-overlay');
+  const input = document.getElementById('cmdk-input');
+  if (!ov || _cmdkOpen) return;
+  _cmdkOpen = true;
+  _cmdkPrevFocus = document.activeElement;
+  _cmdkAllCommands = _cmdkBuildCommands();
+  ov.classList.remove('hidden');
+  if (input) { input.value = ''; }
+  _cmdkRender();
+  // Focus after the overlay paints so the caret lands in the search box.
+  setTimeout(() => { if (input) input.focus(); }, 0);
+  _cmdkCall('playDataSound', 'confirm');
+}
+
+function closeCmdPalette() {
+  const ov = document.getElementById('cmdk-overlay');
+  if (!ov || !_cmdkOpen) return;
+  _cmdkOpen = false;
+  ov.classList.add('hidden');
+  const input = document.getElementById('cmdk-input');
+  if (input) input.removeAttribute('aria-activedescendant');
+  // Restore focus to wherever the Captain was, when it's still valid.
+  if (_cmdkPrevFocus && document.contains(_cmdkPrevFocus)) {
+    try { _cmdkPrevFocus.focus(); } catch (_) {}
+  }
+  _cmdkPrevFocus = null;
+}
+
+function _cmdkBackdrop(evt) {
+  if (evt.target && evt.target.id === 'cmdk-overlay') closeCmdPalette();
+}
+
+// Global open shortcut: Ctrl/Cmd+K from anywhere. We intentionally do NOT
+// require a specific panel so the palette is reachable regardless of context.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'k' && e.key !== 'K') return;
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  if (_cmdkOpen) closeCmdPalette(); else openCmdPalette();
+}, true);
+
+// Palette-local keys (input filtering + list navigation). Bound to the input
+// so it only fires while the palette owns focus.
+document.addEventListener('keydown', (e) => {
+  if (!_cmdkOpen) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCmdPalette(); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); _cmdkMove(1); return; }
+  if (e.key === 'ArrowUp')   { e.preventDefault(); _cmdkMove(-1); return; }
+  if (e.key === 'Enter')     { e.preventDefault(); _cmdkRun(); return; }
+}, true);
+
+// Re-filter as the Captain types.
+document.addEventListener('input', (e) => {
+  if (_cmdkOpen && e.target && e.target.id === 'cmdk-input') _cmdkRender();
+});
