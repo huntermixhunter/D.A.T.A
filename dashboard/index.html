@@ -649,6 +649,13 @@
                 <button class="settings-opt" data-theme="minimal" onclick="settingsSetTheme('minimal')">MINIMAL</button>
                 <button class="settings-opt" data-theme="cyber"   onclick="settingsSetTheme('cyber')">CYBER</button>
               </div>
+
+              <h3 class="settings-h">Motion &amp; effects</h3>
+              <p class="settings-sub">Turn off the bridge's ambient animation — scanning beams, pulsing engines, fades and slide transitions. Calmer on the eyes and lighter on low-powered machines. First launch follows your system's reduced-motion setting.</p>
+              <div class="settings-opt-row" id="settings-motion-row" role="group" aria-label="Motion and effects">
+                <button class="settings-opt" data-motion="full"    onclick="settingsSetReduceMotion(false)">FULL MOTION</button>
+                <button class="settings-opt" data-motion="reduced" onclick="settingsSetReduceMotion(true)">REDUCED</button>
+              </div>
             </section>
 
             <section class="settings-pane" data-pane="voice">
@@ -1129,6 +1136,19 @@
       var saved = localStorage.getItem('data-theme') || 'minimal';
       document.body.classList.remove('theme-minimal', 'theme-cyberpunk');
       document.body.classList.add(saved === 'cyber' ? 'theme-cyberpunk' : 'theme-minimal');
+    })();
+
+    // Reduce-motion bootstrap — runs before app.js so ambient animation never
+    // flashes on before the preference is honored. Explicit on/off wins;
+    // otherwise the OS "prefers-reduced-motion" setting is the default.
+    (function () {
+      var pref = localStorage.getItem('data-reduce-motion');
+      var reduce;
+      if (pref === 'on')       reduce = true;
+      else if (pref === 'off') reduce = false;
+      else reduce = !!(window.matchMedia &&
+                       window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      document.body.classList.toggle('reduce-motion', reduce);
     })();
 
     function _themeLabel() {

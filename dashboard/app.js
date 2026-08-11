@@ -9265,6 +9265,7 @@ function openSettings() {
   document.addEventListener('keydown', _settingsKey);
   settingsTab('appearance');
   _settingsPaintTheme();
+  _settingsPaintMotion();
   _settingsLoadVoice();
   _settingsLoadModel();
   _settingsLoadCrew();
@@ -9316,6 +9317,23 @@ function settingsSetTheme(t) {
   if (typeof _themeLabel === 'function') _themeLabel();
   if (typeof addLog === 'function') addLog('Theme → ' + (toCyber ? 'CYBER' : 'MINIMAL'));
   _settingsPaintTheme();
+}
+
+// ── Appearance — reduce motion (accessibility / performance) ────────────────
+// Toggles a body class that collapses every animation/transition to an instant
+// jump (see .reduce-motion rules in theme.css). Preference persists; first
+// launch defaults to the OS "prefers-reduced-motion" setting via the inline
+// bootstrap in index.html.
+function _settingsPaintMotion() {
+  const reduced = document.body.classList.contains('reduce-motion');
+  document.querySelectorAll('#settings-motion-row .settings-opt').forEach(b =>
+    b.classList.toggle('active', (b.dataset.motion === 'reduced') === reduced));
+}
+function settingsSetReduceMotion(on) {
+  document.body.classList.toggle('reduce-motion', !!on);
+  try { localStorage.setItem('data-reduce-motion', on ? 'on' : 'off'); } catch (e) {}
+  if (typeof addLog === 'function') addLog('Motion → ' + (on ? 'REDUCED' : 'FULL'));
+  _settingsPaintMotion();
 }
 
 // ── Voice — retail ships a single engine (Kokoro); only the crew voice (which
