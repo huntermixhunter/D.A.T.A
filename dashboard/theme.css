@@ -5735,6 +5735,24 @@ body.theme-minimal .settings-toggle-cap:hover {
 }
 .settings-opt[disabled] { opacity: 0.4; cursor: not-allowed; }
 
+/* ── Reduce motion (Settings → Appearance → Motion & effects) ───────────────
+   Collapses every animation and transition to a near-instant jump instead of
+   ripping them out. Using a ~0ms duration (rather than `animation: none`)
+   keeps fill-mode:forwards fade-ins at their VISIBLE end state — so nothing
+   disappears — while eliminating perceived motion, looping beams, and pulses.
+   This is the web.dev-recommended reduced-motion pattern. Toggled by the body
+   `.reduce-motion` class; defaults to the OS prefers-reduced-motion setting. */
+body.reduce-motion *,
+body.reduce-motion *::before,
+body.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
 /* Editors (crew personalities + memory) */
 .settings-editor {
   width: 100%;
