@@ -2516,14 +2516,14 @@ async function refreshStandingOrders() {
     for (const o of orders) {
       const row = document.createElement('div');
       row.className = 'order-row' + (o.enabled ? '' : ' disabled');
-      const nextTxt = o.next_run ? `NEXT ${new Date(o.next_run * 1000).toLocaleString()}` : '';
+      const absStr = o.next_run ? new Date(o.next_run * 1000).toLocaleString() : '';
       row.innerHTML = `
         <div class="order-info">
           <div class="order-name">${escapeHtml(o.name)}</div>
           <div class="order-prompt">${escapeHtml(o.prompt)}</div>
         </div>
         <div class="order-cron">${escapeHtml(o.cron)}</div>
-        <div class="order-next">${nextTxt}</div>
+        <div class="order-next">${_orderNextHtml(o, absStr)}</div>
         <div class="order-actions">
           <button class="order-btn" data-action="toggle">${o.enabled ? 'PAUSE' : 'ENABLE'}</button>
           <button class="order-btn" data-action="run">RUN NOW</button>
@@ -2537,9 +2537,65 @@ async function refreshStandingOrders() {
       row.querySelector('[data-action="delete"]').onclick = () => _deleteStandingOrder(o.id, o.name);
       list.appendChild(row);
     }
+    _startOrdersCountdownTicker();
   } catch (e) {
     list.innerHTML = `<div class="orders-empty">ERROR: ${escapeHtml(e.message || String(e))}</div>`;
   }
+}
+
+// ── Live "fires in …" countdown for each standing order ──────────────
+// Backend supplies next_run as a Unix epoch (seconds). We render a live,
+// human-readable time-to-fire ("in 3h 12m") that ticks in place, so the
+// Captain can see at a glance which duty runs next without doing wall-clock
+// math. The absolute timestamp is kept on hover.
+function _formatOrderCountdown(secs) {
+  if (secs <= 0) return 'due now';
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  if (d > 0) return `in ${d}d ${h}h`;
+  if (h > 0) return `in ${h}h ${m}m`;
+  if (m > 0) return `in ${m}m`;
+  return `in ${s}s`;
+}
+
+// Builds the inner HTML for a .order-next cell. Paused (disabled) orders show
+// PAUSED; active ones carry data-next so the ticker can update them in place.
+function _orderNextHtml(o, absStr) {
+  if (!o.enabled) return '<span class="order-next-paused">PAUSED</span>';
+  if (!o.next_run) return '';
+  const secs = o.next_run - Date.now() / 1000;
+  const cls = secs <= 0 ? ' due' : (secs < 3600 ? ' soon' : '');
+  return `<span class="order-next-label">NEXT</span>` +
+         `<span class="order-next-rel${cls}" data-next="${o.next_run}" ` +
+         `title="${escapeHtml(absStr || '')}">${escapeHtml(_formatOrderCountdown(secs))}</span>`;
+}
+
+let _ordersCountdownTimer = null;
+function _tickOrdersCountdown() {
+  const panel = document.getElementById('panel-orders');
+  const spans = document.querySelectorAll('.order-next-rel[data-next]');
+  // Nothing left to update, or the panel is hidden — release the timer so we
+  // don't churn in the background on other panels.
+  if (!spans.length || !panel || !panel.classList.contains('active')) {
+    if (_ordersCountdownTimer) { clearInterval(_ordersCountdownTimer); _ordersCountdownTimer = null; }
+    return;
+  }
+  const now = Date.now() / 1000;
+  spans.forEach(sp => {
+    const epoch = parseFloat(sp.getAttribute('data-next'));
+    if (!epoch) return;
+    const secs = epoch - now;
+    sp.textContent = _formatOrderCountdown(secs);
+    sp.classList.toggle('due', secs <= 0);
+    sp.classList.toggle('soon', secs > 0 && secs < 3600);
+  });
+}
+function _startOrdersCountdownTicker() {
+  if (_ordersCountdownTimer) clearInterval(_ordersCountdownTimer);
+  _tickOrdersCountdown();
+  _ordersCountdownTimer = setInterval(_tickOrdersCountdown, 15000);
 }
 
 function escapeHtml(s) {
