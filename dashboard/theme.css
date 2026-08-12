@@ -1677,6 +1677,37 @@ html, body {
 .order-next {
   color: var(--data-blue);
   font-size: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+.order-next-label {
+  color: #667;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+}
+.order-next-rel {
+  color: var(--data-blue);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+/* Fires within the hour — nudge toward the warm palette so the next duty pops. */
+.order-next-rel.soon { color: var(--data-orange); }
+/* Overdue / firing now. */
+.order-next-rel.due {
+  color: var(--data-yellow);
+  animation: orderNextPulse 1.4s ease-in-out infinite;
+}
+@keyframes orderNextPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+.order-next-paused {
+  color: #667;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+/* Respect the Reduce Motion preference — no pulsing on overdue orders. */
+@media (prefers-reduced-motion: reduce) {
+  .order-next-rel.due { animation: none; }
 }
 .order-actions { display: flex; gap: 6px; }
 .order-btn {
