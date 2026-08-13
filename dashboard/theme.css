@@ -1677,6 +1677,39 @@ html, body {
 .order-next {
   color: var(--data-blue);
   font-size: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.order-last {
+  color: var(--data-green);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.order-last.never { color: #666; }
+
+/* Last-output viewer */
+.order-output-card { width: 640px; }
+.order-output-meta {
+  color: var(--data-yellow);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+.order-output-body {
+  background: #06060e;
+  border: 1px solid #2a2a2a;
+  border-radius: 2px;
+  color: #cfd2d6;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  margin: 0;
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .order-actions { display: flex; gap: 6px; }
 .order-btn {

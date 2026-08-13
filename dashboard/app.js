@@ -2517,16 +2517,25 @@ async function refreshStandingOrders() {
       const row = document.createElement('div');
       row.className = 'order-row' + (o.enabled ? '' : ' disabled');
       const nextTxt = o.next_run ? `NEXT ${new Date(o.next_run * 1000).toLocaleString()}` : '';
+      const hasResult = !!(o.last_result && String(o.last_result).trim());
+      const lastTxt = o.last_run
+        ? `LAST ${_orderRelTime(o.last_run)}`
+        : 'NEVER RUN';
       row.innerHTML = `
         <div class="order-info">
           <div class="order-name">${escapeHtml(o.name)}</div>
           <div class="order-prompt">${escapeHtml(o.prompt)}</div>
         </div>
         <div class="order-cron">${escapeHtml(o.cron)}</div>
-        <div class="order-next">${nextTxt}</div>
+        <div class="order-next">
+          <div>${nextTxt}</div>
+          <div class="order-last${o.last_run ? '' : ' never'}"
+               ${o.last_run ? `title="${escapeHtml(new Date(o.last_run * 1000).toLocaleString())}"` : ''}>${lastTxt}</div>
+        </div>
         <div class="order-actions">
           <button class="order-btn" data-action="toggle">${o.enabled ? 'PAUSE' : 'ENABLE'}</button>
           <button class="order-btn" data-action="run">RUN NOW</button>
+          ${hasResult ? '<button class="order-btn" data-action="output">OUTPUT</button>' : ''}
           <button class="order-btn" data-action="edit">EDIT</button>
           <button class="order-btn danger" data-action="delete">DELETE</button>
         </div>
@@ -2535,6 +2544,8 @@ async function refreshStandingOrders() {
       row.querySelector('[data-action="run"]').onclick    = () => _runStandingOrderNow(o.id);
       row.querySelector('[data-action="edit"]').onclick   = () => openNewStandingOrderDialog(o);
       row.querySelector('[data-action="delete"]').onclick = () => _deleteStandingOrder(o.id, o.name);
+      const outBtn = row.querySelector('[data-action="output"]');
+      if (outBtn) outBtn.onclick = () => _showStandingOrderOutput(o);
       list.appendChild(row);
     }
   } catch (e) {
@@ -2613,6 +2624,55 @@ async function _runStandingOrderNow(id) {
   addLog('Running standing order now...');
   await fetch(`${API_BASE}/standing_orders/${encodeURIComponent(id)}/run`, { method: 'POST' });
   refreshStandingOrders();
+}
+
+// Compact relative time for a standing order's last run (e.g. "3m ago", "2h ago").
+function _orderRelTime(epochSec) {
+  if (!epochSec) return '';
+  const diff = Date.now() / 1000 - epochSec;
+  if (diff < 0) return 'just now';
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(epochSec * 1000).toLocaleDateString();
+}
+
+// Show the most recent output captured from a standing order's last run.
+function _showStandingOrderOutput(order) {
+  document.getElementById('order-output-dialog')?.remove();
+  const when = order.last_run
+    ? new Date(order.last_run * 1000).toLocaleString()
+    : 'unknown time';
+  const result = String(order.last_result || '').trim() || '(no output captured)';
+  const overlay = document.createElement('div');
+  overlay.id = 'order-output-dialog';
+  overlay.className = 'orders-dialog';
+  overlay.innerHTML = `
+    <div class="orders-dialog-card order-output-card">
+      <div class="orders-dialog-title">LAST OUTPUT — ${escapeHtml(order.name)}</div>
+      <div class="order-output-meta">RAN ${escapeHtml(when)}</div>
+      <pre class="order-output-body"></pre>
+      <div class="orders-dialog-actions">
+        <button class="data-btn-sm blue" data-action="copy">COPY</button>
+        <button class="data-btn-sm orange" data-action="close">CLOSE</button>
+      </div>
+    </div>
+  `;
+  overlay.querySelector('.order-output-body').textContent = result;
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-action="close"]').onclick = close;
+  overlay.querySelector('[data-action="copy"]').onclick = async (e) => {
+    try {
+      await navigator.clipboard.writeText(result);
+      e.target.textContent = 'COPIED';
+      setTimeout(() => { if (e.target) e.target.textContent = 'COPY'; }, 1200);
+    } catch (_) { /* clipboard unavailable */ }
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+  (document.querySelector('#panel-orders') || document.body).appendChild(overlay);
 }
 
 async function _deleteStandingOrder(id, name) {
