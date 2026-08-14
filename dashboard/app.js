@@ -2986,6 +2986,32 @@ function switchMatrixTab(tab) {
 const DOCS_ROOT = '';
 let docsLoaded = false;
 
+// ── DOCUMENTS — pinned favorites ───────────────────────────
+// Captains keep coming back to the same handful of project folders. A pin
+// star on each card floats those to the top of the launcher and remembers
+// the choice across sessions (localStorage, keyed by absolute path).
+const DOCS_PINS_KEY = 'data-docs-pinned';
+
+function getDocsPins() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DOCS_PINS_KEY) || '[]');
+    return new Set(Array.isArray(raw) ? raw : []);
+  } catch (e) { return new Set(); }
+}
+
+function saveDocsPins(set) {
+  try { localStorage.setItem(DOCS_PINS_KEY, JSON.stringify([...set])); } catch (e) {}
+}
+
+function toggleDocsPin(path) {
+  const pins = getDocsPins();
+  if (pins.has(path)) { pins.delete(path); addLog(`Documents: unpinned ${path}`); }
+  else                { pins.add(path);    addLog(`Documents: pinned ${path}`); }
+  saveDocsPins(pins);
+  playDataSound('confirm');
+  loadDocsProjects(true);   // re-sort so pinned float to the top
+}
+
 async function loadDocsProjects(force = false) {
   if (docsLoaded && !force) return;
   const grid = document.getElementById('docs-project-grid');
@@ -2998,26 +3024,52 @@ async function loadDocsProjects(force = false) {
     // Show the actual scan root the bridge resolved (defaults to ~/Documents)
     const pathLbl = document.getElementById('docs-path-label');
     if (pathLbl && data.root) pathLbl.textContent = data.root;
+    const pins = getDocsPins();
     const folders = (data.nodes || [])
       .filter(n => n.type === 'folder' && n.depth === 1)
-      .sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
+      .sort((a, b) => {
+        // Pinned projects first, then alphabetical within each group.
+        const pa = pins.has(a.path) ? 0 : 1;
+        const pb = pins.has(b.path) ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        return a.label.toLowerCase().localeCompare(b.label.toLowerCase());
+      });
     if (!folders.length) {
       grid.innerHTML = '<div class="docs-empty">No project folders found.</div>';
       return;
     }
     grid.innerHTML = '';
-    folders.forEach(f => {
+    let dividerDone = false;
+    folders.forEach((f, i) => {
+      const pinned = pins.has(f.path);
+      // A subtle divider once we cross from the pinned block into the rest.
+      if (!pinned && !dividerDone && i > 0) {
+        const div = document.createElement('div');
+        div.className = 'docs-pin-divider';
+        grid.appendChild(div);
+        dividerDone = true;
+      }
       const card = document.createElement('button');
-      card.className = 'docs-project-card';
+      card.className = 'docs-project-card' + (pinned ? ' pinned' : '');
       card.title = f.path;
       card.innerHTML = `
+        <span class="docs-card-pin${pinned ? ' on' : ''}" role="button" tabindex="0"
+              aria-label="${pinned ? 'Unpin project' : 'Pin project to top'}"
+              title="${pinned ? 'Unpin' : 'Pin to top'}">${pinned ? '★' : '☆'}</span>
         <span class="docs-card-name"><span class="docs-card-icon">▣</span>${escapeHtml(f.label)}</span>
         <span class="docs-card-path">${escapeHtml(f.path)}</span>`;
+      const pinEl = card.querySelector('.docs-card-pin');
+      const doPin = (e) => { e.stopPropagation(); e.preventDefault(); toggleDocsPin(f.path); };
+      pinEl.addEventListener('click', doPin);
+      pinEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') doPin(e);
+      });
       card.addEventListener('click', () => openDocsProject(f.path, f.label));
       grid.appendChild(card);
     });
     docsLoaded = true;
-    addLog(`Documents: ${folders.length} projects available`);
+    const pinnedCount = folders.filter(f => pins.has(f.path)).length;
+    addLog(`Documents: ${folders.length} projects available${pinnedCount ? ` (${pinnedCount} pinned)` : ''}`);
   } catch (e) {
     grid.innerHTML = '<div class="docs-empty">Could not scan Documents — bridge offline?</div>';
     addLog('Documents scan failed: ' + e.message);
