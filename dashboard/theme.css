@@ -4910,6 +4910,7 @@ body.theme-cyberpunk .msd { --msd-accent-rgb: 0, 240, 255; }
 
 /* Individual project card — click opens a new workspace tab + com window */
 .docs-project-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -4917,7 +4918,7 @@ body.theme-cyberpunk .msd { --msd-accent-rgb: 0, 240, 255; }
   border: 1px solid #1a1a3a;
   border-left: 4px solid var(--data-orange2);
   border-radius: 6px;
-  padding: 12px 14px;
+  padding: 12px 30px 12px 14px;
   cursor: pointer;
   text-align: left;
   transition: border-color .16s, box-shadow .16s, transform .1s, background .16s;
@@ -4929,6 +4930,59 @@ body.theme-cyberpunk .msd { --msd-accent-rgb: 0, 240, 255; }
   background: #0c0c1e;
   box-shadow: 0 0 16px #ff990033, 0 0 4px #ff990022;
   transform: translateY(-1px);
+}
+
+/* Pinned card — brighter accent so favorites read at a glance */
+.docs-project-card.pinned {
+  border-left-color: #FFCC00;
+  background: #0d0c05;
+}
+.docs-project-card.pinned:hover {
+  box-shadow: 0 0 16px #ffcc0033, 0 0 4px #ffcc0022;
+}
+
+/* Pin star — top-right corner of each card */
+.docs-card-pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  color: #556;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: color .14s, opacity .14s, background .14s;
+}
+.docs-project-card:hover .docs-card-pin,
+.docs-card-pin.on,
+.docs-card-pin:focus-visible {
+  opacity: 1;
+}
+.docs-card-pin:hover {
+  background: #ffffff12;
+  color: #FFCC00;
+}
+.docs-card-pin.on {
+  color: #FFCC00;
+  text-shadow: 0 0 6px #ffcc0066;
+}
+.docs-card-pin:focus-visible {
+  outline: 1px solid var(--data-orange2);
+  outline-offset: 1px;
+}
+
+/* Divider between the pinned block and the rest of the launcher */
+.docs-pin-divider {
+  grid-column: 1 / -1;
+  height: 1px;
+  margin: 2px 0;
+  background: linear-gradient(to right, transparent, #ffcc0033, transparent);
 }
 
 .docs-card-icon {
