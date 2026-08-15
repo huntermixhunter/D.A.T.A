@@ -9629,7 +9629,7 @@ async function renderWidgetsGrid(force = false) {
   // Custom (user-defined) app launchers — stored locally, added by the Captain.
   const customs = loadCustomApps();
   const customCards = customs.map(c => `
-    <button class="widget-card" data-widget-id="custom:${_wEsc(c.id)}" onclick="openCustomApp('${_wEsc(c.id)}')">
+    <button class="widget-card widget-card-custom" draggable="true" data-widget-id="custom:${_wEsc(c.id)}" data-custom-id="${_wEsc(c.id)}" onclick="openCustomApp('${_wEsc(c.id)}')" title="Click to open · drag to reorder">
       <span class="widget-card-icon">${_wEsc(c.icon || '🔗')}</span>
       <span class="widget-card-title">${_wEsc(c.title)}</span>
       <span class="widget-card-desc">${_wEsc(c.desc || c.url)}</span>
@@ -9651,6 +9651,58 @@ async function renderWidgetsGrid(force = false) {
   const total = WIDGETS.length + customs.length;
   const pill = document.getElementById('widgets-count-pill');
   if (pill) pill.textContent = `${connected}/${total} connected`;
+
+  wireCustomAppReorder(grid);
+}
+
+// ── Drag-to-reorder for custom app cards (persisted in localStorage) ──
+// Only the user's own custom launchers are draggable; built-in connection
+// cards and the "add your own" tile stay put. A drag suppresses the click
+// that would otherwise open the card, so reordering never fires a launch.
+function wireCustomAppReorder(grid) {
+  let dragId = null;
+  const cards = grid.querySelectorAll('.widget-card-custom');
+  cards.forEach(card => {
+    card.addEventListener('dragstart', e => {
+      dragId = card.getAttribute('data-custom-id');
+      card.classList.add('widget-card-dragging');
+      if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragId); } catch (_) {} }
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('widget-card-dragging');
+      grid.querySelectorAll('.widget-card-dropbefore').forEach(el => el.classList.remove('widget-card-dropbefore'));
+      // Guard the trailing click that some browsers dispatch after a drag.
+      card._suppressClick = true;
+      setTimeout(() => { card._suppressClick = false; }, 0);
+      dragId = null;
+    });
+    card.addEventListener('dragover', e => {
+      if (dragId == null || card.getAttribute('data-custom-id') === dragId) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      grid.querySelectorAll('.widget-card-dropbefore').forEach(el => el.classList.remove('widget-card-dropbefore'));
+      card.classList.add('widget-card-dropbefore');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('widget-card-dropbefore'));
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      const targetId = card.getAttribute('data-custom-id');
+      if (dragId == null || dragId === targetId) return;
+      const list = loadCustomApps();
+      const from = list.findIndex(x => x.id === dragId);
+      const to = list.findIndex(x => x.id === targetId);
+      if (from < 0 || to < 0) return;
+      const [moved] = list.splice(from, 1);
+      list.splice(to, 0, moved);
+      saveCustomApps(list);
+      addLog && addLog('Custom apps reordered');
+      renderWidgetsGrid();
+    });
+    // Cancel the click that trails a drag so we don't open the dropped card.
+    card.addEventListener('click', e => {
+      if (card._suppressClick) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  });
 }
 
 // ── Custom apps (user-defined launchers, persisted in localStorage) ──
@@ -9676,44 +9728,62 @@ function openCustomApp(id) {
      </div>
      <div class="widget-actions">
        <a class="data-btn-sm teal" href="${_wEsc(c.url)}" target="_blank" rel="noopener">OPEN ↗</a>
+       <button class="data-btn-sm yellow" onclick="openCustomAppForm('${_wEsc(c.id)}')">EDIT</button>
        <button class="data-btn-sm orange" onclick="removeCustomApp('${_wEsc(c.id)}')">REMOVE</button>
      </div>`);
 }
-function openCustomAppForm() {
+// Opens the add/edit form. Pass a custom-app id to edit an existing one;
+// omit it (or pass a falsy value) to create a new app.
+function openCustomAppForm(editId) {
   playDataSound && playDataSound('confirm');
-  openSlideIn('Add a custom app',
-    `<form class="widget-form" id="custom-app-form" onsubmit="return addCustomAppSubmit(event)">
+  const editing = editId ? loadCustomApps().find(x => x.id === editId) : null;
+  const v = s => _wEsc(s == null ? '' : s);
+  openSlideIn(editing ? 'Edit custom app' : 'Add a custom app',
+    `<form class="widget-form" id="custom-app-form" onsubmit="return submitCustomAppForm(event)">
+       ${editing ? `<input type="hidden" id="ca-id" value="${_wEsc(editing.id)}" />` : ''}
        <label>App name</label>
-       <input id="ca-title" type="text" autocomplete="off" placeholder="e.g. Notion" required />
+       <input id="ca-title" type="text" autocomplete="off" placeholder="e.g. Notion" value="${editing ? v(editing.title) : ''}" required />
        <label>Link (URL)</label>
-       <input id="ca-url" type="text" autocomplete="off" placeholder="https://…" required />
+       <input id="ca-url" type="text" autocomplete="off" placeholder="https://…" value="${editing ? v(editing.url) : ''}" required />
        <label>Icon <span style="opacity:.6">(an emoji, optional)</span></label>
-       <input id="ca-icon" type="text" maxlength="4" autocomplete="off" placeholder="🔗" />
+       <input id="ca-icon" type="text" maxlength="4" autocomplete="off" placeholder="🔗" value="${editing ? v(editing.icon) : ''}" />
        <label>Description <span style="opacity:.6">(optional)</span></label>
-       <input id="ca-desc" type="text" autocomplete="off" placeholder="What this app is for" />
+       <input id="ca-desc" type="text" autocomplete="off" placeholder="What this app is for" value="${editing ? v(editing.desc) : ''}" />
        <div class="widget-error" id="ca-error"></div>
        <div class="widget-actions">
-         <button type="submit" class="data-btn-sm teal">ADD APP</button>
+         <button type="submit" class="data-btn-sm teal">${editing ? 'SAVE CHANGES' : 'ADD APP'}</button>
        </div>
      </form>`);
 }
-function addCustomAppSubmit(ev) {
+function submitCustomAppForm(ev) {
   ev.preventDefault();
   const err = document.getElementById('ca-error');
   err.textContent = '';
-  const val = id => (document.getElementById(id).value || '').trim();
+  const val = id => { const el = document.getElementById(id); return el ? (el.value || '').trim() : ''; };
   const title = val('ca-title');
   let url = val('ca-url');
   if (!title || !url) { err.textContent = 'Name and link are both required.'; return false; }
   if (!/^[a-z]+:\/\//i.test(url)) url = 'https://' + url;
+  const icon = val('ca-icon') || '🔗';
+  const desc = val('ca-desc');
+  const editId = val('ca-id');
   const list = loadCustomApps();
-  list.push({ id: 'ca_' + Date.now().toString(36), title, url, icon: val('ca-icon') || '🔗', desc: val('ca-desc') });
-  saveCustomApps(list);
-  addLog && addLog(`Custom app added: ${title}`);
+  if (editId) {
+    const c = list.find(x => x.id === editId);
+    if (c) { c.title = title; c.url = url; c.icon = icon; c.desc = desc; }
+    saveCustomApps(list);
+    addLog && addLog(`Custom app updated: ${title}`);
+  } else {
+    list.push({ id: 'ca_' + Date.now().toString(36), title, url, icon, desc });
+    saveCustomApps(list);
+    addLog && addLog(`Custom app added: ${title}`);
+  }
   closeSlideIn();
   renderWidgetsGrid();
   return false;
 }
+// Back-compat alias (older inline handlers may still reference this name).
+function addCustomAppSubmit(ev) { return submitCustomAppForm(ev); }
 function removeCustomApp(id) {
   if (!confirm('Remove this custom app?')) return;
   saveCustomApps(loadCustomApps().filter(x => x.id !== id));

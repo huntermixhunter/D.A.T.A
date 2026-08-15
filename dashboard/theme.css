@@ -6104,6 +6104,20 @@ body.theme-minimal .settings-toggle-cap:hover {
 }
 .widget-card-add { border-style: dashed; border-color: rgba(68,221,204,0.4); }
 
+/* ── Drag-to-reorder for custom app cards ──────────────────────── */
+.widget-card-custom { cursor: grab; }
+.widget-card-custom:active { cursor: grabbing; }
+.widget-card-dragging {
+  opacity: 0.45;
+  border-color: var(--data-yellow);
+  box-shadow: 0 0 18px rgba(255,204,0,0.25);
+}
+/* Insertion marker: a bright edge on the card the drop will land before. */
+.widget-card-dropbefore {
+  border-color: var(--data-teal);
+  box-shadow: inset 3px 0 0 0 var(--data-teal), 0 0 14px rgba(68,221,204,0.22);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .slidein, .slidein-backdrop, .widget-card, .email-msg { transition: none; }
 }
