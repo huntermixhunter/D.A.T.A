@@ -4426,11 +4426,12 @@ async function syncVoiceProviderToggle() {
 // Compact label/title for each voice provider id, shown on the pill.
 const _VOICE_PROVIDER_LABELS = {
   'ollama-small':      { short: 'LOCAL · 3B',       title: 'Qwen 2.5 3B — local on your GPU, no token cost, ~1-2s/turn' },
-  'claude-cli-haiku':  { short: 'HAIKU · SUB',      title: 'Claude Haiku 4.5 via your Code subscription, no token cost' },
-  'claude-cli-sonnet': { short: 'SONNET · SUB',     title: 'Claude Sonnet 4.6 via your Code subscription, slower / smarter' },
-  'claude-cli':        { short: 'OPUS · SUB',       title: 'Claude Opus 4.7 via your Code subscription, slowest / max quality' },
+  'claude-cli-haiku':  { short: 'HAIKU · SUB',      title: 'Claude Haiku (latest) via your Code subscription, no token cost' },
+  'claude-cli-sonnet': { short: 'SONNET · SUB',     title: 'Claude Sonnet (latest) via your Code subscription, slower / smarter' },
+  'claude-cli':        { short: 'OPUS · SUB',       title: 'Claude Opus (latest) via your Code subscription, slowest / max quality' },
+  'claude-cli-opus-48':{ short: 'OPUS 4.8 · SUB',   title: 'Claude Opus 4.8 pinned via your Code subscription' },
   'claude-api-fast':   { short: 'HAIKU · API',      title: 'Claude Haiku 4.5 via API (pay per token, fast)' },
-  'codex':             { short: 'GPT-5 · SUB',      title: 'OpenAI Codex (GPT-5) via your ChatGPT subscription' },
+  'codex':             { short: 'GPT-5.5 · SUB',    title: 'OpenAI Codex (GPT-5.5) via your ChatGPT subscription' },
 };
 
 function _paintVoiceToggle(activeId, choices) {
@@ -5861,11 +5862,16 @@ function updateModeUI(_mode)   { /* widget removed */ }
 
 // ── Provider pill (top-bar clickable selector) ────────────
 const PROVIDER_PILL_MAP = {
-  'claude-cli':        { text: 'CLAUDE OPUS 4.7',      cls: 'orange' },
-  'claude-cli-sonnet': { text: 'CLAUDE SONNET 4.6',    cls: 'teal'   },
+  'claude-cli':        { text: 'CLAUDE OPUS (LATEST)', cls: 'orange' },
+  'claude-cli-opus-5': { text: 'CLAUDE OPUS 5',        cls: 'orange' },
+  'claude-cli-opus-48':{ text: 'CLAUDE OPUS 4.8',      cls: 'orange' },
+  'claude-cli-sonnet': { text: 'CLAUDE SONNET (LATEST)', cls: 'teal' },
+  'claude-cli-haiku':  { text: 'CLAUDE HAIKU (LATEST)',  cls: 'yellow' },
+  'claude-cli-fable':  { text: 'CLAUDE FABLE 5',        cls: 'purple' },
   'claude-api':        { text: 'CLAUDE (API)',         cls: 'orange' },
   'claude-api-fast':   { text: '⚡ HAIKU 4.5 (FAST)',  cls: 'yellow' },
-  'codex':             { text: 'OPENAI CODEX (GPT-5)', cls: 'green'  },
+  'codex':             { text: 'OPENAI CODEX (GPT-5.5)', cls: 'green' },
+  'codex-mini':        { text: 'CODEX GPT-5.4 MINI',   cls: 'green'  },
   'gemini':            { text: 'GOOGLE GEMINI 2.5',    cls: 'blue'   },
   'ollama':            { text: 'OLLAMA',               cls: 'purple' },
   'ollama-small':      { text: 'QWEN 3B (LOCAL)',      cls: 'teal'   },

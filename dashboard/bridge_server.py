@@ -928,7 +928,8 @@ _MULTIMODAL_PROVIDERS = {
     # API providers (claude-api, claude-api-fast) removed by Captain order (2026-05-30).
     # Claude Code CLI variants — attachments are written to a temp dir and
     # surfaced to the CLI as @<path> references that its Read tool can open.
-    "claude-cli", "claude-cli-sonnet", "claude-cli-haiku", "claude-cli-fable",
+    "claude-cli", "claude-cli-opus-5", "claude-cli-opus-48",
+    "claude-cli-sonnet", "claude-cli-haiku", "claude-cli-fable",
 }
 
 # Hard ceilings from the Anthropic API: 5MB per image (post-decode), 32MB per PDF.
@@ -1131,6 +1132,22 @@ PROVIDERS = {
         "executables": ["claude", "claude.exe"],
         "install_hint": "Install Claude Code: https://docs.claude.com/en/docs/claude-code",
     },
+    # Pinned Opus versions. The alias entry above always rides to whatever
+    # Anthropic ships newest; these let you deliberately hold a generation.
+    "claude-cli-opus-5": {
+        "label":       "Claude Opus 5 (Subscription — pinned)",
+        "model":       "claude-opus-5",
+        "kind":        "subprocess",
+        "executables": ["claude", "claude.exe"],
+        "install_hint": "Install Claude Code: https://docs.claude.com/en/docs/claude-code",
+    },
+    "claude-cli-opus-48": {
+        "label":       "Claude Opus 4.8 (Subscription — pinned)",
+        "model":       "claude-opus-4-8",
+        "kind":        "subprocess",
+        "executables": ["claude", "claude.exe"],
+        "install_hint": "Install Claude Code: https://docs.claude.com/en/docs/claude-code",
+    },
     "claude-cli-sonnet": {
         "label":       "Claude Sonnet (Subscription — Fast)",
         "model":       SONNET_ALIAS,   # auto-rides to newest Sonnet
@@ -1156,9 +1173,18 @@ PROVIDERS = {
     # (2026-05-30): Anthropic API pay-per-token paths are disabled to prevent
     # accidental billing. All Claude usage now flows through the subscription
     # CLI providers above. Re-add here if API access is ever wanted back.
+    # Codex model ids track the current ChatGPT lineup: gpt-5.5 frontier,
+    # gpt-5.4-mini cheap/fast. Passed to the CLI via `-m` in ask_codex_cli_stream.
     "codex": {
-        "label":       "GPT-5 Codex (ChatGPT Subscription)",
-        "model":       "gpt-5",
+        "label":       "GPT-5.5 Codex (ChatGPT Subscription)",
+        "model":       "gpt-5.5",
+        "kind":        "subprocess",
+        "executables": ["codex", "codex.exe", "codex.cmd"],
+        "install_hint": "npm i -g @openai/codex   (then run `codex login`)",
+    },
+    "codex-mini": {
+        "label":       "GPT-5.4 Mini Codex (Fast)",
+        "model":       "gpt-5.4-mini",
         "kind":        "subprocess",
         "executables": ["codex", "codex.exe", "codex.cmd"],
         "install_hint": "npm i -g @openai/codex   (then run `codex login`)",
@@ -1517,12 +1543,13 @@ CONNECTOR_CATALOG = [
      "install_cmd": "", "install_url": "https://docs.claude.com/en/docs/claude-code",
      "login_cmd": "claude  (then /login)",
      "blurb": "Anthropic's Claude family through your Claude subscription — no per-token cost.",
-     "provider_ids": ["claude-cli", "claude-cli-sonnet", "claude-cli-haiku", "claude-cli-fable"]},
-    {"id": "codex", "name": "Codex (OpenAI)", "models": "GPT-5 Codex",
+     "provider_ids": ["claude-cli", "claude-cli-opus-5", "claude-cli-opus-48",
+                      "claude-cli-sonnet", "claude-cli-haiku", "claude-cli-fable"]},
+    {"id": "codex", "name": "Codex (OpenAI)", "models": "GPT-5.5 · GPT-5.4 Mini",
      "install_cmd": "npm i -g @openai/codex", "install_url": "https://github.com/openai/codex",
      "login_cmd": "codex login",
-     "blurb": "GPT-5 Codex through your ChatGPT subscription.",
-     "provider_ids": ["codex"]},
+     "blurb": "GPT-5.5 and GPT-5.4 Mini through your ChatGPT subscription.",
+     "provider_ids": ["codex", "codex-mini"]},
     {"id": "gemini", "name": "Gemini CLI (Google)", "models": "Gemini 2.5 Pro",
      "install_cmd": "npm i -g @google/gemini-cli", "install_url": "https://github.com/google-gemini/gemini-cli",
      "login_cmd": "gemini  (then sign in)",
@@ -3372,7 +3399,7 @@ def _load_soul(mode: str = "api") -> str:
         f'  {{"path":"~/Documents/MyProject","provider":"codex","role":"Write the new feature"}},\n'
         f'  {{"path":"~/Documents/MyProject","provider":"claude-cli","role":"Audit the code"}}\n'
         f']}}<</spawn_workspaces>>\n\n'
-        f"Valid provider ids: claude-cli, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, gemini, ollama, ollama-small. "
+        f"Valid provider ids: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-mini, gemini, ollama, ollama-small. "
         f"After the marker block, give the Captain a single short confirmation line in your normal voice.\n\n"
         f"## RE-ROOT THE CURRENT CHAT PANE — set_project_path\n"
         f"When the Captain asks you to switch / change / re-root / move / open the **current** "
@@ -3545,7 +3572,7 @@ def _load_soul(mode: str = "api") -> str:
         f"`desktop_move`, `desktop_cursor_position`, `desktop_screen_size`. The native "
         f"Anthropic computer-use tool was wired for the API providers but those were "
         f"removed by Captain order — only the DIY desktop_* tools are reachable now.\n\n"
-        f"**CLI-mode escape hatch (claude-cli, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, gemini):** the "
+        f"**CLI-mode escape hatch (claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-mini, gemini):** the "
         f"tools above are not in your toolset — hit the bridge over HTTP using your shell "
         f"tool. All endpoints are at `http://localhost:{PORT}/computer/*` and accept JSON.\n"
         f"  Screen info (size + cursor; call once at start):\n"
@@ -4225,7 +4252,7 @@ TOOLS.append({
                     "type": "object",
                     "properties": {
                         "path":     {"type": "string", "description": "Absolute path to the project folder."},
-                        "provider": {"type": "string", "description": "Provider id. One of: claude-cli, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, gemini, ollama, ollama-small."},
+                        "provider": {"type": "string", "description": "Provider id. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-mini, gemini, ollama, ollama-small."},
                         "role":     {"type": "string", "description": "Short assignment for that window — what the Captain wants this pane to do (e.g. 'Write the new feature', 'Audit the diff', 'Research alternatives')."},
                     },
                     "required": ["path", "provider", "role"],
@@ -4252,7 +4279,7 @@ TOOLS.append({
             "name":     {"type": "string", "description": "Short title shown on the Standing Orders page."},
             "cron":     {"type": "string", "description": "5-field cron expression: 'min hr dom mon dow'. Examples: '0 8 * * *' = daily 08:00; '*/15 * * * *' = every 15 min; '0 9 * * 1-5' = weekdays 09:00."},
             "prompt":   {"type": "string", "description": "Exactly what you should do/think/answer when the order fires. Write it as if the Captain just messaged you with it."},
-            "provider": {"type": "string", "description": "Provider id to dispatch through. One of: claude-cli, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, gemini, ollama, ollama-small."},
+            "provider": {"type": "string", "description": "Provider id to dispatch through. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-mini, gemini, ollama, ollama-small."},
             "enabled":  {"type": "boolean", "description": "Default true. Set false to create-but-pause."},
             "notify_telegram": {"type": "boolean", "description": "Default false. If true, the result is also DM'd to the Captain via Telegram when the order fires (requires TELEGRAM_BOT_TOKEN configured)."},
         },
@@ -7288,12 +7315,16 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
 
     env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY")}
     env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
-    send_sse('thinking', "*Codex Mode — invoking ChatGPT subscription*")
-    log.info(f"[CODEX] subprocess starting prompt_len={len(full_input)}")
+    # Model comes from the *current* provider's config so codex / codex-mini each
+    # pin the right GPT tier. Without -m the CLI silently uses its own default.
+    codex_model = PROVIDERS.get(_current_provider_id(), {}).get("model", "") or "gpt-5.5"
+    send_sse('thinking', f"*Codex Mode ({codex_model}) — invoking ChatGPT subscription*")
+    log.info(f"[CODEX] subprocess starting model={codex_model} prompt_len={len(full_input)}")
 
     try:
         proc = subprocess.Popen(
             [exe, "exec", "--json", "--skip-git-repo-check",
+             "-m", codex_model,
              "--dangerously-bypass-approvals-and-sandbox"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
@@ -7777,6 +7808,8 @@ def _provider_runner(provider_id: str):
         return ask_ollama_stream
     return {
         "claude-cli":        ask_hermes_cli_stream,
+        "claude-cli-opus-5": ask_hermes_cli_stream,  # same runner; pinned claude-opus-5
+        "claude-cli-opus-48":ask_hermes_cli_stream,  # same runner; pinned claude-opus-4-8
         "claude-cli-sonnet": ask_hermes_cli_stream,  # same runner; model read from PROVIDERS[active]['model']
         "claude-cli-haiku":  ask_hermes_cli_stream,  # same runner; subscription Haiku for fast no-cost voice
         "claude-cli-fable":  ask_hermes_cli_stream,  # same runner; subscription Fable 5 — most powerful tier
@@ -7784,6 +7817,7 @@ def _provider_runner(provider_id: str):
         # ask_hermes_stream is now unreachable from the dispatcher but kept
         # intact as dead code for an easy revert if API access is wanted back.
         "codex":             ask_codex_cli_stream,
+        "codex-mini":        ask_codex_cli_stream,  # same runner; model from PROVIDERS[active]
         "gemini":            ask_gemini_cli_stream,
         "ollama":            ask_ollama_stream,
         "ollama-small":      ask_ollama_stream,     # same runner; model read from PROVIDERS[active]['model']
@@ -9184,12 +9218,15 @@ _MODEL_CONTEXT_WINDOWS = {
     "sonnet":                  200_000,
     "haiku":                   200_000,
     "claude-fable-5":          200_000,  # 1M-capable; capped to 200K like siblings for the sidebar
+    "claude-opus-5":           200_000,  # 1M-capable; capped to 200K like siblings for the sidebar
     "claude-opus-4-8":         200_000,
     "claude-opus-4-7":         200_000,  # legacy — kept so older history doesn't NaN the sidebar
     "claude-sonnet-4-6":       200_000,
     "claude-haiku-4-5":        200_000,
     "claude-haiku-4-5-20251001": 200_000,
-    "gpt-5":                   400_000,
+    "gpt-5":                   400_000,  # legacy — kept so older history doesn't NaN the sidebar
+    "gpt-5.5":                 400_000,
+    "gpt-5.4-mini":            400_000,
     "gemini-2.5-pro":          1_000_000,
     "qwen2.5-coder:7b":         32_768,
     "qwen2.5:3b":               32_768,
