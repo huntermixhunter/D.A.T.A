@@ -1219,6 +1219,73 @@ PROVIDERS = {
 }
 
 
+# ── Reasoning effort ──────────────────────────────────────────────────────
+# Both Claude Code and Codex expose a reasoning-effort dial, but they take it
+# differently and support slightly different ladders:
+#     claude  --effort <low|medium|high|xhigh|max>
+#     codex   -c model_reasoning_effort=<none|minimal|low|medium|high|xhigh>
+# We present ONE ladder to the user (light -> max) and translate per CLI family
+# at spawn time. Gemini and Ollama have no equivalent knob; for those the
+# setting is inert and the dropdown disables itself in the UI.
+EFFORT_LEVELS = [
+    {"id": "",       "label": "Effort - Auto",  "short": "AUTO"},
+    {"id": "low",    "label": "Effort - Light", "short": "LIGHT"},
+    {"id": "medium", "label": "Effort - Medium", "short": "MEDIUM"},
+    {"id": "high",   "label": "Effort - Heavy", "short": "HEAVY"},
+    {"id": "xhigh",  "label": "Effort - Very Heavy", "short": "V-HEAVY"},
+    {"id": "max",    "label": "Effort - Max",   "short": "MAX"},
+]
+EFFORT_IDS = {lvl["id"] for lvl in EFFORT_LEVELS}
+
+# Claude Code accepts the ladder verbatim.
+_CLAUDE_EFFORT = {"low", "medium", "high", "xhigh", "max"}
+# Codex has no "max" tier - xhigh is its ceiling, so max clamps down to it.
+_CODEX_EFFORT = {
+    "low": "low", "medium": "medium", "high": "high",
+    "xhigh": "xhigh", "max": "xhigh",
+}
+
+ACTIVE_EFFORT = ""            # "" = let each CLI use its own default
+_effort_override = threading.local()   # per-request / per-pane override
+
+
+def _current_effort() -> str:
+    """Effort level for THIS request: the thread-local override when a pane sent
+    one, else the globally selected level. An override of "" is honored as an
+    explicit 'auto' - only an unset (None) override falls through to global."""
+    lvl = getattr(_effort_override, "level", None)
+    return ACTIVE_EFFORT if lvl is None else lvl
+
+
+def _claude_effort_args() -> list:
+    """`--effort <level>` for the claude CLI, or [] when auto/unsupported."""
+    lvl = _current_effort()
+    return ["--effort", lvl] if lvl in _CLAUDE_EFFORT else []
+
+
+def _codex_effort_args() -> list:
+    """`-c model_reasoning_effort=<level>` for codex, or [] when auto."""
+    lvl = _CODEX_EFFORT.get(_current_effort(), "")
+    return ["-c", f"model_reasoning_effort={lvl}"] if lvl else []
+
+
+def _provider_supports_effort(provider_id: str) -> bool:
+    """True for the CLI families that actually have a reasoning-effort dial."""
+    return provider_id.startswith("claude-cli") or provider_id.startswith("codex")
+
+
+def _normalize_effort(value):
+    """Coerce a client-supplied effort value to a valid id ('' = auto).
+    Returns None when the value is not a recognized level."""
+    if value is None:
+        return None
+    v = str(value).strip().lower()
+    if v in ("auto", "default", "none"):
+        return ""
+    return v if v in EFFORT_IDS else None
+
+
+
 def _is_claude_desktop_stub(path: str) -> bool:
     """True if `path` is the Claude DESKTOP app launcher rather than the Claude
     Code CLI. Claude Desktop installs a small 'claude.exe' Squirrel launcher
@@ -1485,6 +1552,9 @@ def _list_providers() -> list:
             "available":     _provider_available(pid),
             "authenticated": _provider_authenticated(pid),
             "install_hint":  p.get("install_hint", ""),
+            # Whether this brain honors the reasoning-effort dial (Claude /
+            # Codex CLIs do; Gemini and Ollama do not).
+            "supports_effort": _provider_supports_effort(pid),
         })
     return out
 
@@ -1832,7 +1902,8 @@ def _write_provider_state_unlocked() -> None:
         tmp = PROVIDER_STATE_FILE.with_suffix(".json.tmp")
         tmp.write_text(
             json.dumps({"active_provider": ACTIVE_PROVIDER,
-                        "explicit": PROVIDER_EXPLICIT}, indent=2), encoding="utf-8")
+                        "explicit": PROVIDER_EXPLICIT,
+                        "active_effort": ACTIVE_EFFORT}, indent=2), encoding="utf-8")
         os.replace(tmp, PROVIDER_STATE_FILE)
     except Exception as e:
         log.warning(f"[provider] could not persist active provider: {e}")
@@ -1934,12 +2005,17 @@ def _load_active_provider() -> None:
     """At startup: restore the persisted brain + explicit flag, then run CLI-first
     selection. The compiled-in `claude-cli` default is no longer trusted blindly —
     on a no-auth box selection falls back to Ollama and flags the sign-in CTA."""
-    global ACTIVE_PROVIDER, PROVIDER_EXPLICIT
+    global ACTIVE_PROVIDER, PROVIDER_EXPLICIT, ACTIVE_EFFORT
     _sync_ollama_providers()   # make ollama:<model> ids resolvable before checks
     try:
         if PROVIDER_STATE_FILE.exists():
             st = json.loads(PROVIDER_STATE_FILE.read_text(encoding="utf-8"))
             saved = st.get("active_provider", "")
+            _eff  = _normalize_effort(st.get("active_effort", ""))
+            if _eff is not None:
+                ACTIVE_EFFORT = _eff
+                if _eff:
+                    log.info(f"[provider] restored reasoning effort from disk: {_eff}")
             PROVIDER_EXPLICIT = bool(st.get("explicit", False))   # legacy files → False
             if saved in PROVIDERS and _provider_available(saved):
                 ACTIVE_PROVIDER = saved
@@ -7017,7 +7093,10 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     # voice override) so claude-cli, claude-cli-sonnet, claude-cli-haiku each
     # get the right model id passed to the CLI.
     cli_model = PROVIDERS.get(_current_provider_id(), {}).get("model", OPUS_ALIAS)
-    send_sse('thinking', f"*Standard Mode ({cli_model}) — initiating*")
+    # Reasoning effort dial (header dropdown). [] when set to Auto.
+    effort_args = _claude_effort_args()
+    _eff_label  = f" · effort {effort_args[1]}" if effort_args else ""
+    send_sse('thinking', f"*Standard Mode ({cli_model}{_eff_label}) — initiating*")
     soul_file_path = None
     try:
         # Strip API key so claude CLI uses subscription auth, not API credits
@@ -7058,6 +7137,7 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         proc = subprocess.Popen(
             [claude_exe, "--print", "--output-format", "stream-json", "--verbose",
              "--model", cli_model,
+             *effort_args,
              "--dangerously-skip-permissions",
              "--system-prompt-file", soul_file_path],
             stdin=subprocess.PIPE,
@@ -7318,13 +7398,19 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
     # Model comes from the *current* provider's config so codex / codex-mini each
     # pin the right GPT tier. Without -m the CLI silently uses its own default.
     codex_model = PROVIDERS.get(_current_provider_id(), {}).get("model", "") or "gpt-5.5"
-    send_sse('thinking', f"*Codex Mode ({codex_model}) — invoking ChatGPT subscription*")
-    log.info(f"[CODEX] subprocess starting model={codex_model} prompt_len={len(full_input)}")
+    # Reasoning effort dial — codex takes it as a config override and has no
+    # "max" tier, so our max clamps to its xhigh ceiling. [] when set to Auto.
+    effort_args = _codex_effort_args()
+    _eff_label  = f" · effort {effort_args[1].split('=')[-1]}" if effort_args else ""
+    send_sse('thinking', f"*Codex Mode ({codex_model}{_eff_label}) — invoking ChatGPT subscription*")
+    log.info(f"[CODEX] subprocess starting model={codex_model} "
+             f"effort={_current_effort() or '(auto)'} prompt_len={len(full_input)}")
 
     try:
         proc = subprocess.Popen(
             [exe, "exec", "--json", "--skip-git-repo-check",
              "-m", codex_model,
+             *effort_args,
              "--dangerously-bypass-approvals-and-sandbox"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
@@ -10202,9 +10288,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"mode": BRIDGE_MODE})
 
         elif path == "/providers":
+            # `effort` / `effort_levels` ride along so the UI can render the
+            # reasoning-effort dropdown from the same single fetch.
             self._json({"active": ACTIVE_PROVIDER,
                         "providers": _list_providers(),
-                        "needs_auth": _needs_auth_payload()})
+                        "needs_auth": _needs_auth_payload(),
+                        "effort": ACTIVE_EFFORT,
+                        "effort_levels": EFFORT_LEVELS})
+
+        elif path == "/effort":
+            self._json({"active": ACTIVE_EFFORT, "levels": EFFORT_LEVELS})
 
         elif path == "/agents":
             # Editable per-officer personality files (~/.claude/agents/*.md),
@@ -11647,7 +11740,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"mode": BRIDGE_MODE})
 
         elif path == "/provider":
-            global ACTIVE_PROVIDER
+            # ACTIVE_EFFORT is declared here as well (rather than down in the
+            # /effort branch) so the declaration precedes every use of it in
+            # this handler - Python requires that ordering.
+            global ACTIVE_PROVIDER, ACTIVE_EFFORT
             new_provider = data.get("provider", "")
             if new_provider not in PROVIDERS:
                 self._json({"error": f"unknown provider; valid: {list(PROVIDERS.keys())}"}, 400)
@@ -11662,7 +11758,20 @@ class Handler(BaseHTTPRequestHandler):
             # CLI-first selection and Ollama auto-connect must never override it.
             _set_active(new_provider, explicit=True)
             log.info(f"[PROVIDER] switched to {ACTIVE_PROVIDER} (explicit buyer choice)")
-            self._json({"active": ACTIVE_PROVIDER, "providers": _list_providers()})
+            self._json({"active": ACTIVE_PROVIDER, "providers": _list_providers(),
+                        "effort": ACTIVE_EFFORT, "effort_levels": EFFORT_LEVELS})
+
+        elif path == "/effort":
+            # Global reasoning-effort level. Body: {"effort": "high"} — "" (or
+            # "auto") hands the decision back to each CLI's own default.
+            new_effort = _normalize_effort(data.get("effort", ""))
+            if new_effort is None:
+                self._json({"error": f"unknown effort; valid: {sorted(EFFORT_IDS)}"}, 400)
+                return
+            ACTIVE_EFFORT = new_effort
+            _save_active_provider()   # same state file holds both
+            log.info(f"[EFFORT] switched to {ACTIVE_EFFORT or '(auto)'}")
+            self._json({"active": ACTIVE_EFFORT, "levels": EFFORT_LEVELS})
 
         elif path == "/llm/install":
             # kind='ollama' → pull a local model;  kind='cli' → install a connector
@@ -11933,6 +12042,11 @@ class Handler(BaseHTTPRequestHandler):
             # (ask_hermes / ask_hermes_cli / provider runners) picks them up,
             # matching the /chat_stream flow.
             _request_attachments.list = attachments
+            # Per-pane reasoning-effort override. Absent / unrecognized → the
+            # globally selected level applies.
+            _req_effort = _normalize_effort(data.get("effort")) if data.get("effort") else None
+            if _req_effort is not None:
+                _effort_override.level = _req_effort
             try:
                 if req_provider:
                     response = _dispatch_with_provider(req_provider, message, project_path, pane_id)
@@ -11940,6 +12054,7 @@ class Handler(BaseHTTPRequestHandler):
                     response = dispatch(message, project_path=project_path, pane_id=pane_id)
             finally:
                 _request_attachments.list = []
+                _effort_override.level = None
 
             log.info(f"/chat response={response!r}")
             self._json({"response": response})
@@ -11953,6 +12068,9 @@ class Handler(BaseHTTPRequestHandler):
             pane_id = data.get("pane_id", "")
             # Per-request provider override (same semantics as /chat).
             req_provider = data.get("provider", "")
+            # Per-request reasoning-effort override (pane effort dropdown).
+            # None = inherit the globally selected level.
+            req_effort = _normalize_effort(data.get("effort")) if data.get("effort") else None
             # Per-request main-chat agent (panel-header name dropdown).
             req_crew = data.get("crew", "")
             if req_crew:
@@ -12064,6 +12182,11 @@ class Handler(BaseHTTPRequestHandler):
                     prev_id = getattr(_provider_override, "id", None)
                     if req_provider:
                         _provider_override.id = req_provider
+                    # Same pattern for the reasoning-effort dial — set on THIS
+                    # worker thread so the CLI runners pick it up, cleared below.
+                    prev_effort = getattr(_effort_override, "level", None)
+                    if req_effort is not None:
+                        _effort_override.level = req_effort
                     # Stage attachments for the runner thread (read by
                     # ask_hermes_stream via _request_attachments).
                     _request_attachments.list = attachments
@@ -12090,6 +12213,8 @@ class Handler(BaseHTTPRequestHandler):
                             log.exception(f"[DISPATCH-STREAM] filtered_sse.finalize() raised: {fin_err}")
                         if req_provider:
                             _provider_override.id = prev_id
+                        if req_effort is not None:
+                            _effort_override.level = prev_effort
                 finally:
                     # Safety net — if the runner exited (cleanly or via
                     # exception) without sending `done`, send it now so the

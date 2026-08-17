@@ -61,6 +61,25 @@ The main channel is a full working agent, not a Q&A box. Three things follow fro
 Good prompts are specific about the *outcome*, not the steps. "Pull this week's open
 invoices into a spreadsheet sorted by due date" beats "open the invoice folder."
 
+**Model and effort.** Every chat pane header carries two dropdowns. The first picks the
+model. The second picks *reasoning effort* — how hard that model thinks before it
+answers:
+
+| Level | What it does |
+|---|---|
+| AUTO | Whatever the CLI itself defaults to |
+| LIGHT | Fast, cheap, shallow — quick lookups and edits |
+| MEDIUM | Balanced everyday work |
+| HEAVY | Deeper reasoning for tricky bugs and design work |
+| V-HEAVY | Extended thinking, noticeably slower |
+| MAX | The ceiling. Claude only; Codex tops out at V-HEAVY and clamps down to it |
+
+Effort applies to the Claude and Codex CLIs, which expose the dial. Gemini and local
+Ollama models have no equivalent, so the dropdown greys out when one is selected. Each
+pane keeps its own level, so a research window can sit at MAX while a scratch window
+stays on LIGHT. Set it on the main channel with no project loaded and it becomes the
+default for new panes, for scheduled jobs, and across restarts.
+
 ---
 
 ## 3. Customizing the dashboard by conversation

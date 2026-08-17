@@ -193,7 +193,6 @@
                 <button class="fullscreen-btn" id="chat-find-btn" onclick="toggleChatFind()" title="Find in conversation (Ctrl+F)">🔍</button>
                 <button class="fullscreen-btn" id="chat-textsize-btn" onclick="toggleTextSizeMenu()" title="Text size — adjust conversation readability" aria-haspopup="true" aria-expanded="false">A</button>
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
-                <button class="fullscreen-btn" id="chat-outline-btn" onclick="toggleChatOutline()" title="Conversation outline — jump to any message">☰</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
 
@@ -251,20 +250,6 @@
                     aria-label="Close prompt library">✕</button>
           </div>
 
-          <!-- CONVERSATION OUTLINE — a scannable table of contents for the main
-               channel. Each turn is a clickable anchor that scrolls the message
-               into view and flashes it, so the Captain can jump anywhere in a
-               long conversation. Rebuilt from the live DOM every time it opens;
-               hidden until toggled via the ☰ pill. -->
-          <div class="chat-outline-bar" id="chat-outline-bar" hidden role="navigation" aria-label="Conversation outline">
-            <div class="chat-outline-head">
-              <span class="chat-outline-title">CONVERSATION OUTLINE</span>
-              <span class="chat-outline-count" id="chat-outline-count">0</span>
-              <button class="chat-find-close" title="Close (Esc)"
-                      onclick="toggleChatOutline(false)" aria-label="Close outline">✕</button>
-            </div>
-            <div class="chat-outline-list" id="chat-outline-list" role="list"></div>
-          </div>
 
           <div class="chats-wrapper" id="chats-wrapper">
             <!-- MAIN PANE -->
@@ -278,6 +263,9 @@
                 <select class="pane-provider-select" id="main-provider-select"
                         title="Model for the main chat"
                         onchange="setMainProvider(this.value)"></select>
+                <select class="pane-effort-select" id="main-effort-select"
+                        title="Reasoning effort for the main chat"
+                        onchange="setMainEffort(this.value)"></select>
                 <button class="chat-pane-close" id="main-close-empty"
                         style="display:none" title="Close — promote the next window"
                         onclick="closeMainPane()">✕ CLOSE</button>

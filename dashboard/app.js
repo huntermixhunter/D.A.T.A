@@ -210,16 +210,6 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
 
-  // Conversation outline: Esc closes the jump-to navigator first, before any
-  // dictation-cancel / abort routing below, so a stray Esc never aborts an
-  // in-flight request just because the outline happened to be open.
-  const _outlineBar = document.getElementById('chat-outline-bar');
-  if (_outlineBar && !_outlineBar.hidden) {
-    e.preventDefault();
-    toggleChatOutline(false);
-    return;
-  }
-
   if (typeof BRAIN !== 'undefined' && BRAIN.active) return;
 
   // 1. Cancel listening (always global — only one mic stream at a time).
@@ -1369,6 +1359,9 @@ async function _dispatchChatMessage(text, attachments) {
         project_path: mainWs?.path || '',
         pane_id:      _paneId('main'),
         provider:     mainWs?.provider || '',
+        // Reasoning effort: the main pane's own level when a project is
+        // loaded, otherwise the bridge-wide default already stored server-side.
+        effort:       mainWs ? (mainWs.effort || '') : (_lastKnownActiveEffort || ''),
         crew:         MAIN_CHAT_CREW,
         attachments:  attachments,
         ..._buildPaneRoster('main'),   // open_panes + self_pane for inter-pane comms
@@ -5927,17 +5920,35 @@ function _updateVitalsModelLine(provider) {
 let _providersCache = [];
 let _lastKnownActiveProvider = null;
 
+// Reasoning-effort ladder. The bridge is the source of truth (it rides along on
+// /providers); this list only covers the window before the first fetch lands.
+const EFFORT_LEVELS_FALLBACK = [
+  { id: '',       short: 'AUTO'    },
+  { id: 'low',    short: 'LIGHT'   },
+  { id: 'medium', short: 'MEDIUM'  },
+  { id: 'high',   short: 'HEAVY'   },
+  { id: 'xhigh',  short: 'V-HEAVY' },
+  { id: 'max',    short: 'MAX'     },
+];
+let _effortLevelsCache = [];
+let _lastKnownActiveEffort = '';
+
 async function loadProviders() {
   try {
     const res = await fetch(`${API_BASE}/providers`);
     const data = await res.json();
     _providersCache = data.providers || [];
     _lastKnownActiveProvider = data.active;
+    if (Array.isArray(data.effort_levels) && data.effort_levels.length) {
+      _effortLevelsCache = data.effort_levels;
+    }
+    if (typeof data.effort === 'string') _lastKnownActiveEffort = data.effort;
     // Sign-in CTA: render BEFORE any early return so it shows even when the
     // provider dropdown menu is not mounted in the current view.
     _renderAuthCta(data.needs_auth, data.providers || [], data.active);
     // Refresh any per-window dropdowns that are already mounted
     _refreshAllWindowProviderDropdowns();
+    _refreshAllEffortDropdowns();
     const menu = document.getElementById('provider-menu');
     if (!menu) return;
     menu.innerHTML = '';
@@ -7272,6 +7283,91 @@ function setWindowProvider(wsId, providerId) {
   if (!ws) return;
   ws.provider = providerId;
   addLog(`[${ws.name}] provider → ${providerId}`);
+  // The effort dial is only live for Claude / Codex - re-evaluate on switch.
+  _populateWindowEffortSelect(wsId);
+}
+
+// -- Reasoning effort dropdown (Claude + Codex) -----------------------------
+// Claude Code takes `--effort low|medium|high|xhigh|max`; Codex takes
+// `-c model_reasoning_effort=...` and tops out at xhigh (the bridge clamps our
+// MAX down to it). Gemini / Ollama have no such dial, so the select disables
+// itself when the pane's model does not support one.
+// Every pane carries its own level; the main pane with no project loaded
+// writes the global default through POST /effort.
+function _effortSelectHTML(elId, onchangeJs) {
+  return `<select class="pane-effort-select" id="${elId}"
+              title="Reasoning effort for this window"
+              onchange="${onchangeJs}"></select>`;
+}
+
+function _windowEffortSelectHTML(wsId) {
+  return _effortSelectHTML(`pane-effort-ws${wsId}`, `setWindowEffort(${wsId}, this.value)`);
+}
+
+function _fillEffortSelect(sel, selected, providerId) {
+  if (!sel) return;
+  const levels = _effortLevelsCache.length ? _effortLevelsCache : EFFORT_LEVELS_FALLBACK;
+  sel.innerHTML = levels.map(l =>
+    `<option value="${l.id}"${l.id === (selected || '') ? ' selected' : ''}>${l.short}</option>`
+  ).join('');
+  // Grey it out for brains with no effort dial, but keep the value intact so
+  // switching back to Claude/Codex restores the chosen level.
+  const p = (_providersCache || []).find(x => x.id === providerId);
+  const supported = p ? p.supports_effort !== false : true;
+  sel.disabled = !supported;
+  sel.title = supported
+    ? 'Reasoning effort for this window'
+    : 'This model has no reasoning-effort dial';
+}
+
+function _populateWindowEffortSelect(wsId) {
+  const ws = _workspaces.get(wsId);
+  if (!ws) return;
+  _fillEffortSelect(document.getElementById(`pane-effort-ws${wsId}`), ws.effort || '', ws.provider);
+}
+
+function _populateMainEffortSelect() {
+  const sel = document.getElementById('main-effort-select');
+  if (!sel) return;
+  const mainWs = [..._workspaces.values()].find(w => w.isMain);
+  const selected = mainWs ? (mainWs.effort || '') : (_lastKnownActiveEffort || '');
+  _fillEffortSelect(sel, selected, mainWs?.provider || _lastKnownActiveProvider);
+}
+
+function _refreshAllEffortDropdowns() {
+  for (const wsId of _workspaces.keys()) _populateWindowEffortSelect(wsId);
+  _populateMainEffortSelect();
+}
+
+function setWindowEffort(wsId, level) {
+  const ws = _workspaces.get(wsId);
+  if (!ws) return;
+  ws.effort = level;
+  addLog(`[${ws.name}] effort → ${level || 'auto'}`);
+}
+
+async function setMainEffort(level) {
+  const mainWs = [..._workspaces.values()].find(w => w.isMain);
+  if (mainWs) {
+    mainWs.effort = level;
+    addLog(`Main pane effort → ${level || 'auto'}`);
+    return;
+  }
+  // No project loaded - set the bridge-wide default. It applies to the next
+  // chat turn and to standing orders, and it survives a bridge restart.
+  try {
+    const res = await fetch(`${API_BASE}/effort`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ effort: level }),
+    });
+    const data = await res.json();
+    if (data.error) { addLog(`Effort switch failed: ${data.error}`); return; }
+    _lastKnownActiveEffort = data.active || '';
+    addLog(`Reasoning effort → ${_lastKnownActiveEffort || 'auto'}`);
+  } catch (e) {
+    addLog(`Effort switch error: ${e.message || e}`);
+  }
 }
 
 // Main pane's always-visible provider dropdown. When a project is loaded
@@ -7297,6 +7393,7 @@ async function setMainProvider(providerId) {
     // Per-workspace override — same as the inline dropdown when a project is loaded
     mainWs.provider = providerId;
     addLog(`Main pane provider → ${providerId}`);
+    _populateMainEffortSelect();
     return;
   }
   // No project loaded — flip the global ACTIVE_PROVIDER instead
@@ -7537,7 +7634,9 @@ async function openProjectWorkspace(path, opts = {}) {
   const defaultProvider = _lastKnownActiveProvider || 'claude-cli';
   // Each pane gets its own agent — inherits whatever the main channel is set
   // to right now, then can be flipped independently from the pane's header.
-  _workspaces.set(wsId, { path, name, isThinking: false, projectNodes, isMain, provider: defaultProvider, role: '', crew: MAIN_CHAT_CREW });
+  // `effort` inherits the bridge-wide reasoning level and can then be dialed
+  // per window from the pane header.
+  _workspaces.set(wsId, { path, name, isThinking: false, projectNodes, isMain, provider: defaultProvider, effort: _lastKnownActiveEffort || '', role: '', crew: MAIN_CHAT_CREW });
 
   addMatrixProjectTab(wsId, name, path, projectNodes);
 
@@ -7646,11 +7745,13 @@ function _setMainPaneProject(wsId, name, path) {
             title="Agent for this chat window"
             onchange="setPaneCrew('main', this.value)">${_crewSelectOptionsHTML(MAIN_CHAT_CREW)}</select>
     ${_windowProviderSelectHTML(wsId)}
+    ${_windowEffortSelectHTML(wsId)}
     <button class="chat-pane-close">✕ CLOSE</button>
   `;
   header.querySelector('.chat-pane-close').addEventListener('click', () => closeProjectWorkspace(wsId));
   header.classList.remove('hidden');
   _populateWindowProviderSelect(wsId);
+  _populateWindowEffortSelect(wsId);
 
   // Announce in main chat
   const winEl = document.getElementById('chat-window');
@@ -7677,6 +7778,7 @@ function addChatPane(wsId, name, path) {
       <span class="pane-path">${path}</span>
       ${_crewSelectHTML(`ws${wsId}`, paneCrew)}
       ${_windowProviderSelectHTML(wsId)}
+      ${_windowEffortSelectHTML(wsId)}
       <button class="chat-pane-close">✕ CLOSE</button>
     </div>
     <div class="chat-window" id="chat-win-ws${wsId}"></div>
@@ -7722,6 +7824,7 @@ function addChatPane(wsId, name, path) {
 
   wrapper.appendChild(pane);
   _populateWindowProviderSelect(wsId);
+  _populateWindowEffortSelect(wsId);
 
   appendMessageToPane(
     document.getElementById(`chat-win-ws${wsId}`),
@@ -7796,12 +7899,16 @@ function closeProjectWorkspace(wsId) {
         <select class="pane-provider-select" id="main-provider-select"
                 title="Model for the main chat"
                 onchange="setMainProvider(this.value)"></select>
+        <select class="pane-effort-select" id="main-effort-select"
+                title="Reasoning effort for the main chat"
+                onchange="setMainEffort(this.value)"></select>
         <button class="chat-pane-close" id="main-close-empty"
                 style="display:none" title="Close — promote the next window"
                 onclick="closeMainPane()">✕ CLOSE</button>
       `;
       header.classList.remove('hidden');
       _populateMainProviderSelect();
+      _populateMainEffortSelect();
     }
     _mainProjectSet = false;
     fetch(`${API_BASE}/project`, {
@@ -7915,6 +8022,7 @@ async function sendProjectMessage(wsId) {
         project_path: ws.path,
         pane_id:      _paneId(`ws${wsId}`),   // per-tab tag: isolates this pane from sibling tabs, stable across reloads/restarts
         provider:     ws.provider,   // per-window model override
+        effort:       ws.effort || '',   // per-window reasoning-effort override
         crew:         ws.crew,       // per-window agent (officer persona)
         attachments,
         ..._buildPaneRoster(`ws${wsId}`),   // open_panes + self_pane for inter-pane comms
@@ -8254,6 +8362,7 @@ async function _spawnWorkspacesFromEvent(specs) {
     ws.provider = spec.provider;
     ws.role     = spec.role;
     _populateWindowProviderSelect(wsId);
+    _populateWindowEffortSelect(wsId);
 
     // Drop the role briefing into the pane chat so the Captain (and the LLM
     // when the user sends a follow-up) sees the assignment up front.
@@ -8992,87 +9101,6 @@ document.addEventListener('keydown', (e) => {
     togglePromptLibrary();
   }
 });
-
-// ── Conversation outline (jump-to navigator) ─────────────
-// A scannable table of contents for the main channel. Opening the ☰ pill
-// reads the current message list straight from the DOM and renders one
-// clickable row per turn; clicking a row scrolls that message into view and
-// flashes it. Purely client-side and stateless — the list is rebuilt each
-// time it opens so it always reflects the live conversation, and closing it
-// leaves the message DOM completely untouched.
-function toggleChatOutline(force) {
-  const bar = document.getElementById('chat-outline-bar');
-  if (!bar) return;
-  const show = (force === undefined) ? bar.hidden : force;
-  bar.hidden = !show;
-  const btn = document.getElementById('chat-outline-btn');
-  if (btn) btn.classList.toggle('copied', show);
-  if (show) {
-    playDataSound('confirm');
-    _buildChatOutline();
-  }
-}
-
-// Rebuild the outline rows from the live message DOM. Mirrors the export
-// walk: skips the in-flight "thinking" bubble and any message with no real
-// transcript text so the outline lines up 1:1 with what a reader sees.
-function _buildChatOutline() {
-  const win     = document.getElementById('chat-window');
-  const list    = document.getElementById('chat-outline-list');
-  const countEl = document.getElementById('chat-outline-count');
-  if (!win || !list) return;
-  list.innerHTML = '';
-
-  const msgs = win.querySelectorAll('.chat-message');
-  let n = 0;
-  msgs.forEach(msg => {
-    if (msg.id === 'thinking-msg') return;                 // live status bubble
-    const textEl = msg.querySelector('.text');
-    if (!textEl) return;
-    const body = (textEl.innerText || textEl.textContent || '').trim();
-    if (!body) return;
-
-    const isCaptain = msg.classList.contains('captain');
-    const tsEl = msg.querySelector('.timestamp');
-    const ts = tsEl ? tsEl.textContent.trim() : '';
-    const clean = body.replace(/\s+/g, ' ');
-    const preview = clean.slice(0, 90) + (clean.length > 90 ? '…' : '');
-
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'chat-outline-item ' + (isCaptain ? 'from-captain' : 'from-data');
-    row.setAttribute('role', 'listitem');
-    row.innerHTML =
-      `<span class="col-role" aria-hidden="true">${isCaptain ? '▸' : '◉'}</span>` +
-      `<span class="col-text"></span>` +
-      `<span class="col-ts"></span>`;
-    row.querySelector('.col-text').textContent = preview;   // textContent — never inject HTML
-    row.querySelector('.col-ts').textContent = ts;
-    row.title = clean;
-    row.addEventListener('click', () => _outlineJumpTo(msg));
-    list.appendChild(row);
-    n++;
-  });
-
-  if (!n) {
-    const empty = document.createElement('div');
-    empty.className = 'chat-outline-empty';
-    empty.textContent = 'No messages yet.';
-    list.appendChild(empty);
-  }
-  if (countEl) countEl.textContent = String(n);
-}
-
-// Scroll a message into view and flash its bubble so the eye lands on the
-// right turn once the smooth-scroll settles.
-function _outlineJumpTo(msg) {
-  if (!msg) return;
-  msg.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  msg.classList.remove('msg-flash');
-  void msg.offsetWidth;               // force reflow so the animation restarts
-  msg.classList.add('msg-flash');
-  setTimeout(() => msg.classList.remove('msg-flash'), 1600);
-}
 
 // ── Potential Upgrades (AI tool discovery) ───────────────
 let _briefingRefreshing = false;
