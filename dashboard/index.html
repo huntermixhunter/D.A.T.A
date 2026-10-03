@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=ent32" />
+  <link rel="stylesheet" href="theme.css?v=models-effort-20261003" />
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -266,6 +266,40 @@
                 <select class="pane-effort-select" id="main-effort-select"
                         title="Reasoning effort for the main chat"
                         onchange="setMainEffort(this.value)"></select>
+                <!-- Response-style dial (length + technical depth). Values are
+                     synced from storage by _initPaneStyleControls() on load. -->
+                <div class="pane-detail" data-style-key="main">
+                  <button type="button" class="pane-detail-btn"
+                          title="Response style - how long and how technical the answers are for this window"
+                          aria-haspopup="true" aria-expanded="false"
+                          onclick="togglePaneDetail('main')">
+                    <span class="pane-detail-ico" aria-hidden="true">◑</span>
+                    <span class="pane-detail-tag" id="pane-detail-tag-main">STYLE</span>
+                  </button>
+                  <div class="pane-detail-pop" id="pane-detail-pop-main" hidden role="group"
+                       aria-label="Response style controls for this window">
+                    <div class="pane-detail-title">RESPONSE STYLE</div>
+                    <div class="pane-detail-row">
+                      <label for="pane-detail-len-main">LENGTH</label>
+                      <input type="range" min="0" max="4" step="1" value="2"
+                             id="pane-detail-len-main" aria-label="Response length"
+                             oninput="setPaneStyleLength('main', this.value)">
+                      <span class="pane-detail-val" id="pane-detail-lenval-main">Balanced</span>
+                    </div>
+                    <div class="pane-detail-row">
+                      <label for="pane-detail-dep-main">DETAIL</label>
+                      <input type="range" min="0" max="4" step="1" value="2"
+                             id="pane-detail-dep-main" aria-label="Technical depth"
+                             oninput="setPaneStyleDepth('main', this.value)">
+                      <span class="pane-detail-val" id="pane-detail-depval-main">Balanced</span>
+                    </div>
+                    <div class="pane-detail-foot">
+                      <span class="pane-detail-hint">Length and detail. Reasoning is set with EFFORT.</span>
+                      <button type="button" class="pane-detail-reset"
+                              onclick="resetPaneStyle('main')">RESET</button>
+                    </div>
+                  </div>
+                </div>
                 <button class="chat-pane-close" id="main-close-empty"
                         style="display:none" title="Close — promote the next window"
                         onclick="closeMainPane()">✕ CLOSE</button>
@@ -1141,6 +1175,6 @@
     // MSD metric-card placement (defined in app.js).
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
   </script>
-  <script src="app.js?v=retail7"></script>
+  <script src="app.js?v=performance-parity-20261003"></script>
 </body>
 </html>

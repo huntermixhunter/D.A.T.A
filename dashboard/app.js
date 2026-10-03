@@ -1362,6 +1362,8 @@ async function _dispatchChatMessage(text, attachments) {
         // Reasoning effort: the main pane's own level when a project is
         // loaded, otherwise the bridge-wide default already stored server-side.
         effort:       mainWs ? (mainWs.effort || '') : (_lastKnownActiveEffort || ''),
+        // Per-window response-style dial (length + technical depth).
+        ..._paneStyleWire('main'),
         crew:         MAIN_CHAT_CREW,
         attachments:  attachments,
         ..._buildPaneRoster('main'),   // open_panes + self_pane for inter-pane comms
@@ -1449,7 +1451,7 @@ async function _dispatchChatMessage(text, attachments) {
       // leaving the loop blocked on reader.read() forever (the 8s keepalive
       // keeps the socket alive so it never errors out). Break as soon as we've
       // seen `done`/`error`, and cancel the reader to release the connection.
-      if (streamEnded) { try { await reader.cancel(); } catch {} break; }
+      if (streamEnded) { reader.cancel().catch(() => {}); break; }
     }
 
     // An `error` event ends the stream with no bubble — surface it plainly.
@@ -4424,7 +4426,7 @@ const _VOICE_PROVIDER_LABELS = {
   'claude-cli':        { short: 'OPUS · SUB',       title: 'Claude Opus (latest) via your Code subscription, slowest / max quality' },
   'claude-cli-opus-48':{ short: 'OPUS 4.8 · SUB',   title: 'Claude Opus 4.8 pinned via your Code subscription' },
   'claude-api-fast':   { short: 'HAIKU · API',      title: 'Claude Haiku 4.5 via API (pay per token, fast)' },
-  'codex':             { short: 'GPT-5.5 · SUB',    title: 'OpenAI Codex (GPT-5.5) via your ChatGPT subscription' },
+  'codex':             { short: 'GPT-6 ASTRA · SUB', title: 'OpenAI Codex (GPT-6 Astra) via your ChatGPT subscription' },
 };
 
 function _paintVoiceToggle(activeId, choices) {
@@ -5860,11 +5862,13 @@ const PROVIDER_PILL_MAP = {
   'claude-cli-opus-48':{ text: 'CLAUDE OPUS 4.8',      cls: 'orange' },
   'claude-cli-sonnet': { text: 'CLAUDE SONNET (LATEST)', cls: 'teal' },
   'claude-cli-haiku':  { text: 'CLAUDE HAIKU (LATEST)',  cls: 'yellow' },
-  'claude-cli-fable':  { text: 'CLAUDE FABLE 5',        cls: 'purple' },
+  'claude-cli-fable':  { text: 'CLAUDE FABLE (LATEST)', cls: 'purple' },
   'claude-api':        { text: 'CLAUDE (API)',         cls: 'orange' },
   'claude-api-fast':   { text: '⚡ HAIKU 4.5 (FAST)',  cls: 'yellow' },
-  'codex':             { text: 'OPENAI CODEX (GPT-5.5)', cls: 'green' },
-  'codex-mini':        { text: 'CODEX GPT-5.4 MINI',   cls: 'green'  },
+  'codex':             { text: 'OPENAI CODEX (GPT-6 ASTRA)', cls: 'green' },
+  'codex-sol':         { text: 'CODEX GPT-6 SOL',      cls: 'green'  },
+  'codex-luna':        { text: 'CODEX GPT-6 LUNA',     cls: 'green'  },
+  'codex-mini':        { text: 'CODEX GPT-6 LUNA',     cls: 'green'  },
   'gemini':            { text: 'GOOGLE GEMINI 2.5',    cls: 'blue'   },
   'ollama':            { text: 'OLLAMA',               cls: 'purple' },
   'ollama-small':      { text: 'QWEN 3B (LOCAL)',      cls: 'teal'   },
@@ -5924,10 +5928,10 @@ let _lastKnownActiveProvider = null;
 // /providers); this list only covers the window before the first fetch lands.
 const EFFORT_LEVELS_FALLBACK = [
   { id: '',       short: 'AUTO'    },
-  { id: 'low',    short: 'LIGHT'   },
+  { id: 'low',    short: 'LOW'   },
   { id: 'medium', short: 'MEDIUM'  },
-  { id: 'high',   short: 'HEAVY'   },
-  { id: 'xhigh',  short: 'V-HEAVY' },
+  { id: 'high',   short: 'HIGH'   },
+  { id: 'xhigh',  short: 'XHIGH' },
   { id: 'max',    short: 'MAX'     },
 ];
 let _effortLevelsCache = [];
@@ -7288,10 +7292,7 @@ function setWindowProvider(wsId, providerId) {
 }
 
 // -- Reasoning effort dropdown (Claude + Codex) -----------------------------
-// Claude Code takes `--effort low|medium|high|xhigh|max`; Codex takes
-// `-c model_reasoning_effort=...` and tops out at xhigh (the bridge clamps our
-// MAX down to it). Gemini / Ollama have no such dial, so the select disables
-// itself when the pane's model does not support one.
+// Each provider advertises the reasoning levels its selected model supports.
 // Every pane carries its own level; the main pane with no project loaded
 // writes the global default through POST /effort.
 function _effortSelectHTML(elId, onchangeJs) {
@@ -7306,18 +7307,30 @@ function _windowEffortSelectHTML(wsId) {
 
 function _fillEffortSelect(sel, selected, providerId) {
   if (!sel) return;
-  const levels = _effortLevelsCache.length ? _effortLevelsCache : EFFORT_LEVELS_FALLBACK;
-  sel.innerHTML = levels.map(l =>
-    `<option value="${l.id}"${l.id === (selected || '') ? ' selected' : ''}>${l.short}</option>`
-  ).join('');
-  // Grey it out for brains with no effort dial, but keep the value intact so
-  // switching back to Claude/Codex restores the chosen level.
   const p = (_providersCache || []).find(x => x.id === providerId);
+  const levels = p?.effort_levels?.length ? p.effort_levels
+    : (_effortLevelsCache.length ? _effortLevelsCache : EFFORT_LEVELS_FALLBACK);
   const supported = p ? p.supports_effort !== false : true;
+  // A saved Ultra preference becomes Max on Luna, and returns on Astra.
+  const order = ['', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+  const ceiling = Math.max(0, order.indexOf(selected || ''));
+  const effective = order.slice(0, ceiling + 1).reverse()
+    .find(id => levels.some(l => l.id === id)) || '';
+  sel.replaceChildren(...levels.map(l => {
+    const option = document.createElement('option');
+    option.value = l.id;
+    option.textContent = `EFFORT: ${l.short}`;
+    option.selected = l.id === effective;
+    return option;
+  }));
   sel.disabled = !supported;
+  sel.setAttribute('aria-label', 'Reasoning effort');
   sel.title = supported
-    ? 'Reasoning effort for this window'
-    : 'This model has no reasoning-effort dial';
+    ? 'Reasoning effort: how deeply the model thinks. Auto uses CLI settings or its model default. Higher levels use more time and allowance. Ultra uses parallel agents.'
+    : 'This model does not offer a reasoning effort control.';
+  if (supported && effective !== (selected || '')) {
+    sel.title += ` Saved ${selected} runs as ${effective || 'auto'} on this model.`;
+  }
 }
 
 function _populateWindowEffortSelect(wsId) {
@@ -7343,6 +7356,7 @@ function setWindowEffort(wsId, level) {
   const ws = _workspaces.get(wsId);
   if (!ws) return;
   ws.effort = level;
+  _populateWindowEffortSelect(wsId);
   addLog(`[${ws.name}] effort → ${level || 'auto'}`);
 }
 
@@ -7350,6 +7364,7 @@ async function setMainEffort(level) {
   const mainWs = [..._workspaces.values()].find(w => w.isMain);
   if (mainWs) {
     mainWs.effort = level;
+    _populateMainEffortSelect();
     addLog(`Main pane effort → ${level || 'auto'}`);
     return;
   }
@@ -7367,6 +7382,8 @@ async function setMainEffort(level) {
     addLog(`Reasoning effort → ${_lastKnownActiveEffort || 'auto'}`);
   } catch (e) {
     addLog(`Effort switch error: ${e.message || e}`);
+  } finally {
+    _populateMainEffortSelect();
   }
 }
 
@@ -7411,6 +7428,136 @@ async function setMainProvider(providerId) {
     addLog(`Provider switch error: ${e.message || e}`);
   }
 }
+
+// -- Response-style dials (per-window length + technical depth) ---------------
+// Each chat window carries two 0-4 sliders in its header:
+//   LENGTH : 0 Brief ... 2 Balanced (default) ... 4 Full
+//   DETAIL : 0 Plain English ... 2 Balanced (default) ... 4 Full spec
+// Level 2 is the neutral default - the wire sends '' for it so the bridge
+// injects no directive and behavior is unchanged. Keyed by pane key ('main' or
+// 'ws<id>') and persisted so each window's preference survives a reload.
+const _PANE_STYLE_KEY = 'data_pane_style_v1';
+const _STYLE_LEN_LABELS   = ['Brief', 'Short', 'Balanced', 'Detailed', 'Full'];
+const _STYLE_DEPTH_LABELS = ['Plain', 'Light', 'Balanced', 'Technical', 'Full spec'];
+let _paneStyle = {};
+try { _paneStyle = JSON.parse(localStorage.getItem(_PANE_STYLE_KEY) || '{}') || {}; }
+catch { _paneStyle = {}; }
+
+function _getPaneStyle(key) {
+  const s = _paneStyle[key] || {};
+  const clamp = v => (Number.isInteger(v) && v >= 0 && v <= 4) ? v : 2;
+  return { length: clamp(s.length), depth: clamp(s.depth) };
+}
+function _setPaneStyle(key, length, depth) {
+  _paneStyle[key] = { length, depth };
+  try { localStorage.setItem(_PANE_STYLE_KEY, JSON.stringify(_paneStyle)); } catch {}
+}
+// Wire payload - '' at the balanced default so the bridge stays hands-off.
+function _paneStyleWire(key) {
+  const s = _getPaneStyle(key);
+  return {
+    verbosity:  s.length === 2 ? '' : String(s.length),
+    tech_depth: s.depth  === 2 ? '' : String(s.depth),
+  };
+}
+function _detailTagText(s) {
+  return (s.length === 2 && s.depth === 2) ? 'STYLE' : `L${s.length}/D${s.depth}`;
+}
+// Header control markup - a pill that opens a two-slider popover. Used by both
+// the main pane and every spawned workspace pane.
+function _detailControlHTML(key) {
+  const s = _getPaneStyle(key);
+  const active = (s.length !== 2 || s.depth !== 2);
+  return `
+    <div class="pane-detail" data-style-key="${key}">
+      <button type="button" class="pane-detail-btn${active ? ' active' : ''}"
+              title="Response style - how long and how technical the answers are for this window"
+              aria-haspopup="true" aria-expanded="false"
+              onclick="togglePaneDetail('${key}')">
+        <span class="pane-detail-ico" aria-hidden="true">◑</span>
+        <span class="pane-detail-tag" id="pane-detail-tag-${key}">${_detailTagText(s)}</span>
+      </button>
+      <div class="pane-detail-pop" id="pane-detail-pop-${key}" hidden role="group"
+           aria-label="Response style controls for this window">
+        <div class="pane-detail-title">RESPONSE STYLE</div>
+        <div class="pane-detail-row">
+          <label for="pane-detail-len-${key}">LENGTH</label>
+          <input type="range" min="0" max="4" step="1" value="${s.length}"
+                 id="pane-detail-len-${key}"
+                 aria-label="Response length"
+                 oninput="setPaneStyleLength('${key}', this.value)">
+          <span class="pane-detail-val" id="pane-detail-lenval-${key}">${_STYLE_LEN_LABELS[s.length]}</span>
+        </div>
+        <div class="pane-detail-row">
+          <label for="pane-detail-dep-${key}">DETAIL</label>
+          <input type="range" min="0" max="4" step="1" value="${s.depth}"
+                 id="pane-detail-dep-${key}"
+                 aria-label="Technical depth"
+                 oninput="setPaneStyleDepth('${key}', this.value)">
+          <span class="pane-detail-val" id="pane-detail-depval-${key}">${_STYLE_DEPTH_LABELS[s.depth]}</span>
+        </div>
+        <div class="pane-detail-foot">
+          <span class="pane-detail-hint">Length and detail. Reasoning is set with EFFORT.</span>
+          <button type="button" class="pane-detail-reset"
+                  onclick="resetPaneStyle('${key}')">RESET</button>
+        </div>
+      </div>
+    </div>`;
+}
+function togglePaneDetail(key) {
+  const pop = document.getElementById(`pane-detail-pop-${key}`);
+  if (!pop) return;
+  const willOpen = pop.hidden;
+  document.querySelectorAll('.pane-detail-pop').forEach(p => { if (p !== pop) p.hidden = true; });
+  pop.hidden = !willOpen;
+  const btn = pop.parentElement?.querySelector('.pane-detail-btn');
+  if (btn) btn.setAttribute('aria-expanded', String(willOpen));
+}
+function _applyPaneStyleUI(key) {
+  const s = _getPaneStyle(key);
+  const tag = document.getElementById(`pane-detail-tag-${key}`);
+  if (tag) tag.textContent = _detailTagText(s);
+  const lv = document.getElementById(`pane-detail-lenval-${key}`);
+  if (lv) lv.textContent = _STYLE_LEN_LABELS[s.length];
+  const dv = document.getElementById(`pane-detail-depval-${key}`);
+  if (dv) dv.textContent = _STYLE_DEPTH_LABELS[s.depth];
+  const btn = document.querySelector(`.pane-detail[data-style-key="${key}"] .pane-detail-btn`);
+  if (btn) btn.classList.toggle('active', s.length !== 2 || s.depth !== 2);
+}
+function setPaneStyleLength(key, v) {
+  const s = _getPaneStyle(key);
+  _setPaneStyle(key, parseInt(v, 10), s.depth);
+  _applyPaneStyleUI(key);
+}
+function setPaneStyleDepth(key, v) {
+  const s = _getPaneStyle(key);
+  _setPaneStyle(key, s.length, parseInt(v, 10));
+  _applyPaneStyleUI(key);
+}
+function resetPaneStyle(key) {
+  _setPaneStyle(key, 2, 2);
+  const l = document.getElementById(`pane-detail-len-${key}`); if (l) l.value = 2;
+  const d = document.getElementById(`pane-detail-dep-${key}`); if (d) d.value = 2;
+  _applyPaneStyleUI(key);
+}
+// Sync the static main-pane control (rendered in index.html) from storage on
+// load, and wire a one-time outside-click that closes any open style popover.
+function _initPaneStyleControls() {
+  const s = _getPaneStyle('main');
+  const l = document.getElementById('pane-detail-len-main'); if (l) l.value = s.length;
+  const d = document.getElementById('pane-detail-dep-main'); if (d) d.value = s.depth;
+  _applyPaneStyleUI('main');
+  if (!_initPaneStyleControls._wired) {
+    document.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('.pane-detail')) return;
+      document.querySelectorAll('.pane-detail-pop').forEach(p => { p.hidden = true; });
+      document.querySelectorAll('.pane-detail-btn[aria-expanded="true"]')
+        .forEach(b => b.setAttribute('aria-expanded', 'false'));
+    });
+    _initPaneStyleControls._wired = true;
+  }
+}
+document.addEventListener('DOMContentLoaded', _initPaneStyleControls);
 
 function _showPaneHeaders(visible) {
   // Spawned-pane headers toggle with workspace presence. The MAIN pane header
@@ -7746,6 +7893,7 @@ function _setMainPaneProject(wsId, name, path) {
             onchange="setPaneCrew('main', this.value)">${_crewSelectOptionsHTML(MAIN_CHAT_CREW)}</select>
     ${_windowProviderSelectHTML(wsId)}
     ${_windowEffortSelectHTML(wsId)}
+    ${_detailControlHTML('main')}
     <button class="chat-pane-close">✕ CLOSE</button>
   `;
   header.querySelector('.chat-pane-close').addEventListener('click', () => closeProjectWorkspace(wsId));
@@ -7779,6 +7927,7 @@ function addChatPane(wsId, name, path) {
       ${_crewSelectHTML(`ws${wsId}`, paneCrew)}
       ${_windowProviderSelectHTML(wsId)}
       ${_windowEffortSelectHTML(wsId)}
+      ${_detailControlHTML(`ws${wsId}`)}
       <button class="chat-pane-close">✕ CLOSE</button>
     </div>
     <div class="chat-window" id="chat-win-ws${wsId}"></div>
@@ -7902,6 +8051,7 @@ function closeProjectWorkspace(wsId) {
         <select class="pane-effort-select" id="main-effort-select"
                 title="Reasoning effort for the main chat"
                 onchange="setMainEffort(this.value)"></select>
+        ${_detailControlHTML('main')}
         <button class="chat-pane-close" id="main-close-empty"
                 style="display:none" title="Close — promote the next window"
                 onclick="closeMainPane()">✕ CLOSE</button>
@@ -7909,6 +8059,7 @@ function closeProjectWorkspace(wsId) {
       header.classList.remove('hidden');
       _populateMainProviderSelect();
       _populateMainEffortSelect();
+      _applyPaneStyleUI('main');
     }
     _mainProjectSet = false;
     fetch(`${API_BASE}/project`, {
@@ -8023,6 +8174,7 @@ async function sendProjectMessage(wsId) {
         pane_id:      _paneId(`ws${wsId}`),   // per-tab tag: isolates this pane from sibling tabs, stable across reloads/restarts
         provider:     ws.provider,   // per-window model override
         effort:       ws.effort || '',   // per-window reasoning-effort override
+        ..._paneStyleWire(`ws${wsId}`),  // per-window response-style dial
         crew:         ws.crew,       // per-window agent (officer persona)
         attachments,
         ..._buildPaneRoster(`ws${wsId}`),   // open_panes + self_pane for inter-pane comms
@@ -8070,10 +8222,11 @@ async function sendProjectMessage(wsId) {
             if (evType === 'token')        answer += payload.text || '';
             else if (evType === 'thinking') _addThoughtLine(thoughtEl, payload.text);
             else if (evType === 'meta')    { try { paneMeta = JSON.parse(payload.text); } catch { paneMeta = null; } }
-            else if (evType === 'error')   serverError = payload.text || '';
+            else if (evType === 'error')   { serverError = payload.text || ''; streamDone = true; }
             else if (evType === 'done')    streamDone = true;
           } catch { /* malformed SSE line, skip */ }
         }
+        if (streamDone) { reader.cancel().catch(() => {}); break; }
       }
       const finalText = answer || serverError || offlineResponse(text);
       if (answer) {

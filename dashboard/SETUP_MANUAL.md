@@ -237,6 +237,28 @@ At the top of the page:
 - a **RESCAN** button that re-reads your server's hardware and re-checks which
   models and tools are installed.
 
+### Chat controls: reasoning effort and response style
+
+Each chat pane has two independent controls:
+
+- **EFFORT** sets how deeply the model reasons: Auto, Low, Medium, High, Xhigh,
+  Max, and Ultra where supported. Higher levels take more time and allowance.
+  Ultra uses parallel agents. Astra and Sol offer Ultra; Luna ends at Max.
+  The choices follow the selected model. Haiku, Gemini, and local Ollama models
+  do not expose this control.
+- **STYLE** has sliders for response length and technical detail. A short,
+  plain-language answer can still use high reasoning effort.
+
+Auto uses the CLI's saved settings or model default. An explicit Auto choice
+in one pane does not inherit the dashboard's global effort setting. Selecting
+an effort in a pane affects its next message. With no project loaded, the main
+pane sets the saved dashboard default.
+
+Claude's unpinned choices use the latest CLI aliases. Codex uses Astra, Sol,
+and Luna; on bridge startup Sol advances to GPT-6.1 Sol only when the local
+Codex catalog lists it for the signed-in account. Gemini uses Gemini 3 Auto,
+including 3.1 Pro when available. Intentional pinned choices remain selectable.
+
 The page reads top to bottom in four sections.
 
 ### A. THIS MACHINE — your server's hardware
@@ -284,13 +306,14 @@ To install one:
 ### D. CLI PROVIDERS — cloud models via your subscriptions
 
 These connect the dashboard to top-tier cloud models through **subscriptions you
-already pay for**, so there is **no per-token charge**. Three are built in:
+already use** or free-tier allowances. Plan limits, optional usage credits, and
+overage settings still apply. Three are built in:
 
 | Provider | Models | One-time setup |
 |---|---|---|
 | **Claude Code** (Anthropic) | Opus · Sonnet · Haiku · Fable | installed by the setup script → sign in with `claude`, then `/login` |
-| **Codex** (OpenAI) | GPT-5 Codex | `npm i -g @openai/codex`, then `codex login` (uses your ChatGPT plan) |
-| **Gemini CLI** (Google) | Gemini 2.5 Pro | `npm i -g @google/gemini-cli`, then sign in (free tier available) |
+| **Codex** (OpenAI) | GPT-6 Astra, Sol, Luna | `npm i -g @openai/codex`, then `codex login` (uses your ChatGPT plan) |
+| **Gemini CLI** (Google) | Gemini 3 Auto (3.1 Pro when available) | `npm i -g @google/gemini-cli`, then sign in (free tier available) |
 
 Each card shows a status dot:
 
@@ -360,6 +383,20 @@ reboot brings everything back on its own.
 ---
 
 ## Troubleshooting
+
+Memory search refreshes its index in the background, with at most one rebuild
+running at a time and a 90-second pause between rebuilds. Chat can continue
+using the existing index. If local embeddings are unavailable, keyword search
+continues; three failed probes pause embedding attempts for five minutes.
+The recall index remains in the active user's data folder.
+
+The bridge log rotates at 25 MiB and retains five backups, about 150 MiB
+including the current file. Logging defaults to INFO; noisy HTTP and other
+library diagnostics are limited to WARNING. Set `BRIDGE_LOG_LEVEL=DEBUG`
+temporarily when investigating a problem.
+
+Completed or failed chat turns release the chat controls as soon as the
+completion event arrives. They do not wait for a lingering connection to close.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|

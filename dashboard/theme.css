@@ -2374,7 +2374,7 @@ html, body {
 
 /* Reasoning-effort selector — sits immediately right of the model select in
    every pane header. Narrow by design: it only ever shows short rungs
-   (AUTO / LIGHT / MEDIUM / HEAVY / V-HEAVY / MAX). Greys out for models with
+   (AUTO / LOW / MEDIUM / HIGH / XHIGH / MAX / ULTRA). Greys out for models with
    no effort dial (Gemini, Ollama). */
 .pane-effort-select {
   background: #06060e;
@@ -2386,8 +2386,8 @@ html, body {
   padding: 2px 18px 2px 6px;
   border-radius: 2px;
   cursor: pointer;
-  max-width: 96px;
-  min-width: 52px;
+  max-width: 136px;
+  min-width: 92px;
   flex-shrink: 0;
   text-overflow: ellipsis;
   overflow: hidden;
@@ -2396,6 +2396,129 @@ html, body {
 .pane-effort-select:hover { border-color: var(--data-orange); color: var(--data-orange); }
 .pane-effort-select:focus { outline: none; border-color: var(--data-orange); }
 .pane-effort-select:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Response-style dial (per-window length + technical depth). A compact pill in
+   each chat pane header opens two sliders without widening the cockpit bar. */
+.pane-detail { position: relative; flex-shrink: 0; display: inline-flex; }
+.pane-detail-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #06060e;
+  border: 1px solid #2a2a2a;
+  color: var(--data-blue, #9999FF);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pane-detail-btn:hover { border-color: var(--data-orange); color: var(--data-orange); }
+.pane-detail-btn .pane-detail-ico { font-size: 10px; line-height: 1; }
+.pane-detail-btn.active {
+  border-color: var(--data-orange);
+  color: var(--data-orange);
+  box-shadow: inset 0 0 0 1px rgba(255, 153, 0, 0.25);
+}
+.pane-detail-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 232px;
+  background: #0a0a14;
+  border: 1px solid var(--data-orange);
+  border-radius: 4px;
+  padding: 10px 11px 9px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+}
+.pane-detail-pop[hidden] { display: none; }
+.pane-detail-title {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--data-orange);
+  margin-bottom: 8px;
+}
+.pane-detail-row {
+  display: grid;
+  grid-template-columns: 46px 1fr 58px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.pane-detail-row label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--data-blue, #9999FF);
+}
+.pane-detail-row input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  border-radius: 3px;
+  background: #2a2a3a;
+  outline: none;
+  cursor: pointer;
+}
+.pane-detail-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--data-orange);
+  border: 2px solid #0a0a14;
+  cursor: pointer;
+}
+.pane-detail-row input[type="range"]::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--data-orange);
+  border: 2px solid #0a0a14;
+  cursor: pointer;
+}
+.pane-detail-val {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: #ffd1a1;
+  text-align: right;
+}
+.pane-detail-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  border-top: 1px solid #1c1c2a;
+  padding-top: 7px;
+}
+.pane-detail-hint {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.02em;
+  color: #6a6a7a;
+  line-height: 1.2;
+}
+.pane-detail-reset {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: var(--data-blue, #9999FF);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pane-detail-reset:hover { border-color: var(--data-orange); color: var(--data-orange); }
 
 /* Per-window agent (crew) selector — sits next to the provider select in each
    chat pane header so every window can chat with a different officer. */
@@ -4133,6 +4256,7 @@ body.theme-cyberpunk .captain-caret {
   .pane-path  { display: none; }       /* path is just clutter on phone */
   .pane-provider-select { max-width: 50vw; font-size: 10px; }
   .pane-crew-select     { max-width: 40vw; font-size: 10px; }
+  .pane-detail-pop { right: auto; left: 0; width: min(232px, 82vw); }
 
   /* Chat input area — make the textarea bigger-tap-target friendly */
   .chat-input-area { padding: 6px; }

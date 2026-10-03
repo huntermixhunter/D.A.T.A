@@ -84,12 +84,30 @@ if sys.platform == "win32":
 
 # ── Logging ───────────────────────────────────────────────────
 LOG_FILE = Path(__file__).parent.parent / "bridge.log"
-logging.basicConfig(
-    filename=str(LOG_FILE),
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+# Rotate at 25 MiB: current log plus five backups, 150 MiB total.
+import logging.handlers as _logging_handlers
+
+_LOG_LEVEL = getattr(
+    logging, (os.environ.get("BRIDGE_LOG_LEVEL") or "INFO").upper(), logging.INFO
 )
+_log_handler = _logging_handlers.RotatingFileHandler(
+    str(LOG_FILE), maxBytes=25 * 1024 * 1024, backupCount=5, encoding="utf-8"
+)
+_log_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+)
+logging.basicConfig(level=_LOG_LEVEL, handlers=[_log_handler])
+
+# Third-party libraries inherit the root level. At DEBUG, httpx/httpcore/telegram
+# dumped ~7 lines per outbound request (and echoed the Telegram bot TOKEN in the
+# request URL straight into the logfile). Pin them to WARNING regardless of our
+# own level: noise reduction AND secret hygiene.
+for _noisy in ("httpx", "httpcore", "telegram", "urllib3", "asyncio",
+               "apscheduler", "PIL", "websockets", "selenium", "hpack"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 log = logging.getLogger("bridge")
 log.info("Bridge server starting up")
 
@@ -583,13 +601,14 @@ PORT = int(os.environ.get("DATA_PORT", "7777"))
 OPUS_ALIAS   = "opus"
 SONNET_ALIAS = "sonnet"
 HAIKU_ALIAS  = "haiku"
+FABLE_ALIAS  = "fable"
 MODEL = OPUS_ALIAS
 BRIDGE_MODE = "cli"   # "cli" = Standard Mode (subscription, Opus) — API mode is disabled by Captain order
 
 # ── Multi-provider rig ─────────────────────────────────────────
 # Provider IDs are the source of truth. Each provider has its own runner function
 # down below. Availability is detected at startup by probing PATH + standard install dirs.
-ACTIVE_PROVIDER = "claude-cli"  # default — Opus 4.7 for max quality; set via /provider POST
+ACTIVE_PROVIDER = "claude-cli"  # default: latest Opus via Claude Code; set via /provider POST
 
 # Voice "Conversation Mode" — when True, the system prompt grows a directive
 # telling Data to respond like a person would in a spoken conversation: short,
@@ -889,9 +908,9 @@ VOICE_PROVIDER_CHOICES = (
     "claude-cli-haiku",   # Subscription Haiku — fast, no token cost
     "claude-cli-sonnet",  # Subscription Sonnet — slower, much smarter
     "claude-cli",         # Subscription Opus — slowest, max quality
-    "claude-cli-fable",   # Subscription Fable 5 — most powerful tier
+    "claude-cli-fable",   # Subscription Fable latest - most powerful tier
     # claude-api-fast removed by Captain order (2026-05-30) — no API providers
-    "codex",              # ChatGPT subscription (GPT-5)
+    "codex",              # ChatGPT subscription (GPT-6 Astra)
 )
 
 # ── Mail AI brain ──────────────────────────────────────────────────
@@ -1124,6 +1143,16 @@ def _transcribe_audio_attachments(message: str, attachments: list) -> tuple:
 def _current_provider_id() -> str:
     return getattr(_provider_override, "id", None) or ACTIVE_PROVIDER
 
+from model_capabilities import (
+    EFFORT_LEVELS, EFFORT_IDS, read_codex_catalog, codex_sol_model,
+    effort_levels as _model_effort_levels, effective_effort,
+)
+
+_CODEX_CATALOG = read_codex_catalog()
+_CODEX_SOL_MODEL = codex_sol_model(_CODEX_CATALOG)
+
+_CODEX_SOL_LABEL = _CODEX_SOL_MODEL.replace("gpt-", "GPT-").replace("-sol", " Sol")
+
 PROVIDERS = {
     "claude-cli": {
         "label":       "Claude Opus (Subscription — latest)",
@@ -1163,8 +1192,8 @@ PROVIDERS = {
         "install_hint": "Install Claude Code: https://docs.claude.com/en/docs/claude-code",
     },
     "claude-cli-fable": {
-        "label":       "Claude Fable 5 (Subscription — Most Powerful)",
-        "model":       "claude-fable-5",
+        "label":       "Claude Fable (Subscription - latest)",
+        "model":       FABLE_ALIAS,   # auto-rides to newest Fable
         "kind":        "subprocess",
         "executables": ["claude", "claude.exe"],
         "install_hint": "Install Claude Code: https://docs.claude.com/en/docs/claude-code",
@@ -1173,25 +1202,40 @@ PROVIDERS = {
     # (2026-05-30): Anthropic API pay-per-token paths are disabled to prevent
     # accidental billing. All Claude usage now flows through the subscription
     # CLI providers above. Re-add here if API access is ever wanted back.
-    # Codex model ids track the current ChatGPT lineup: gpt-5.5 frontier,
-    # gpt-5.4-mini cheap/fast. Passed to the CLI via `-m` in ask_codex_cli_stream.
+    # Codex models refreshed 2026-09-26 from ~/.codex/models_cache.json.
+    # GPT-6 Astra is the frontier tier, Sol is the workhorse, Luna is fast.
+    # Passed to the CLI via `-m` in ask_codex_cli_stream.
     "codex": {
-        "label":       "GPT-5.5 Codex (ChatGPT Subscription)",
-        "model":       "gpt-5.5",
+        "label":       "GPT-6 Astra Codex (ChatGPT Subscription)",
+        "model":       "gpt-6-astra",
+        "kind":        "subprocess",
+        "executables": ["codex", "codex.exe", "codex.cmd"],
+        "install_hint": "npm i -g @openai/codex   (then run `codex login`)",
+    },
+    "codex-sol": {
+        "label":       f"{_CODEX_SOL_LABEL} Codex (Workhorse)",
+        "model":       _CODEX_SOL_MODEL,
+        "kind":        "subprocess",
+        "executables": ["codex", "codex.exe", "codex.cmd"],
+        "install_hint": "npm i -g @openai/codex   (then run `codex login`)",
+    },
+    "codex-luna": {
+        "label":       "GPT-6 Luna Codex (Fast)",
+        "model":       "gpt-6-luna",
         "kind":        "subprocess",
         "executables": ["codex", "codex.exe", "codex.cmd"],
         "install_hint": "npm i -g @openai/codex   (then run `codex login`)",
     },
     "codex-mini": {
-        "label":       "GPT-5.4 Mini Codex (Fast)",
-        "model":       "gpt-5.4-mini",
+        "label":       "GPT-6 Luna Codex (Fast, legacy id)",
+        "model":       "gpt-6-luna",
         "kind":        "subprocess",
         "executables": ["codex", "codex.exe", "codex.cmd"],
         "install_hint": "npm i -g @openai/codex   (then run `codex login`)",
     },
     "gemini": {
-        "label":       "Gemini 2.5 (Google)",
-        "model":       "gemini-2.5-pro",
+        "label":       "Gemini 3 Auto (Google, latest available)",
+        "model":       "auto-gemini-3",
         "kind":        "subprocess",
         "executables": ["gemini", "gemini.exe", "gemini.cmd"],
         "install_hint": "npm i -g @google/gemini-cli   (free tier on Google AI Studio)",
@@ -1220,33 +1264,83 @@ PROVIDERS = {
 
 
 # ── Reasoning effort ──────────────────────────────────────────────────────
-# Both Claude Code and Codex expose a reasoning-effort dial, but they take it
-# differently and support slightly different ladders:
-#     claude  --effort <low|medium|high|xhigh|max>
-#     codex   -c model_reasoning_effort=<none|minimal|low|medium|high|xhigh>
-# We present ONE ladder to the user (light -> max) and translate per CLI family
-# at spawn time. Gemini and Ollama have no equivalent knob; for those the
-# setting is inert and the dropdown disables itself in the UI.
-EFFORT_LEVELS = [
-    {"id": "",       "label": "Effort - Auto",  "short": "AUTO"},
-    {"id": "low",    "label": "Effort - Light", "short": "LIGHT"},
-    {"id": "medium", "label": "Effort - Medium", "short": "MEDIUM"},
-    {"id": "high",   "label": "Effort - Heavy", "short": "HEAVY"},
-    {"id": "xhigh",  "label": "Effort - Very Heavy", "short": "V-HEAVY"},
-    {"id": "max",    "label": "Effort - Max",   "short": "MAX"},
-]
-EFFORT_IDS = {lvl["id"] for lvl in EFFORT_LEVELS}
-
-# Claude Code accepts the ladder verbatim.
-_CLAUDE_EFFORT = {"low", "medium", "high", "xhigh", "max"}
-# Codex has no "max" tier - xhigh is its ceiling, so max clamps down to it.
-_CODEX_EFFORT = {
-    "low": "low", "medium": "medium", "high": "high",
-    "xhigh": "xhigh", "max": "xhigh",
-}
-
+# Supported levels come from model_capabilities, with local Codex catalog metadata.
 ACTIVE_EFFORT = ""            # "" = let each CLI use its own default
 _effort_override = threading.local()   # per-request / per-pane override
+
+# -- Response-style dial (per-window length + technical depth) ----------------
+# Two independent 0-4 sliders the user sets in each chat window's header:
+#   length : 0 = one-liner  ... 2 = balanced (default) ... 4 = exhaustive
+#   depth  : 0 = plain English ... 2 = balanced (default) ... 4 = full spec
+# Level 2 is the neutral default and injects NOTHING, so a window left alone
+# behaves exactly as before. Set per-request on the worker thread (like
+# _effort_override) and read by _load_soul, which appends a style directive.
+_style_override = threading.local()
+
+_LENGTH_DIRECTIVES = {
+    0: "Answer in one or two sentences. Give only the essential result - no preamble, "
+       "no elaboration, no lists. If the honest answer truly needs more room, give the "
+       "one-line headline and offer to expand.",
+    1: "Keep the answer short - a single tight paragraph. State the answer and only the "
+       "one or two things that matter most.",
+    3: "Give a thorough answer. Walk through the reasoning, cover the relevant edge cases, "
+       "and explain the 'why', not just the 'what'.",
+    4: "Give a comprehensive, exhaustive answer. Cover the full picture: reasoning, "
+       "alternatives, edge cases, caveats, and concrete examples. Do not omit anything the "
+       "user might need.",
+}
+_DEPTH_DIRECTIVES = {
+    0: "Explain in plain, basic English for a non-technical reader. Avoid jargon entirely; "
+       "if a technical term is unavoidable, define it in everyday words. Prefer analogies "
+       "over specifications.",
+    1: "Keep it mostly non-technical. Minimize jargon and briefly define any term you must "
+       "use. Favor clear explanation over precise terminology.",
+    3: "Write for a technical reader. Use precise terminology, name the relevant components, "
+       "functions, and files, and do not water down the details.",
+    4: "Write at full technical-specification depth. Be maximally precise: exact names, file "
+       "paths, line numbers, values, commands, and code. Assume deep expertise and omit no "
+       "technical detail.",
+}
+
+
+def _normalize_style_level(value):
+    """Coerce a client style level to an int 0-4, or None when absent/invalid.
+    A neutral '2' is treated as None so the balanced default injects nothing."""
+    if value is None or value == "":
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    n = max(0, min(4, n))
+    return None if n == 2 else n
+
+
+def _current_style():
+    """(length, depth) response-style levels for THIS request thread, each an int
+    0-4 or None (None = balanced default, no directive)."""
+    return (getattr(_style_override, "length", None),
+            getattr(_style_override, "depth", None))
+
+
+def _style_directive(length, depth) -> str:
+    """System-prompt block for the per-window response-style dial. Empty string
+    when both dials sit at the balanced default (so behavior is unchanged)."""
+    parts = []
+    if length in _LENGTH_DIRECTIVES:
+        parts.append("- **Length:** " + _LENGTH_DIRECTIVES[length])
+    if depth in _DEPTH_DIRECTIVES:
+        parts.append("- **Technical depth:** " + _DEPTH_DIRECTIVES[depth])
+    if not parts:
+        return ""
+    return (
+        "\n\n## RESPONSE STYLE - USER'S DIAL FOR THIS WINDOW\n"
+        "The user has set the response controls for this chat window. Honor them for THIS reply:\n"
+        + "\n".join(parts)
+        + "\nThese dials govern presentation only. Never sacrifice correctness to satisfy them, "
+        "and never drop a safety-critical warning (for example a warning that an action will "
+        "cost money or is destructive) just to meet a brevity setting."
+    )
 
 
 def _current_effort() -> str:
@@ -1257,21 +1351,29 @@ def _current_effort() -> str:
     return ACTIVE_EFFORT if lvl is None else lvl
 
 
+def _provider_effort_levels(provider_id: str) -> list:
+    model = PROVIDERS.get(provider_id, {}).get("model", "")
+    return _model_effort_levels(provider_id, model, _CODEX_CATALOG)
+
+
+def _effective_provider_effort() -> str:
+    return effective_effort(_current_effort(), _provider_effort_levels(_current_provider_id()))
+
+
 def _claude_effort_args() -> list:
-    """`--effort <level>` for the claude CLI, or [] when auto/unsupported."""
-    lvl = _current_effort()
-    return ["--effort", lvl] if lvl in _CLAUDE_EFFORT else []
+    """Pass the selected model's supported effort to Claude Code."""
+    lvl = _effective_provider_effort()
+    return ["--effort", lvl] if lvl else []
 
 
 def _codex_effort_args() -> list:
-    """`-c model_reasoning_effort=<level>` for codex, or [] when auto."""
-    lvl = _CODEX_EFFORT.get(_current_effort(), "")
+    """Pass Max and Ultra through when the selected Codex model supports them."""
+    lvl = _effective_provider_effort()
     return ["-c", f"model_reasoning_effort={lvl}"] if lvl else []
 
 
 def _provider_supports_effort(provider_id: str) -> bool:
-    """True for the CLI families that actually have a reasoning-effort dial."""
-    return provider_id.startswith("claude-cli") or provider_id.startswith("codex")
+    return len(_provider_effort_levels(provider_id)) > 1
 
 
 def _normalize_effort(value):
@@ -1424,7 +1526,12 @@ _CLI_CRED_FILES = {
 def _cli_cred_mtime(provider_id: str) -> float:
     """mtime of the provider's credential file, or 0.0 if absent. Used to bust
     the auth-probe cache the moment a buyer logs in or out."""
-    key = "claude-cli" if provider_id.startswith("claude-cli") else provider_id
+    if provider_id.startswith("claude-cli"):
+        key = "claude-cli"
+    elif provider_id.startswith("codex"):
+        key = "codex"
+    else:
+        key = provider_id
     cred = _CLI_CRED_FILES.get(key)
     try:
         return cred.stat().st_mtime if cred and cred.is_file() else 0.0
@@ -1525,7 +1632,7 @@ def _provider_authenticated(provider_id: str) -> bool:
     # harmless (both compute the same answer); the last writer wins the cache slot.
     if provider_id.startswith("claude-cli"):
         ok = _claude_cli_authenticated()
-    elif provider_id == "codex":
+    elif provider_id.startswith("codex"):
         ok = _codex_cli_authenticated()
     elif provider_id == "gemini":
         ok = _gemini_cli_authenticated()
@@ -1555,6 +1662,7 @@ def _list_providers() -> list:
             # Whether this brain honors the reasoning-effort dial (Claude /
             # Codex CLIs do; Gemini and Ollama do not).
             "supports_effort": _provider_supports_effort(pid),
+            "effort_levels": _provider_effort_levels(pid),
         })
     return out
 
@@ -1609,21 +1717,21 @@ OLLAMA_CATALOG = [
 
 # CLI connectors the Captain can browse + add. Each maps to a PROVIDERS id.
 CONNECTOR_CATALOG = [
-    {"id": "claude-cli", "name": "Claude Code (Anthropic)", "models": "Opus · Sonnet · Haiku · Fable",
+    {"id": "claude-cli", "name": "Claude Code (Anthropic)", "models": "Latest Opus | Sonnet | Haiku | Fable",
      "install_cmd": "", "install_url": "https://docs.claude.com/en/docs/claude-code",
      "login_cmd": "claude  (then /login)",
-     "blurb": "Anthropic's Claude family through your Claude subscription — no per-token cost.",
+     "blurb": "Latest Claude aliases through Claude Code. Availability and usage credits depend on your plan.",
      "provider_ids": ["claude-cli", "claude-cli-opus-5", "claude-cli-opus-48",
                       "claude-cli-sonnet", "claude-cli-haiku", "claude-cli-fable"]},
-    {"id": "codex", "name": "Codex (OpenAI)", "models": "GPT-5.5 · GPT-5.4 Mini",
+    {"id": "codex", "name": "Codex (OpenAI)", "models": f"GPT-6 Astra | {_CODEX_SOL_LABEL} | GPT-6 Luna",
      "install_cmd": "npm i -g @openai/codex", "install_url": "https://github.com/openai/codex",
      "login_cmd": "codex login",
-     "blurb": "GPT-5.5 and GPT-5.4 Mini through your ChatGPT subscription.",
-     "provider_ids": ["codex", "codex-mini"]},
-    {"id": "gemini", "name": "Gemini CLI (Google)", "models": "Gemini 2.5 Pro",
+     "blurb": "GPT-6 models through your ChatGPT subscription.",
+     "provider_ids": ["codex", "codex-sol", "codex-luna", "codex-mini"]},
+    {"id": "gemini", "name": "Gemini CLI (Google)", "models": "Gemini 3 Auto (3.1 Pro when available)",
      "install_cmd": "npm i -g @google/gemini-cli", "install_url": "https://github.com/google-gemini/gemini-cli",
      "login_cmd": "gemini  (then sign in)",
-     "blurb": "Google's Gemini 2.5 — free tier available on Google AI Studio.",
+     "blurb": "Google Gemini 3 auto routing through Gemini CLI; free tier available.",
      "provider_ids": ["gemini"]},
 ]
 
@@ -3410,7 +3518,7 @@ def _load_soul(mode: str = "api") -> str:
     # Alias auto-ride: the Claude CLI tier aliases resolve to the newest model of
     # that tier at call time. Report them as `claude-<tier>-latest` so the identity
     # rule below still sees the "claude" substring and reports honestly.
-    if p_model in ("opus", "sonnet", "haiku"):
+    if p_model in ("opus", "sonnet", "haiku", "fable"):
         p_model = f"claude-{p_model}-latest"
     p_kind    = p_cfg.get("kind", "subprocess")
     transport = {
@@ -3475,7 +3583,7 @@ def _load_soul(mode: str = "api") -> str:
         f'  {{"path":"~/Documents/MyProject","provider":"codex","role":"Write the new feature"}},\n'
         f'  {{"path":"~/Documents/MyProject","provider":"claude-cli","role":"Audit the code"}}\n'
         f']}}<</spawn_workspaces>>\n\n'
-        f"Valid provider ids: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-mini, gemini, ollama, ollama-small. "
+        f"Valid provider ids: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, ollama, ollama-small. "
         f"After the marker block, give the Captain a single short confirmation line in your normal voice.\n\n"
         f"## RE-ROOT THE CURRENT CHAT PANE — set_project_path\n"
         f"When the Captain asks you to switch / change / re-root / move / open the **current** "
@@ -3550,7 +3658,14 @@ def _load_soul(mode: str = "api") -> str:
         f"a few keywords. ALL of those phrases map to this one tool. Do NOT guess or "
         f"apologize for not remembering. It is cheap, fast, and scoped to the current pane "
         f"by default. Use `scope='all'` to search across every pane, or `scope='<project "
-        f"path>'` to target a specific one. Always search before claiming you don't remember.\n\n"
+        f"path>'` to target a specific one. Always search before claiming you don't remember.\n"
+        f"**Resuming a session - default to a CROSS-PANE search.** When the user asks to "
+        f"'pick up where we left off', 'continue', 'resume', 'pull up our previous convos', "
+        f"'what were we working on', or any variant, ALWAYS run `search_history` with "
+        f"`scope='all'` FIRST, before answering from the visible 20 turns and before ever "
+        f"claiming you don't remember. The live context shows only the last 20 turns of the "
+        f"CURRENT pane, and the user's active thread is very often in a DIFFERENT pane. "
+        f"Search broadly, then present the distinct threads for the user to pick.\n\n"
         f"**CLI-mode escape hatch**: if no `search_history` tool is registered in your "
         f"current toolset (i.e. you are running through the Claude Code CLI, Codex CLI, or "
         f"Gemini CLI), curl the bridge endpoint instead via your built-in shell tool:\n"
@@ -3648,7 +3763,7 @@ def _load_soul(mode: str = "api") -> str:
         f"`desktop_move`, `desktop_cursor_position`, `desktop_screen_size`. The native "
         f"Anthropic computer-use tool was wired for the API providers but those were "
         f"removed by Captain order — only the DIY desktop_* tools are reachable now.\n\n"
-        f"**CLI-mode escape hatch (claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-mini, gemini):** the "
+        f"**CLI-mode escape hatch (claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini):** the "
         f"tools above are not in your toolset — hit the bridge over HTTP using your shell "
         f"tool. All endpoints are at `http://localhost:{PORT}/computer/*` and accept JSON.\n"
         f"  Screen info (size + cursor; call once at start):\n"
@@ -3714,6 +3829,11 @@ def _load_soul(mode: str = "api") -> str:
             "- If a question genuinely needs a long answer, give the headline first in one "
             "  sentence, then ask if the Captain would like the full briefing."
         )
+
+    # Per-window response-style dial (length + technical depth). Empty unless a
+    # slider was moved off its balanced default for this pane.
+    _style_len, _style_depth = _current_style()
+    soul += _style_directive(_style_len, _style_depth)
 
     return soul
 
@@ -4328,7 +4448,7 @@ TOOLS.append({
                     "type": "object",
                     "properties": {
                         "path":     {"type": "string", "description": "Absolute path to the project folder."},
-                        "provider": {"type": "string", "description": "Provider id. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-mini, gemini, ollama, ollama-small."},
+                        "provider": {"type": "string", "description": "Provider id. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, ollama, ollama-small."},
                         "role":     {"type": "string", "description": "Short assignment for that window — what the Captain wants this pane to do (e.g. 'Write the new feature', 'Audit the diff', 'Research alternatives')."},
                     },
                     "required": ["path", "provider", "role"],
@@ -4355,7 +4475,7 @@ TOOLS.append({
             "name":     {"type": "string", "description": "Short title shown on the Standing Orders page."},
             "cron":     {"type": "string", "description": "5-field cron expression: 'min hr dom mon dow'. Examples: '0 8 * * *' = daily 08:00; '*/15 * * * *' = every 15 min; '0 9 * * 1-5' = weekdays 09:00."},
             "prompt":   {"type": "string", "description": "Exactly what you should do/think/answer when the order fires. Write it as if the Captain just messaged you with it."},
-            "provider": {"type": "string", "description": "Provider id to dispatch through. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-mini, gemini, ollama, ollama-small."},
+            "provider": {"type": "string", "description": "Provider id to dispatch through. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, ollama, ollama-small."},
             "enabled":  {"type": "boolean", "description": "Default true. Set false to create-but-pause."},
             "notify_telegram": {"type": "boolean", "description": "Default false. If true, the result is also DM'd to the Captain via Telegram when the order fires (requires TELEGRAM_BOT_TOKEN configured)."},
         },
@@ -5444,6 +5564,8 @@ def _marker_filter_sse(downstream):
         if suppressed[0] and event_type == 'thinking':
             return
         if event_type != 'token':
+            if event_type == 'done':
+                finalize()
             downstream(event_type, text)
             return
         buf[0] += text
@@ -5620,30 +5742,112 @@ def tool_recall_memory() -> str:
 import struct as _struct
 import hashlib as _hashlib
 
-RECALL_INDEX_DB    = PROJECT_DIR / "recall_index.db"
+# Recall index path is owned by the active user; do not redefine it here.
 EMBED_MODEL        = "nomic-embed-text"
 EMBED_DIMS         = 768
-EMBED_API          = "http://localhost:11434/api/embeddings"
+# 127.0.0.1, not "localhost": on Windows "localhost" resolves to ::1 first, and a
+# refused IPv6 connect then an IPv4 retry costs ~4.1s vs ~2.0s for plain IPv4.
+EMBED_HOST         = "127.0.0.1"
+EMBED_PORT         = 11434
+EMBED_API          = f"http://{EMBED_HOST}:{EMBED_PORT}/api/embeddings"
 _recall_lock       = threading.Lock()
 _embed_unavailable_logged = False   # noisy-log guard
+
+# ── Ollama circuit breaker ────────────────────────────────────────────────────
+# A refused connection to localhost:11434 costs ~2.2s on Windows (IPv6 ::1 then
+# IPv4 retry), NOT a fast fail. With Ollama down that turned a rebuild of ~7.8k
+# rows into a ~4.8 HOUR synchronous stall on the message-send path. The old
+# `_embed_unavailable_logged` flag only silenced the log; it never stopped the
+# retries. This breaker does: after N consecutive failures we stop calling out
+# entirely for a cooldown, so a dead Ollama costs ~0 instead of hours.
+_EMBED_FAIL_THRESHOLD = 3       # consecutive failures before the breaker opens
+_EMBED_COOLDOWN_SEC   = 300     # stay open 5 min, then allow one probe
+_EMBED_TIMEOUT_SEC    = 5       # was 12 - an embed that slow is not worth waiting on
+_REBUILD_EMBED_BUDGET_SEC = 600  # cap time spent embedding in any one rebuild
+_embed_fail_count     = 0
+_embed_breaker_until  = 0.0     # monotonic deadline; 0 = closed
+
+
+_EMBED_PROBE_TIMEOUT  = 0.35    # raw TCP probe; refused connect costs ~0.25s
+
+
+def _ollama_reachable() -> bool:
+    """Fast TCP reachability probe for Ollama.
+
+    Discovering Ollama is down via urllib costs ~4.1s on Windows (the OS retries
+    a refused connect). A raw socket connect with a tight timeout costs ~0.25s -
+    16x cheaper - and that probe is what the FIRST call after the breaker cools
+    down has to pay, so it is worth getting right."""
+    import socket as _socket
+    try:
+        with _socket.create_connection((EMBED_HOST, EMBED_PORT),
+                                       timeout=_EMBED_PROBE_TIMEOUT):
+            return True
+    except Exception:
+        return False
+
+
+def _embed_breaker_open() -> bool:
+    """True when we should skip the network call entirely."""
+    return time.monotonic() < _embed_breaker_until
+
+
+def _embed_note_failure() -> None:
+    global _embed_fail_count, _embed_breaker_until, _embed_unavailable_logged
+    _embed_fail_count += 1
+    if _embed_fail_count >= _EMBED_FAIL_THRESHOLD and not _embed_breaker_open():
+        _embed_breaker_until = time.monotonic() + _EMBED_COOLDOWN_SEC
+        log.warning(
+            f"[RECALL] embedding circuit breaker OPEN after {_embed_fail_count} "
+            f"consecutive failures; skipping embeddings for "
+            f"{_EMBED_COOLDOWN_SEC}s (keyword search still works). "
+            f"Start Ollama and `ollama pull {EMBED_MODEL}` to restore semantic search."
+        )
+        _embed_unavailable_logged = True
+
+
+def _embed_note_success() -> None:
+    global _embed_fail_count, _embed_breaker_until, _embed_unavailable_logged
+    if _embed_fail_count or _embed_breaker_until:
+        log.info("[RECALL] embedding circuit breaker CLOSED - Ollama reachable again")
+    _embed_fail_count    = 0
+    _embed_breaker_until = 0.0
+    _embed_unavailable_logged = False
 
 
 def _embed_text(text: str) -> bytes | None:
     """Embed via Ollama. Returns packed float32 bytes, or None on failure
-    (caller should log+continue — embedding is an enhancement, not required)."""
+    (caller should log+continue - embedding is an enhancement, not required)."""
     global _embed_unavailable_logged
     if not text or not text.strip():
+        return None
+    # Breaker open => do not touch the network at all. This is the difference
+    # between a dead Ollama costing ~0 and costing ~2.2s per row.
+    if _embed_breaker_open():
+        return None
+    # Cheap reachability check before the expensive urllib call.
+    if not _ollama_reachable():
+        if not _embed_unavailable_logged:
+            log.warning(
+                f"[RECALL] Ollama not reachable at {EMBED_HOST}:{EMBED_PORT}; "
+                f"falling back to keyword-only search."
+            )
+            _embed_unavailable_logged = True
+        _embed_note_failure()
         return None
     try:
         body = json.dumps({"model": EMBED_MODEL, "prompt": text[:8000]}).encode()
         req  = urllib.request.Request(EMBED_API, data=body,
                                       headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=12) as r:
+        with urllib.request.urlopen(req, timeout=_EMBED_TIMEOUT_SEC) as r:
             data = json.loads(r.read().decode("utf-8"))
         vec = data.get("embedding") or []
         if len(vec) != EMBED_DIMS:
+            _embed_note_failure()
             return None
-        return _struct.pack(f"{EMBED_DIMS}f", *vec)
+        out = _struct.pack(f"{EMBED_DIMS}f", *vec)
+        _embed_note_success()
+        return out
     except Exception as e:
         if not _embed_unavailable_logged:
             log.warning(
@@ -5652,6 +5856,7 @@ def _embed_text(text: str) -> bytes | None:
                 f"semantic search."
             )
             _embed_unavailable_logged = True
+        _embed_note_failure()
         return None
 
 
@@ -5849,10 +6054,15 @@ def _build_recall_index() -> tuple[int, int, str]:
         """)
 
         total, embedded = 0, 0
+        # Soft budget: the INDEX always completes (keyword search is the floor),
+        # but we stop paying for new embeddings past this deadline so one slow
+        # rebuild can never run away. Missing embeddings are filled in on the
+        # next rebuild, since content_hash makes it incremental.
+        _embed_deadline = time.monotonic() + _REBUILD_EMBED_BUDGET_SEC
         for source, pane, role, ts, ref, content in _iter_index_sources():
             h = _hash_content(content)
             blob = existing.get(h)
-            if blob is None:
+            if blob is None and time.monotonic() < _embed_deadline:
                 blob = _embed_text(content)
             if blob is not None:
                 embedded += 1
@@ -5872,8 +6082,39 @@ def _build_recall_index() -> tuple[int, int, str]:
         return 0, 0, str(e)
 
 
+# ── Index freshness: background-only ──────────────────────────────────────────
+# This used to rebuild SYNCHRONOUSLY on the message-send path. The archive mtime
+# moves on EVERY turn, so every single message triggered a full rebuild and the
+# user waited for it before the LLM subprocess was even spawned. That is the
+# "200+ seconds to initiate" and the "it never went through" symptom.
+# Now: the rebuild runs on a background daemon thread and the search always
+# returns immediately against whatever index is on disk. A marginally stale
+# recall hint is fine; a stalled turn is not.
+_recall_rebuild_thread  = None
+_recall_rebuild_lock    = threading.Lock()
+_recall_last_rebuild    = 0.0
+_RECALL_DEBOUNCE_SEC    = 90.0   # don't churn a rebuild more than once per 90s
+
+
+def _recall_rebuild_worker(latest: float) -> None:
+    global _recall_last_rebuild
+    try:
+        with _recall_lock:
+            t0 = time.monotonic()
+            total, embedded, err = _build_recall_index()
+            _recall_last_rebuild = time.monotonic()
+            log.info(
+                f"[RECALL] background rebuild - {total} items indexed "
+                f"({embedded} with embeddings) in {time.monotonic() - t0:.1f}s"
+                + (f" (err={err})" if err else "")
+            )
+    except Exception as e:
+        log.exception(f"[RECALL] background rebuild failed: {e}")
+
+
 def _ensure_recall_index_fresh() -> None:
-    """Lazy rebuild when any indexed source's mtime moves."""
+    """Kick off a background rebuild if sources moved. NEVER blocks the caller."""
+    global _recall_rebuild_thread
     try:
         latest = _index_inputs_mtime()
         if latest == 0.0:
@@ -5881,14 +6122,18 @@ def _ensure_recall_index_fresh() -> None:
         db_mtime = RECALL_INDEX_DB.stat().st_mtime if RECALL_INDEX_DB.exists() else 0
         if latest <= db_mtime:
             return
-        with _recall_lock:
-            db_mtime = RECALL_INDEX_DB.stat().st_mtime if RECALL_INDEX_DB.exists() else 0
-            if latest <= db_mtime: return
-            total, embedded, err = _build_recall_index()
-            log.info(
-                f"[RECALL] rebuilt — {total} items indexed "
-                f"({embedded} with embeddings)" + (f" (err={err})" if err else "")
+        now = time.monotonic()
+        with _recall_rebuild_lock:
+            # Single-flight: one rebuild at a time, debounced.
+            if _recall_rebuild_thread is not None and _recall_rebuild_thread.is_alive():
+                return
+            if _recall_last_rebuild and (now - _recall_last_rebuild) < _RECALL_DEBOUNCE_SEC:
+                return
+            _recall_rebuild_thread = threading.Thread(
+                target=_recall_rebuild_worker, args=(latest,),
+                name="recall-rebuild", daemon=True,
             )
+            _recall_rebuild_thread.start()
     except Exception as e:
         log.exception(f"[RECALL] freshness check failed: {e}")
 
@@ -5971,10 +6216,34 @@ def _recall_search(query: str, k: int, scope: str, sources: list[str] | None = N
                 f"WHERE embedding IS NOT NULL {pane_filter} {src_filter}"
             )
             sims: list[tuple[int, float]] = []
-            for row in con.execute(emb_sql, [*pane_params, *src_params]):
-                v = _unpack_embedding(row["embedding"])
-                if v is None: continue
-                sims.append((row["id"], _cosine(qvec, v)))
+            _rows = con.execute(emb_sql, [*pane_params, *src_params]).fetchall()
+            try:
+                # Fast path: one vectorised matmul instead of N pure-python dot
+                # products. At archive scale (~8k rows x 768 dims) this is the
+                # difference between ~0.8s and ~5ms on EVERY message.
+                import numpy as _np
+                _ids, _blobs = [], []
+                for row in _rows:
+                    b = row["embedding"]
+                    if b and len(b) == EMBED_DIMS * 4:
+                        _ids.append(row["id"]); _blobs.append(b)
+                if _ids:
+                    M = _np.frombuffer(b"".join(_blobs), dtype=_np.float32).reshape(
+                        len(_ids), EMBED_DIMS
+                    )
+                    q = _np.asarray(qvec, dtype=_np.float32)
+                    qn = float(_np.linalg.norm(q))
+                    Mn = _np.linalg.norm(M, axis=1)
+                    denom = Mn * qn
+                    scores = _np.where(denom > 0, (M @ q) / _np.where(denom > 0, denom, 1), 0.0)
+                    sims = list(zip(_ids, scores.tolist()))
+            except Exception:
+                sims = []
+            if not sims:
+                for row in _rows:
+                    v = _unpack_embedding(row["embedding"])
+                    if v is None: continue
+                    sims.append((row["id"], _cosine(qvec, v)))
             sims.sort(key=lambda t: t[1], reverse=True)
             for rank, (rid, _s) in enumerate(sims[:pool]):
                 semantic_ranks[rid] = rank
@@ -7395,11 +7664,10 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
 
     env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY")}
     env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
-    # Model comes from the *current* provider's config so codex / codex-mini each
-    # pin the right GPT tier. Without -m the CLI silently uses its own default.
-    codex_model = PROVIDERS.get(_current_provider_id(), {}).get("model", "") or "gpt-5.5"
-    # Reasoning effort dial — codex takes it as a config override and has no
-    # "max" tier, so our max clamps to its xhigh ceiling. [] when set to Auto.
+    # Model comes from the *current* provider's config so every Codex tier
+    # pins the right GPT model. Without -m the CLI silently uses its own default.
+    codex_model = PROVIDERS.get(_current_provider_id(), {}).get("model", "") or "gpt-6-astra"
+    # Reasoning effort is constrained to the selected model capabilities.
     effort_args = _codex_effort_args()
     _eff_label  = f" · effort {effort_args[1].split('=')[-1]}" if effort_args else ""
     send_sse('thinking', f"*Codex Mode ({codex_model}{_eff_label}) — invoking ChatGPT subscription*")
@@ -7417,6 +7685,20 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
             cwd=_active_cwd(), env=env,
         )
         _register_active_proc(proc)
+        # Drain diagnostics concurrently: a full stderr pipe blocks stdout too.
+        from collections import deque
+        stderr_tail = deque(maxlen=128)
+        def drain_stderr():
+            try:
+                while True:
+                    chunk = proc.stderr.read(4096)
+                    if not chunk:
+                        break
+                    stderr_tail.append(chunk)
+            except (OSError, ValueError):
+                pass
+        stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
+        stderr_thread.start()
         proc.stdin.write(full_input)
         proc.stdin.close()
     except FileNotFoundError:
@@ -7429,6 +7711,7 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
     error_text = ""
     input_tokens = 0
     output_tokens = 0
+    terminal_received = False
 
     for line in proc.stdout:
         line = line.strip()
@@ -7488,6 +7771,8 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
             usage = ev.get("usage", {}) or {}
             input_tokens  = int(usage.get("input_tokens", 0))
             output_tokens = int(usage.get("output_tokens", 0))
+            terminal_received = True
+            break  # Terminal event; inherited pipes may never reach EOF.
 
         elif etype == "error":
             error_text += ev.get("message", "") + " "
@@ -7495,13 +7780,25 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
         elif etype == "turn.failed":
             err = (ev.get("error", {}) or {}).get("message", "turn failed")
             error_text += err
+            terminal_received = True
+            break
 
-    proc.wait()
+    # Bound CLI shutdown after the protocol reports completion.
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
     preempted    = getattr(proc, "_preempted", False)
     user_stopped = getattr(proc, "_user_stopped", False)
-    was_killed = ((proc.returncode is not None and proc.returncode < 0) and not preempted) or user_stopped
+    was_killed = ((proc.returncode is not None and proc.returncode < 0) and not preempted and not terminal_received) or user_stopped
     _unregister_active_proc(proc)
-    stderr = proc.stderr.read().strip()
+    stderr_thread.join(timeout=0.2)
+    stderr = "".join(list(stderr_tail)).strip()
     log.info(f"[CODEX] done exit={proc.returncode} final_len={len(final_text)} in={input_tokens} out={output_tokens} preempted={preempted} error={error_text[:120]!r}")
 
     if preempted:
@@ -7560,7 +7857,7 @@ def ask_gemini_cli_stream(message: str, project_path: str, send_sse) -> None:
             # --yolo: auto-approve tool calls; --skip-trust: bypass the trusted-
             # folders check that otherwise demotes us back to "default" approval
             # mode and refuses to run headlessly in untrusted cwd.
-            [exe, "--yolo", "--skip-trust"],
+            [exe, "--model", PROVIDERS["gemini"]["model"], "--yolo", "--skip-trust"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
             cwd=_active_cwd(), env=env,
@@ -7898,12 +8195,14 @@ def _provider_runner(provider_id: str):
         "claude-cli-opus-48":ask_hermes_cli_stream,  # same runner; pinned claude-opus-4-8
         "claude-cli-sonnet": ask_hermes_cli_stream,  # same runner; model read from PROVIDERS[active]['model']
         "claude-cli-haiku":  ask_hermes_cli_stream,  # same runner; subscription Haiku for fast no-cost voice
-        "claude-cli-fable":  ask_hermes_cli_stream,  # same runner; subscription Fable 5 — most powerful tier
+        "claude-cli-fable":  ask_hermes_cli_stream,  # same runner; subscription Fable latest
         # claude-api / claude-api-fast removed by Captain order (2026-05-30) —
         # ask_hermes_stream is now unreachable from the dispatcher but kept
         # intact as dead code for an easy revert if API access is wanted back.
         "codex":             ask_codex_cli_stream,
-        "codex-mini":        ask_codex_cli_stream,  # same runner; model from PROVIDERS[active]
+        "codex-sol":         ask_codex_cli_stream,
+        "codex-luna":        ask_codex_cli_stream,
+        "codex-mini":        ask_codex_cli_stream,  # same runner; legacy id for fast tier
         "gemini":            ask_gemini_cli_stream,
         "ollama":            ask_ollama_stream,
         "ollama-small":      ask_ollama_stream,     # same runner; model read from PROVIDERS[active]['model']
@@ -9300,19 +9599,32 @@ def build_msd() -> dict:
 # Per-model approximate context windows (input tokens). Used to compute the
 # remaining headroom shown in the CONTEXT BUDGET sidebar panel.
 _MODEL_CONTEXT_WINDOWS = {
-    "opus":                    200_000,  # tier aliases (alias auto-ride) — the live model strings
-    "sonnet":                  200_000,
+    "opus":                  1_000_000,  # tier aliases (alias auto-ride)
+    "sonnet":                1_000_000,
     "haiku":                   200_000,
-    "claude-fable-5":          200_000,  # 1M-capable; capped to 200K like siblings for the sidebar
-    "claude-opus-5":           200_000,  # 1M-capable; capped to 200K like siblings for the sidebar
+    "fable":                 1_000_000,
+    "claude-fable-5-1":      1_000_000,
+    "claude-fable-5":        1_000_000,
+    "claude-opus-5-5":       1_000_000,
+    "claude-opus-5":         1_000_000,
     "claude-opus-4-8":         200_000,
     "claude-opus-4-7":         200_000,  # legacy — kept so older history doesn't NaN the sidebar
+    "claude-sonnet-5-5":     1_000_000,
+    "claude-sonnet-5":       1_000_000,
     "claude-sonnet-4-6":       200_000,
     "claude-haiku-4-5":        200_000,
     "claude-haiku-4-5-20251001": 200_000,
     "gpt-5":                   400_000,  # legacy — kept so older history doesn't NaN the sidebar
+    "gpt-6-astra":             272_000,
+    "gpt-6.1-sol":             272_000,
+    "gpt-6-sol":               272_000,
+    "gpt-6-luna":              272_000,
+    "gpt-5.6-sol":             272_000,
+    "gpt-5.6-terra":           272_000,
+    "gpt-5.6-luna":            272_000,
     "gpt-5.5":                 400_000,
     "gpt-5.4-mini":            400_000,
+    "auto-gemini-3":          1_000_000,
     "gemini-2.5-pro":          1_000_000,
     "qwen2.5-coder:7b":         32_768,
     "qwen2.5:3b":               32_768,
@@ -10297,7 +10609,7 @@ class Handler(BaseHTTPRequestHandler):
                         "effort_levels": EFFORT_LEVELS})
 
         elif path == "/effort":
-            self._json({"active": ACTIVE_EFFORT, "levels": EFFORT_LEVELS})
+            self._json({"active": ACTIVE_EFFORT, "levels": _provider_effort_levels(ACTIVE_PROVIDER)})
 
         elif path == "/agents":
             # Editable per-officer personality files (~/.claude/agents/*.md),
@@ -11771,7 +12083,7 @@ class Handler(BaseHTTPRequestHandler):
             ACTIVE_EFFORT = new_effort
             _save_active_provider()   # same state file holds both
             log.info(f"[EFFORT] switched to {ACTIVE_EFFORT or '(auto)'}")
-            self._json({"active": ACTIVE_EFFORT, "levels": EFFORT_LEVELS})
+            self._json({"active": ACTIVE_EFFORT, "levels": _provider_effort_levels(ACTIVE_PROVIDER)})
 
         elif path == "/llm/install":
             # kind='ollama' → pull a local model;  kind='cli' → install a connector
@@ -11972,7 +12284,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/model":
             global MODEL
             new_model = data.get("model", "")
-            allowed = ("sonnet", "opus", "claude-sonnet-4-6", "claude-opus-4-8")
+            allowed = ("sonnet", "opus", "fable", "claude-sonnet-5", "claude-opus-5-5", "claude-sonnet-4-6", "claude-opus-4-8")
             if new_model not in allowed:
                 self._json({"error": f"model must be one of {allowed}"}, 400)
                 return
@@ -12044,9 +12356,12 @@ class Handler(BaseHTTPRequestHandler):
             _request_attachments.list = attachments
             # Per-pane reasoning-effort override. Absent / unrecognized → the
             # globally selected level applies.
-            _req_effort = _normalize_effort(data.get("effort")) if data.get("effort") else None
+            _req_effort = _normalize_effort(data.get("effort"))
             if _req_effort is not None:
                 _effort_override.level = _req_effort
+            # Per-window response-style dial (length + technical depth).
+            _style_override.length = _normalize_style_level(data.get("verbosity"))
+            _style_override.depth = _normalize_style_level(data.get("tech_depth"))
             try:
                 if req_provider:
                     response = _dispatch_with_provider(req_provider, message, project_path, pane_id)
@@ -12055,6 +12370,8 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 _request_attachments.list = []
                 _effort_override.level = None
+                _style_override.length = None
+                _style_override.depth = None
 
             log.info(f"/chat response={response!r}")
             self._json({"response": response})
@@ -12070,7 +12387,11 @@ class Handler(BaseHTTPRequestHandler):
             req_provider = data.get("provider", "")
             # Per-request reasoning-effort override (pane effort dropdown).
             # None = inherit the globally selected level.
-            req_effort = _normalize_effort(data.get("effort")) if data.get("effort") else None
+            req_effort = _normalize_effort(data.get("effort"))
+            # Per-window response-style dial (length + technical depth sliders).
+            # None = balanced default (no directive injected).
+            req_style_len = _normalize_style_level(data.get("verbosity"))
+            req_style_depth = _normalize_style_level(data.get("tech_depth"))
             # Per-request main-chat agent (panel-header name dropdown).
             req_crew = data.get("crew", "")
             if req_crew:
@@ -12187,6 +12508,12 @@ class Handler(BaseHTTPRequestHandler):
                     prev_effort = getattr(_effort_override, "level", None)
                     if req_effort is not None:
                         _effort_override.level = req_effort
+                    # Response-style dial - same per-thread pattern so _load_soul
+                    # picks it up when it builds the system prompt.
+                    prev_style_len = getattr(_style_override, "length", None)
+                    prev_style_depth = getattr(_style_override, "depth", None)
+                    _style_override.length = req_style_len
+                    _style_override.depth = req_style_depth
                     # Stage attachments for the runner thread (read by
                     # ask_hermes_stream via _request_attachments).
                     _request_attachments.list = attachments
@@ -12215,6 +12542,8 @@ class Handler(BaseHTTPRequestHandler):
                             _provider_override.id = prev_id
                         if req_effort is not None:
                             _effort_override.level = prev_effort
+                        _style_override.length = prev_style_len
+                        _style_override.depth = prev_style_depth
                 finally:
                     # Safety net — if the runner exited (cleanly or via
                     # exception) without sending `done`, send it now so the
