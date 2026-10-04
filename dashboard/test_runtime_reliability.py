@@ -9,6 +9,9 @@ from contextlib import closing
 import hashlib
 import io
 import json
+import sys as _sys
+_sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+import cli_console
 import logging
 import os
 from pathlib import Path
@@ -180,7 +183,8 @@ class CompletionTests(unittest.TestCase):
                      _current_provider_id=lambda: "codex", _current_effort=lambda: "",
                      _codex_effort_args=lambda: [], PROVIDERS={"codex": {"model": "gpt-6-astra"}},
                      _active_cwd=lambda: ".", _register_active_proc=Mock(), _unregister_active_proc=Mock(),
-                     conversation_history=[], MAX_HISTORY=20, _save_history=Mock())
+                     conversation_history=[], MAX_HISTORY=20, _save_history=Mock(),
+                     cli_console=cli_console, _emit_login_needed=Mock(return_value="sign in"))
         functions(scope, "ask_codex_cli_stream")
         events = []
         scope["ask_codex_cli_stream"]("test", "", lambda *event: events.append(event))

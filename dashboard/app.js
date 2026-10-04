@@ -1273,6 +1273,13 @@ async function sendMessage() {
 
   _mainChatUsed = true;
 
+  // In-chat console: sign-in/setup commands (`claude login`, `!codex status`,
+  // `/login`), or input for a sign-in command that is waiting on the Captain.
+  if (text && mainBucket.length === 0) {
+    input.value = '';
+    if (await _consoleIntercept(_mainConsoleCtx(), text)) { clearChatDraft(); return; }
+  }
+
   // Snapshot + clear the staged attachments now so a fast second submit
   // can't double-send them.
   const attachments = mainBucket.splice(0);
@@ -1327,6 +1334,7 @@ async function _dispatchChatMessage(text, attachments) {
   let streamMsg = null;
   let streamEnded = false;   // set true when the `done` (or `error`) SSE event arrives
   let serverError = '';      // text from an `error` event, if any
+  let loginInfo = null;      // `needs_login` payload when the CLI is signed out
 
   // IDLE WATCHDOG (heartbeat-driven) — mirrors the project-pane path. A healthy
   // stream is NEVER silent: tokens, thinking lines, and a `: keepalive` SSE
@@ -1416,6 +1424,8 @@ async function _dispatchChatMessage(text, attachments) {
             if (speakReply) _speakStreamFeed(payload.text);
           } else if (evType === 'meta') {
             try { _streamMeta = JSON.parse(payload.text); } catch { _streamMeta = null; }
+          } else if (evType === 'needs_login') {
+            try { loginInfo = JSON.parse(payload.text); } catch { loginInfo = null; }
           } else if (evType === 'error') {
             // Server surfaced a hard error mid-stream. Capture it, end the loop.
             serverError = payload.text || 'Unknown error';
@@ -1462,6 +1472,7 @@ async function _dispatchChatMessage(text, attachments) {
       setStatus('STREAM ERROR');
       addLog(`Stream error: ${serverError}`);
     }
+    if (loginInfo) _renderLoginNeededCard(_mainConsoleCtx(), loginInfo);
 
   } catch (e) {
     clearInterval(_streamTimerInterval); _streamTimerInterval = null;
@@ -5994,6 +6005,333 @@ async function loadProviders() {
   }
 }
 
+// ══ In-chat console ═════════════════════════════════════════
+// Lets a buyer run the CLI sign-in / status / install commands right from a chat
+// pane: `claude login`, `codex login`, `gemini login`, `install codex`, `/login`,
+// or anything prefixed with `!`. The bridge (/console/*) owns the allowlist and
+// refuses anything else; it also refuses requests that don't come from this
+// machine. Output streams into a console card; while a sign-in command waits for
+// input (e.g. "Paste code here if prompted >"), the next thing typed in that
+// pane's chat box goes to the command instead of the AI.
+
+// paneKey → { sessionId, card, interactive }
+const _consoleActive = new Map();
+// Cheap client-side pre-filter. The bridge does the real parsing; anything it
+// doesn't recognise comes back `not_command` and (without `!`) goes to the AI.
+const _CONSOLE_CANDIDATE =
+  /^\s*(!\S|\/(login|logout|status)\s*$|(claude|codex|gemini|npm|install)(\s|$))/i;
+
+function _consoleEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function _consoleLinkify(text) {
+  return _consoleEsc(text).replace(/https?:\/\/[^\s<>"']+/g,
+    u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+}
+
+function _consoleScroll(winEl, wasPinned) {
+  if (wasPinned) winEl.scrollTop = winEl.scrollHeight;
+}
+
+// Build an empty console card in a chat window and return its handle.
+function _consoleCard(winEl, label) {
+  const wasPinned = _isPinnedToBottom(winEl);
+  const msg = document.createElement('div');
+  msg.className = 'chat-message data console-msg';
+  msg.innerHTML = `
+    <div class="avatar console-avatar">&gt;_</div>
+    <div class="bubble console-card">
+      <div class="console-head">
+        <span class="console-label">${_consoleEsc(label ? '$ ' + label : 'CONSOLE')}</span>
+        <span class="console-state"></span>
+        <button type="button" class="console-stop hidden" title="Stop this command">STOP</button>
+      </div>
+      <pre class="console-out hidden"></pre>
+      <div class="console-hint hidden"></div>
+      <div class="console-actions hidden"></div>
+    </div>`;
+  winEl.appendChild(msg);
+  _consoleScroll(winEl, wasPinned);
+  const card = {
+    el: msg, winEl, text: '',
+    out: msg.querySelector('.console-out'),
+    hint: msg.querySelector('.console-hint'),
+    actions: msg.querySelector('.console-actions'),
+    state: msg.querySelector('.console-state'),
+    stop: msg.querySelector('.console-stop'),
+  };
+  return card;
+}
+
+function _consoleAppend(card, text) {
+  if (!text) return;
+  const pinned = _isPinnedToBottom(card.winEl);
+  card.text = (card.text + text).slice(-100000);
+  card.out.classList.remove('hidden');
+  card.out.innerHTML = _consoleLinkify(card.text);
+  card.out.scrollTop = card.out.scrollHeight;
+  _consoleScroll(card.winEl, pinned);
+}
+
+function _consoleSetState(card, label, cls) {
+  card.state.textContent = label || '';
+  card.state.className = `console-state ${cls || ''}`;
+}
+
+const _CONSOLE_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' };
+
+function _consoleHint(card, html) {
+  const pinned = _isPinnedToBottom(card.winEl);
+  card.hint.innerHTML = html || '';
+  card.hint.classList.toggle('hidden', !html);
+  _consoleScroll(card.winEl, pinned);
+}
+
+function _consoleButton(card, label, onClick, primary) {
+  card.actions.classList.remove('hidden');
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'console-btn' + (primary ? ' primary' : '');
+  b.textContent = label;
+  b.addEventListener('click', () => { b.disabled = true; onClick(); });
+  const pinned = _isPinnedToBottom(card.winEl);
+  card.actions.appendChild(b);
+  _consoleScroll(card.winEl, pinned);
+  return b;
+}
+
+async function _consolePost(endpoint, payload) {
+  return fetch(`${API_BASE}/console/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+// Open an allowlisted command in a real terminal window on this machine.
+async function _consoleOpenTerminal(ctx, command) {
+  const card = _consoleCard(ctx.winEl, command);
+  try {
+    const res = await _consolePost('terminal', { command, provider: ctx.provider });
+    const j = await res.json();
+    _consoleRenderJson(ctx, card, j, command);
+  } catch (e) {
+    _consoleSetState(card, 'OFFLINE', 'err');
+    _consoleHint(card, 'The DATA bridge is not responding.');
+  }
+}
+
+// Render a non-streaming /console reply (help, refusal, error, terminal opened).
+function _consoleRenderJson(ctx, card, j, command) {
+  if (j.help && !j.not_command) {
+    _consoleSetState(card, 'HELP', 'ok');
+    _consoleAppend(card, j.help);
+  } else if (j.not_command) {
+    _consoleSetState(card, 'NOT ALLOWED', 'err');
+    _consoleAppend(card, `"${command}" isn't one of the commands this chat can run.\n\n${j.help || ''}`);
+  } else if (j.terminal) {
+    _consoleSetState(card, j.ok ? 'TERMINAL OPENED' : 'FAILED', j.ok ? 'ok' : 'err');
+    _consoleHint(card, renderMarkdown(j.message || ''));
+    if (j.ok && j.family) {
+      // The banner/model switcher re-check sign-in state while the buyer works
+      // in the terminal window (the banner poll also catches it).
+      _startAuthCtaPoll();
+      _consoleButton(card, "I'm signed in. Check now", async () => {
+        await _consoleRun(ctx, `${j.family} status`);
+        loadProviders();
+      });
+    }
+  } else if (j.error) {
+    _consoleSetState(card, j.forbidden ? 'LOCAL ONLY' : 'ERROR', 'err');
+    _consoleHint(card, renderMarkdown(j.error));
+    if (j.can_install && j.family) {
+      _consoleButton(card, `Install ${_CONSOLE_NAMES[j.family] || j.family}`, () => _consoleRun(ctx, `install ${j.family}`), true);
+    }
+  }
+}
+
+// Run a command in a pane. Resolves true once the command was handled (the
+// output keeps streaming in the background), false if the text should go to
+// the AI instead. `explicit` = the buyer typed `!` or clicked a button.
+function _consoleEcho(ctx) {
+  // Show the typed command as the Captain's bubble, once, and only after we
+  // know the console is handling it (so a fall-through to the AI isn't doubled).
+  if (ctx.pendingEcho) { ctx.appendUser(ctx.pendingEcho); ctx.pendingEcho = ''; }
+}
+
+async function _consoleRun(ctx, text, explicit = true) {
+  let res;
+  try {
+    res = await _consolePost('run', { command: text, provider: ctx.provider, pane_id: ctx.paneId });
+  } catch (e) {
+    if (!explicit) return false;
+    _consoleEcho(ctx);
+    const card = _consoleCard(ctx.winEl, text.replace(/^!/, ''));
+    _consoleSetState(card, 'OFFLINE', 'err');
+    _consoleHint(card, 'The DATA bridge is not responding.');
+    return true;
+  }
+  const ctype = res.headers.get('Content-Type') || '';
+  if (!ctype.includes('text/event-stream')) {
+    let j = {};
+    try { j = await res.json(); } catch (_) {}
+    // Not a command, or console unavailable here (e.g. phone via tunnel) →
+    // let a plain message fall through to the AI.
+    if (!explicit && (j.not_command || j.forbidden)) return false;
+    _consoleEcho(ctx);
+    const card = _consoleCard(ctx.winEl, text.replace(/^!/, '').trim());
+    _consoleRenderJson(ctx, card, j, text.replace(/^!/, '').trim());
+    return true;
+  }
+  _consoleEcho(ctx);
+  _consoleStream(ctx, res);   // fire-and-forget; the card updates live
+  return true;
+}
+
+async function _consoleStream(ctx, res) {
+  let card = null;
+  let sessionId = '';
+  let info = {};
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let exited = null;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop();
+      for (const evStr of events) {
+        if (!evStr.trim() || evStr.startsWith(':')) continue;
+        let evType = 'message', evData = '';
+        for (const line of evStr.split('\n')) {
+          if (line.startsWith('event: ')) evType = line.slice(7).trim();
+          else if (line.startsWith('data: ')) evData = line.slice(6);
+        }
+        let p = {};
+        try { p = JSON.parse(evData || '{}'); } catch (_) { continue; }
+        if (evType === 'start') {
+          info = p;
+          sessionId = p.session_id;
+          card = _consoleCard(ctx.winEl, p.label);
+          _consoleSetState(card, 'RUNNING', 'run');
+          card.stop.classList.remove('hidden');
+          card.stop.addEventListener('click', () => {
+            _consolePost('stop', { session_id: sessionId }).catch(() => {});
+          });
+          if (p.interactive) {
+            _consoleActive.set(ctx.key, { sessionId, card, interactive: true });
+            _consoleHint(card,
+              p.family === 'claude'
+                ? 'Your browser should open to the sign-in page. If it shows a code, paste it into the chat box below and press Enter. It goes to this command, not the AI.'
+                : 'Finish signing in in your browser. Anything you type in the chat box below goes to this command until it finishes.');
+          }
+        } else if (evType === 'out' && card) {
+          _consoleAppend(card, p.text);
+        } else if (evType === 'exit') {
+          exited = p;
+        }
+      }
+      if (exited) { reader.cancel().catch(() => {}); break; }
+    }
+  } catch (_) { /* connection dropped; fall through to finalize */ }
+
+  if (_consoleActive.get(ctx.key)?.sessionId === sessionId) _consoleActive.delete(ctx.key);
+  if (!card) return;
+  card.stop.classList.add('hidden');
+  if (!exited) {
+    _consoleSetState(card, 'DISCONNECTED', 'err');
+    _consoleHint(card, 'Lost contact with the command. Run it again if it did not finish.');
+    return;
+  }
+  const fam = exited.family || info.family || '';
+  const ok = exited.code === 0;
+  if (exited.stopped && !exited.timed_out) _consoleSetState(card, 'STOPPED', 'err');
+  else _consoleSetState(card, ok ? 'DONE' : `EXIT ${exited.code}`, ok ? 'ok' : 'err');
+  _consoleHint(card, '');
+
+  if (exited.action === 'login' || exited.action === 'status') {
+    if (exited.authenticated === true) {
+      _consoleHint(card, `✓ <strong>${_consoleEsc(_CONSOLE_NAMES[fam] || fam)}</strong> is signed in. Send your message again and it will answer.`);
+      card.el.classList.add('console-success');
+    } else if (exited.action === 'login' && !exited.stopped) {
+      _consoleHint(card, "Sign-in didn't finish. You can try again, or do it in a terminal window.");
+      _consoleButton(card, 'Try again', () => _consoleRun(ctx, `${fam} login`), true);
+      _consoleButton(card, 'Open in terminal', () => _consoleOpenTerminal(ctx, `${fam} login`));
+    }
+    loadProviders();
+  } else if (exited.action === 'logout') {
+    loadProviders();
+  } else if (exited.action === 'install') {
+    if (ok) {
+      _consoleHint(card, `✓ Installed. Next, sign in:`);
+      _consoleButton(card, `Sign in to ${_CONSOLE_NAMES[fam] || fam}`, () => _consoleRun(ctx, `${fam} login`), true);
+    } else {
+      _consoleHint(card, 'The install did not finish. The output above says why.');
+    }
+    loadProviders();
+  }
+}
+
+// Entry point from both send paths. Returns true when the text was consumed by
+// the console (command started, or input sent to a waiting command).
+async function _consoleIntercept(ctx, text) {
+  const active = _consoleActive.get(ctx.key);
+  if (active && active.interactive) {
+    const r = await _consolePost('input', { session_id: active.sessionId, text })
+      .then(r => r.json()).catch(() => ({ ok: false }));
+    if (r.ok) {
+      _consoleAppend(active.card, '\n› (sent)\n');
+      return true;
+    }
+    _consoleActive.delete(ctx.key);   // command already ended; treat as normal text
+  }
+  if (!text || text.length > 160 || text.includes('\n') || !_CONSOLE_CANDIDATE.test(text)) return false;
+  const explicit = text.trim().startsWith('!');
+  ctx.pendingEcho = text;
+  return _consoleRun(ctx, text.trim(), explicit);
+}
+
+// Sign-in card shown when a chat turn proves the CLI is logged out.
+function _renderLoginNeededCard(ctx, info) {
+  if (!info || !info.family) return;
+  const card = _consoleCard(ctx.winEl, `${info.family} login`);
+  _consoleSetState(card, 'SIGN-IN NEEDED', 'warn');
+  _consoleHint(card, `<strong>${_consoleEsc(info.name)}</strong> isn't signed in on this computer.`);
+  _consoleButton(card, 'Sign in', () => _consoleRun(ctx, `${info.family} login`), true);
+  if (!info.terminal_only) {
+    _consoleButton(card, 'Open in terminal', () => _consoleOpenTerminal(ctx, `${info.family} login`));
+  }
+  loadProviders();
+}
+
+function _mainConsoleCtx() {
+  const mainWs = [..._workspaces.values()].find(w => w.isMain);
+  return {
+    key: 'main',
+    winEl: document.getElementById('chat-window'),
+    provider: mainWs?.provider || _lastKnownActiveProvider || '',
+    paneId: _paneId('main'),
+    appendUser: (t) => { appendMessage('user', t); },
+  };
+}
+
+function _paneConsoleCtx(wsId) {
+  const ws = _workspaces.get(wsId);
+  const winEl = document.getElementById(`chat-win-ws${wsId}`);
+  return {
+    key: `ws${wsId}`,
+    winEl,
+    provider: ws?.provider || _lastKnownActiveProvider || '',
+    paneId: _paneId(`ws${wsId}`),
+    appendUser: (t) => { appendMessageToPane(winEl, 'user', t, ws?.crew); },
+  };
+}
+
 // ══ CLI sign-in call-to-action ══════════════════════════════
 // Shown when a CLI (e.g. Claude Code) is installed but NOT signed in, so DATA is
 // running on the local Ollama fallback brain. The backend flags this via the
@@ -6062,10 +6400,16 @@ function _renderAuthCta(needsAuth, providers, active) {
   el.innerHTML =
     `<div class="auth-cta-body">
        <span class="auth-cta-icon">◎</span>
-       <span class="auth-cta-text"><strong>${_ctaEsc(name)}</strong> is installed but not signed in${onFallback}. Sign in to use it:</span>
+       <span class="auth-cta-text"><strong>${_ctaEsc(name)}</strong> is installed but not signed in${onFallback}. Sign in right here, or run the command in a terminal:</span>
+       <button type="button" class="auth-cta-btn" id="auth-cta-signin">Sign in here</button>
        ${cmd ? `<code class="auth-cta-cmd" id="auth-cta-cmd" title="Click to copy">${_ctaEsc(cmd)}</code>` : ''}
        <button type="button" class="auth-cta-x" id="auth-cta-close" title="Dismiss until restart">✕</button>
      </div>`;
+  document.getElementById('auth-cta-signin')?.addEventListener('click', () => {
+    const fam = String(pid).startsWith('codex') ? 'codex'
+              : String(pid).startsWith('gemini') ? 'gemini' : 'claude';
+    _consoleRun(_mainConsoleCtx(), `${fam} login`);
+  });
   const cmdEl = document.getElementById('auth-cta-cmd');
   if (cmdEl) cmdEl.addEventListener('click', () => {
     navigator.clipboard?.writeText(cmd)
@@ -8113,6 +8457,13 @@ async function sendProjectMessage(wsId) {
   const winEl = document.getElementById(`chat-win-ws${wsId}`);
   if (!winEl) return;
 
+  // In-chat console (see _consoleIntercept) — sign-in/setup commands and input
+  // for a waiting sign-in command never reach the AI.
+  if (text && paneBucket.length === 0) {
+    if (input) input.value = '';
+    if (await _consoleIntercept(_paneConsoleCtx(wsId), text)) return;
+  }
+
   // Snapshot + clear staged attachments now so a fast second submit
   // can't double-send them.
   const attachments = paneBucket.splice(0);
@@ -8202,6 +8553,7 @@ async function sendProjectMessage(wsId) {
       let serverError = '';
       let streamDone = false;
       let paneMeta = null;
+      let loginInfo = null;   // `needs_login` payload when the CLI is signed out
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -8222,6 +8574,7 @@ async function sendProjectMessage(wsId) {
             if (evType === 'token')        answer += payload.text || '';
             else if (evType === 'thinking') _addThoughtLine(thoughtEl, payload.text);
             else if (evType === 'meta')    { try { paneMeta = JSON.parse(payload.text); } catch { paneMeta = null; } }
+            else if (evType === 'needs_login') { try { loginInfo = JSON.parse(payload.text); } catch { loginInfo = null; } }
             else if (evType === 'error')   { serverError = payload.text || ''; streamDone = true; }
             else if (evType === 'done')    streamDone = true;
           } catch { /* malformed SSE line, skip */ }
@@ -8237,6 +8590,7 @@ async function sendProjectMessage(wsId) {
         removeThinkingFromPane(winEl);
       }
       appendMessageToPane(winEl, 'data', finalText, ws.crew);
+      if (loginInfo) _renderLoginNeededCard(_paneConsoleCtx(wsId), loginInfo);
       if (streamDone && answer) {
         playDataSound('receive');
         addLog(`[${ws.name}] ${crewLabel(ws.crew)} responded`);

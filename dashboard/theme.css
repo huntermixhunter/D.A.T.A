@@ -6018,6 +6018,65 @@ body.theme-minimal .settings-toggle-cap:hover {
 }
 .auth-cta-x:hover { color: var(--data-text); background: rgba(255,255,255,0.06); }
 
+/* ══ In-chat console card ═══════════════════════════════════════
+   Output of sign-in / setup commands run from the chat (`claude login`,
+   `install codex`, ...). Monospace, theme-coloured, with a state pill. */
+.chat-message.console-msg .bubble.console-card {
+  width: min(100%, 640px);
+  border-left: 3px solid var(--data-teal);
+}
+.chat-message.console-msg.console-success .bubble.console-card { border-left-color: var(--data-green); }
+.console-avatar { font-family: var(--font-mono); font-size: 12px; }
+.console-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 12.5px;
+}
+.console-label { color: var(--data-teal); word-break: break-all; flex: 1 1 auto; }
+.console-state {
+  font-family: var(--font-main); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; padding: 2px 8px; border-radius: 6px;
+  color: var(--data-bg); background: var(--data-text-dim);
+}
+.console-state:empty { display: none; }
+.console-state.run  { background: var(--data-blue); animation: console-pulse 1.4s ease-in-out infinite; }
+.console-state.ok   { background: var(--data-green); }
+.console-state.warn { background: var(--data-yellow); }
+.console-state.err  { background: var(--data-red); }
+@keyframes console-pulse { 50% { opacity: 0.55; } }
+.console-stop {
+  font-family: var(--font-main); font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--data-red); background: none; border: 1px solid var(--data-red);
+  border-radius: 6px; padding: 2px 8px; cursor: pointer;
+}
+.console-stop:hover { background: rgba(255,68,68,0.12); }
+.console-out {
+  margin: 8px 0 0; padding: 8px 10px; max-height: 260px; overflow: auto;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--data-text); background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+}
+.console-out a { color: var(--data-lightblue); text-decoration: underline; }
+.console-hint {
+  margin-top: 8px; font-family: var(--font-main); font-size: 13px; line-height: 1.45;
+  color: var(--data-text);
+}
+.console-hint strong { color: var(--data-yellow); }
+.console-hint code { font-family: var(--font-mono); }
+.console-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.console-btn {
+  font-family: var(--font-main); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--data-text); background: none;
+  border: 1px solid var(--data-text-dim); border-radius: 8px;
+  padding: 6px 14px; cursor: pointer; transition: filter 120ms ease, background 120ms ease;
+}
+.console-btn.primary { color: var(--data-bg); background: var(--data-green); border-color: var(--data-green); }
+.console-btn:hover:not(:disabled) { filter: brightness(1.12); background: rgba(255,255,255,0.05); }
+.console-btn.primary:hover:not(:disabled) { background: var(--data-green); }
+.console-btn:disabled { opacity: 0.45; cursor: default; }
+.console-card .hidden { display: none !important; }
+
 /* ═══════════════════════════════════════════════════════════════
    CONNECTIONS HUB (widget grid) + reusable SLIDE-IN
    ═══════════════════════════════════════════════════════════════ */

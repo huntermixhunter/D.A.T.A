@@ -60,6 +60,9 @@ async function run(pane, terminal, cancelRejects) {
     },
     offlineResponse: () => 'UNEXPECTED OFFLINE FALLBACK', playDataSound() {},
     addLog() {}, setStatus() {}, fetchVitals() {}, crewLabel: x => x,
+    // In-chat console: "hello" is not a command, so the intercept declines.
+    _consoleIntercept: async () => false, _mainConsoleCtx: () => ({}),
+    _paneConsoleCtx: () => ({}), _renderLoginNeededCard() {},
   };
   vm.createContext(context);
   const name = pane === 'main' ? '_dispatchChatMessage' : 'sendProjectMessage';
@@ -81,3 +84,22 @@ for (const pane of ['main', 'project']) {
     }
   }
 }
+
+test('project: a console command never reaches the AI', { timeout: 2000 }, async () => {
+  let fetched = 0;
+  const input = { value: 'claude login' };
+  const ws = { path: '/test', provider: 'claude-cli', crew: 'test', name: 'test', isThinking: false };
+  const context = {
+    Map, document: { getElementById: id => (id.startsWith('pane-input') ? input : {}) },
+    _workspaces: new Map([[1, ws]]), _getPendingForPane: () => [],
+    fetch: async () => { fetched++; throw new Error('must not call the chat endpoint'); },
+    _paneConsoleCtx: () => ({ key: 'ws1' }),
+    _consoleIntercept: async (ctx, text) => ctx.key === 'ws1' && text === 'claude login',
+  };
+  vm.createContext(context);
+  vm.runInContext(productionFunction('sendProjectMessage'), context);
+  await context.sendProjectMessage(1);
+  assert.equal(fetched, 0);
+  assert.equal(input.value, '');
+  assert.equal(ws.isThinking, false);
+});

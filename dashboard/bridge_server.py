@@ -1685,6 +1685,74 @@ def _needs_auth_payload() -> dict:
     }
 
 
+# ── In-chat console + logged-out detection (see cli_console.py) ──────────────
+import cli_console  # noqa: E402  (sibling module; dashboard dir is on sys.path)
+
+_console_sessions = cli_console.SessionRegistry()
+
+
+def _bust_auth_cache() -> None:
+    """Forget every cached auth probe so the next /providers call re-reads the
+    credential files (used right after a console login/logout finishes, and when
+    a chat turn proves a CLI is logged out despite what its creds file says)."""
+    with _provider_lock:
+        _auth_probe_cache.clear()
+
+
+def _flag_cli_logged_out(provider_id: str) -> None:
+    """A chat turn just proved this CLI can't answer because it's signed out.
+    Record it so the sign-in banner shows and the model switcher stops treating
+    the CLI as usable."""
+    global _PENDING_CLI_AUTH
+    fam = cli_console.family_for_provider(provider_id)
+    base = cli_console.FAMILIES.get(fam, {}).get("provider", provider_id)
+    _bust_auth_cache()
+    if base:
+        _PENDING_CLI_AUTH = base
+
+
+def _cli_logged_in(family: str):
+    """Ask the CLI itself whether it is signed in (authoritative, unlike the
+    credential-file probe, which can be stale or point at the wrong profile).
+    Used after a console login/logout/status. Returns True/False, or falls back
+    to the file probe when the CLI has no status command or the call fails."""
+    pid = cli_console.FAMILIES.get(family, {}).get("provider", "")
+    exe = _provider_executable(pid) if pid else ""
+    _bust_auth_cache()
+    if exe and family in ("claude", "codex"):
+        argv = [exe, "auth", "status", "--json"] if family == "claude" else [exe, "login", "status"]
+        try:
+            kw = {}
+            if os.name == "nt":
+                kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=20, env=cli_console.child_env(),
+                               cwd=str(Path.home()), **kw)
+            if family == "claude":
+                try:
+                    return bool(json.loads(r.stdout or "{}").get("loggedIn"))
+                except ValueError:
+                    pass
+            else:
+                return r.returncode == 0 and not cli_console.looks_logged_out("codex", r.stdout + r.stderr)
+        except Exception as e:
+            log.warning(f"[console] {family} status check failed: {e}")
+    return _provider_authenticated(pid) if pid else None
+
+
+def _emit_login_needed(send_sse, provider_id: str) -> str:
+    """Replace a raw CLI auth error with sign-in instructions in the reply plus a
+    structured `needs_login` SSE event (the dashboard renders it as a card with a
+    Sign in button). Returns the plain-text message that was sent."""
+    fam = cli_console.family_for_provider(provider_id) or "claude"
+    notice = cli_console.login_notice(fam)
+    _flag_cli_logged_out(provider_id)
+    log.info(f"[auth] {provider_id} is logged out — sent sign-in instructions to chat")
+    send_sse('token', notice["text"])
+    send_sse('needs_login', json.dumps({k: v for k, v in notice.items() if k != "text"}))
+    return notice["text"]
+
+
 # ════════════════════════════════════════════════════════════════════════
 # AI CONNECTORS — hardware detection, local-model catalog, recommendation,
 # and one-click install. Powers the "AI Connectors" dashboard page: detect
@@ -7444,6 +7512,10 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         return
 
     final_text = ""
+    # Set when Claude Code reports it is signed out ("Not logged in · Please run
+    # /login", error=authentication_failed). The turn is then answered with
+    # sign-in instructions instead of a raw error and is NOT saved to history.
+    auth_failed = False
 
     def _format_cli_detail(tool_name, inp):
         raw = (inp.get("query") or inp.get("url") or inp.get("path") or
@@ -7467,6 +7539,11 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
 
             etype = ev.get("type", "")
             log.debug(f"[CLI-STREAM] event type={etype!r}")
+
+            if etype == "assistant" and ev.get("error") == "authentication_failed":
+                # Synthetic "Not logged in" message — handled at the result event.
+                auth_failed = True
+                continue
 
             if etype == "assistant":
                 msg = ev.get("message", {})
@@ -7521,7 +7598,11 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                 is_error    = ev.get("is_error", False)
                 subtype     = ev.get("subtype", "")
                 log.info(f"[CLI-STREAM] result event: is_error={is_error} subtype={subtype!r} result_text={result_text[:120]!r}")
-                if is_error:
+                if is_error and not final_text and (
+                        auth_failed or cli_console.looks_logged_out("claude", result_text)):
+                    auth_failed = True
+                    final_text = _emit_login_needed(send_sse, _current_provider_id())
+                elif is_error:
                     if subtype == "max_turns":
                         err_msg = "I reached my turn limit on that task, Captain. Try switching to API mode for complex multi-step work, or break the request into smaller steps."
                     elif result_text:
@@ -7586,12 +7667,17 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         if not final_text:
             final_text = "(rooted)"  # placeholder so history isn't empty
     elif not final_text:
-        fallback = stderr or "I was unable to generate a response, Captain."
-        send_sse('token', fallback)
-        final_text = fallback
+        if cli_console.looks_logged_out("claude", stderr):
+            auth_failed = True
+            final_text = _emit_login_needed(send_sse, _current_provider_id())
+        else:
+            fallback = stderr or "I was unable to generate a response, Captain."
+            send_sse('token', fallback)
+            final_text = fallback
 
-    # Save to history (skip on abort to avoid polluting context)
-    if not was_killed:
+    # Save to history (skip on abort to avoid polluting context, and skip a
+    # signed-out turn — the buyer will resend once they've logged in).
+    if not was_killed and not auth_failed:
         conversation_history.append({"role": "user",      "content": message})
         conversation_history.append({"role": "assistant",  "content": final_text.strip()})
         if len(conversation_history) > MAX_HISTORY:
@@ -7811,12 +7897,15 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
         if not final_text:
             send_sse('token', msg); final_text = msg
     elif not final_text.strip():
-        if "401" in error_text or "Unauthorized" in error_text:
-            fallback = "Codex authentication failed, Captain. Run `codex login` once in PowerShell to link your ChatGPT account."
+        if cli_console.looks_logged_out("codex", f"{error_text}\n{stderr}"):
+            # Sends its own reply text + needs_login card. error_text is set, so
+            # the history write below is skipped for this signed-out turn.
+            final_text = _emit_login_needed(send_sse, _current_provider_id())
+            error_text = error_text or "auth"
         else:
             fallback = error_text.strip() or stderr or "Codex returned no output, Captain."
-        send_sse('token', fallback)
-        final_text = fallback
+            send_sse('token', fallback)
+            final_text = fallback
 
     if not was_killed and not error_text:
         conversation_history.append({"role": "user",      "content": message})
@@ -7900,15 +7989,24 @@ def ask_gemini_cli_stream(message: str, project_path: str, send_sse) -> None:
         send_sse('done', '')
         return
 
+    gemini_auth_failed = False
     if was_killed:
         msg = "Aborted, Captain."
         if not final_text:
             send_sse('token', msg); final_text = msg
+    elif (proc.returncode not in (0, None) or not final_text.strip()) and \
+            cli_console.looks_logged_out("gemini", f"{stderr}\n{final_text[-2000:]}"):
+        # Gemini exits non-zero with an "auth method" / credentials error when it
+        # has never been signed in (or its OAuth grant lapsed).
+        gemini_auth_failed = True
+        if final_text.strip():
+            send_sse('token', "\n\n")
+        final_text = _emit_login_needed(send_sse, "gemini")
     elif not final_text.strip():
         fallback = stderr or "Gemini returned no output, Captain."
         send_sse('token', fallback); final_text = fallback
 
-    if not was_killed:
+    if not was_killed and not gemini_auth_failed:
         conversation_history.append({"role": "user",      "content": message})
         conversation_history.append({"role": "assistant", "content": final_text.strip()})
         if len(conversation_history) > MAX_HISTORY:
@@ -10271,6 +10369,152 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b'{"error":"auth_required"}')
         return False
 
+    # ── In-chat console ──────────────────────────────────────────────────────
+    # Runs ONLY the allowlisted sign-in / status / install commands defined in
+    # cli_console.parse_command. Even so, it executes programs on the buyer's
+    # PC, so every request must pass _console_gate:
+    #   • TCP peer is loopback (not a LAN client when LCARS_BIND_HOST=0.0.0.0);
+    #   • no proxy / tunnel headers (cloudflared connects from 127.0.0.1 too, so
+    #     loopback alone does NOT rule out a remote phone via the tunnel);
+    #   • Host is this bridge on localhost (defeats DNS rebinding);
+    #   • Origin, when sent, is the dashboard itself (the bridge replies CORS *,
+    #     so without this any web page the buyer visits could call it).
+    _CONSOLE_PROXY_HEADERS = ("Cf-Connecting-Ip", "Cf-Ray", "Cdn-Loop", "X-Forwarded-For",
+                              "X-Forwarded-Host", "X-Real-Ip", "Forwarded", "Via")
+
+    def _console_gate(self) -> str:
+        """'' if the request may use the console, else a buyer-facing reason."""
+        local_only = ("Commands only run on the computer DATA is installed on. "
+                      "Open the dashboard there (http://localhost:%d) to run them." % PORT)
+        peer = (self.client_address or ("",))[0]
+        if peer not in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+            return local_only
+        if any(self.headers.get(h) for h in self._CONSOLE_PROXY_HEADERS):
+            return local_only
+        allowed_hosts = {f"localhost:{PORT}", f"127.0.0.1:{PORT}", f"[::1]:{PORT}"}
+        host = (self.headers.get("Host") or "").strip().lower()
+        if host not in allowed_hosts:
+            return local_only
+        origin = (self.headers.get("Origin") or "").strip().lower()
+        if origin and origin not in {f"http://{h}" for h in allowed_hosts}:
+            return "Blocked: console requests must come from the DATA dashboard itself."
+        return ""
+
+    def _handle_console(self, path: str, body: bytes) -> None:
+        global _PENDING_CLI_AUTH
+        reason = self._console_gate()
+        if reason:
+            log.warning(f"[console] refused {path} from {self.client_address[0]} "
+                        f"origin={self.headers.get('Origin')!r} host={self.headers.get('Host')!r}")
+            self._json({"error": reason, "forbidden": True}, 403)
+            return
+        if path not in ("/console/run", "/console/input", "/console/stop", "/console/terminal"):
+            self._json({"error": "Unknown console endpoint"}, 404)
+            return
+        try:
+            data = json.loads(body or b"{}")
+            if not isinstance(data, dict):
+                raise ValueError("body must be a JSON object")
+        except Exception:
+            self._json({"error": "Invalid JSON"}, 400)
+            return
+
+        def _resolve(pid: str) -> str:
+            return _provider_executable(pid) if pid else ""
+
+        if path == "/console/input":
+            sess = _console_sessions.get(str(data.get("session_id", "")))
+            ok = bool(sess) and sess.send_input(str(data.get("text", ""))[:4000])
+            self._json({"ok": ok} if ok else {"ok": False, "error": "That command is no longer running."})
+            return
+
+        if path == "/console/stop":
+            sess = _console_sessions.get(str(data.get("session_id", "")))
+            if sess:
+                sess.stop()
+            self._json({"ok": bool(sess)})
+            return
+
+        text = str(data.get("command", ""))
+        spec = cli_console.parse_command(text, str(data.get("provider", "")))
+        if spec is None:
+            self._json({"not_command": True, "help": cli_console.help_text()})
+            return
+        if spec["kind"] == "help":
+            self._json({"help": cli_console.help_text()})
+            return
+        argv, err = cli_console.build_argv(spec, _resolve)
+        if err:
+            self._json({"error": err, "family": spec["family"],
+                        "can_install": spec["kind"] == "cli"})
+            return
+
+        # Terminal mode: TUI programs (gemini sign-in, interactive claude), or an
+        # explicit "Open in terminal" click on any allowlisted command.
+        if path == "/console/terminal" or spec["mode"] == "terminal":
+            ok, msg = cli_console.open_terminal(argv, spec["family"])
+            log.info(f"[console] terminal {'opened' if ok else 'FAILED'} for {spec['label']!r}")
+            self._json({"terminal": True, "ok": ok, "message": msg,
+                        "label": spec["label"], "family": spec["family"]})
+            return
+
+        try:
+            sess = _console_sessions.start(spec, argv, str(data.get("pane_id", "")))
+        except Exception as e:
+            log.exception(f"[console] failed to start {spec['label']!r}: {e}")
+            self._json({"error": f"Couldn't start `{spec['label']}` ({e})."})
+            return
+        log.info(f"[console] started {spec['label']!r} session={sess.id[:8]} pane={sess.pane_id!r}")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_cors()
+        self.end_headers()
+
+        def emit(event: str, payload: dict) -> bool:
+            try:
+                self.wfile.write(f"event: {event}\ndata: {json.dumps(payload)}\n\n".encode("utf-8"))
+                self.wfile.flush()
+                return True
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return False
+
+        emit("start", {"session_id": sess.id, "label": spec["label"], "family": spec["family"],
+                       "action": spec["action"], "interactive": spec["action"] == "login"})
+        alive = True
+        for kind, val in sess.events():
+            if kind == "out":
+                alive = emit("out", {"text": val})
+            elif kind == "keepalive":
+                try:
+                    self.wfile.write(b": keepalive\n\n"); self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    alive = False
+            elif kind == "exit":
+                fam = spec["family"]
+                authed = None
+                if fam and spec["kind"] == "cli" and spec["action"] in ("login", "logout", "status"):
+                    authed = _cli_logged_in(fam)
+                    if authed and _PENDING_CLI_AUTH and \
+                            cli_console.family_for_provider(_PENDING_CLI_AUTH) == fam and \
+                            not str(ACTIVE_PROVIDER).startswith("ollama"):
+                        _PENDING_CLI_AUTH = ""   # signed in and already on the CLI → no banner
+                elif spec["kind"] == "npm":
+                    _bust_auth_cache()
+                log.info(f"[console] {spec['label']!r} exited code={val} authed={authed} "
+                         f"stopped={sess.stopped} timed_out={sess.timed_out}")
+                emit("exit", {"code": val, "authenticated": authed, "family": fam,
+                              "action": spec["action"], "stopped": sess.stopped,
+                              "timed_out": sess.timed_out})
+                break
+            if not alive:
+                # Dashboard went away (tab closed / reload) — don't leave a login
+                # prompt waiting on stdin for 15 minutes.
+                sess.stop()
+                break
+
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
         log.debug(f"do_GET: raw={self.path!r} parsed={path!r}")
@@ -11198,6 +11442,11 @@ class Handler(BaseHTTPRequestHandler):
 
         # Auth gate (same as do_GET). Static files are GET-only so no carve-out needed.
         if not self._check_auth():
+            return
+
+        # ── In-chat console (sign-in / setup commands) ───────
+        if path.startswith("/console/"):
+            self._handle_console(path, body)
             return
 
         # ── /transcribe — STT only, no LLM, no TTS ───────────
