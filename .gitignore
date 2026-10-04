@@ -74,3 +74,6 @@ __pycache__/
 # OS junk
 .DS_Store
 Thumbs.db
+
+# self_update.py baseline (per-install state)
+dashboard/.update_state.json

@@ -11445,3 +11445,130 @@ async function openSystemVitalsWidget() {
     body.innerHTML = `<div class="widget-error">Could not read hardware: ${_wEsc(e.message || e)}</div>`;
   }
 }
+
+// ── Startup update prompt ──────────────────────────────────────────
+// On each dashboard launch, ask the bridge whether GitHub has a newer
+// dashboard than this install (GET /update/check — a read-only dry run).
+// If so, show a popup: UPDATE NOW applies it (POST /update/apply), restarts
+// the bridge if Python files changed, then reloads the page; NOT NOW hides it
+// for this session only — it asks again the next time DATA starts. Local
+// customizations are never treated as updates (self_update.py baseline).
+const _UPDATE_DISMISS_KEY = 'data.updateDismissedSig';
+let _pendingUpdate = null;
+let _updateApplying = false;
+
+async function checkForDashboardUpdate(force = false) {
+  try {
+    const res = await fetch(`${API_BASE}/update/check${force ? '?force=1' : ''}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const info = await res.json();
+    if (!info || !info.available) return info;
+    if (!force && sessionStorage.getItem(_UPDATE_DISMISS_KEY) === info.signature) return info;
+    _showUpdateModal(info);
+    return info;
+  } catch (_) {
+    return null;   // offline / bridge not ready — never block startup
+  }
+}
+
+function _showUpdateModal(info) {
+  _pendingUpdate = info;
+  const modal = document.getElementById('update-modal');
+  if (!modal) return;
+  const n = info.count || 0;
+  let body = `A new version of DATA is available on GitHub — ${n} file${n === 1 ? '' : 's'} changed.`;
+  body += info.restart_required
+    ? ' Updating will briefly restart DATA; your open windows stay open.'
+    : ' Updating just reloads the dashboard.';
+  document.getElementById('update-modal-body').textContent = body;
+  const list = document.getElementById('update-modal-files');
+  list.replaceChildren(...(info.files || []).map(p => {
+    const li = document.createElement('li');
+    li.textContent = String(p).replace(/^dashboard\//, '');
+    return li;
+  }));
+  document.getElementById('update-modal-files-wrap').hidden = !(info.files || []).length;
+  _setUpdateStatus('');
+  _setUpdateButtons(false);
+  modal.hidden = false;
+  try { addLog(`Update available — ${n} file(s)`); } catch (_) {}
+  try { document.getElementById('update-btn-apply').focus(); } catch (_) {}
+}
+
+function _setUpdateStatus(text, isError = false) {
+  const el = document.getElementById('update-modal-status');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('is-error', !!isError);
+}
+
+function _setUpdateButtons(busy) {
+  const a = document.getElementById('update-btn-apply');
+  const c = document.getElementById('update-btn-cancel');
+  if (a) a.disabled = busy;
+  if (c) c.disabled = busy;
+}
+
+function dismissDashboardUpdate() {
+  if (_updateApplying) return;
+  if (_pendingUpdate && _pendingUpdate.signature) {
+    sessionStorage.setItem(_UPDATE_DISMISS_KEY, _pendingUpdate.signature);
+  }
+  const modal = document.getElementById('update-modal');
+  if (modal) modal.hidden = true;
+}
+
+async function applyDashboardUpdate() {
+  if (_updateApplying) return;
+  _updateApplying = true;
+  _setUpdateButtons(true);
+  _setUpdateStatus('Downloading and verifying update…');
+  let result;
+  try {
+    const res = await fetch(`${API_BASE}/update/apply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    result = await res.json();
+  } catch (e) {
+    result = { status: 'error', message: 'Could not reach the DATA bridge.' };
+  }
+
+  if (!result || result.status === 'error' || result.status === 'busy' || result.status === 'skipped') {
+    _updateApplying = false;
+    _setUpdateButtons(false);
+    _setUpdateStatus(result?.message || 'Update failed.', true);
+    return;
+  }
+
+  sessionStorage.removeItem(_UPDATE_DISMISS_KEY);
+  if (result.status === 'partial') {
+    _setUpdateStatus(`${result.message} Continuing…`, true);
+  }
+
+  if (result.restarting) {
+    _setUpdateStatus('Update applied. Restarting DATA…');
+    await new Promise(r => setTimeout(r, 4500));   // let the old bridge exit
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      try {
+        const h = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+        if (h.ok) break;
+      } catch (_) { /* still restarting */ }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  } else {
+    _setUpdateStatus('Update applied. Reloading…');
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  location.reload();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const modal = document.getElementById('update-modal');
+  if (modal && !modal.hidden) dismissDashboardUpdate();
+});
+
+// Check a few seconds after load so the update scan never competes with
+// first paint / captain boot. Once per page load = once per program start.
+window.addEventListener('load', () => setTimeout(() => checkForDashboardUpdate(), 3000));

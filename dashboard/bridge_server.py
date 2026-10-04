@@ -5153,6 +5153,64 @@ _UPDATE_ORDER_PROMPT = ("Checks GitHub and installs the latest DATA dashboard "
                         "task). Press RUN NOW to update immediately.")
 
 
+# ── Startup update prompt (dashboard popup) ───────────────────
+# GET /update/check runs a read-only dry run against GitHub (cached so page
+# reloads don't hammer the API); POST /update/apply downloads + applies and,
+# if any .py changed, relaunches the bridge. One apply at a time.
+_update_lock = threading.Lock()
+_update_check_cache = {"ts": 0.0, "result": None}
+_UPDATE_CHECK_TTL = 600   # seconds
+
+
+def _update_check(force: bool = False) -> dict:
+    now = time.time()
+    cached = _update_check_cache.get("result")
+    if cached is not None and not force and now - _update_check_cache["ts"] < _UPDATE_CHECK_TTL:
+        return cached
+    import importlib
+    import self_update as _su
+    importlib.reload(_su)
+    summary = _su.run_update(dry_run=True)
+    files = [u.get("path", "") for u in (summary.get("updated") or [])]
+    result = {
+        "available": summary.get("status") == "ok" and bool(files),
+        "status": summary.get("status"),
+        "count": len(files),
+        "files": files[:50],
+        "restart_required": bool(summary.get("restart_required")),
+        "local_modified": summary.get("local_modified") or [],
+        "repo": summary.get("repo", ""),
+        "message": summary.get("message", ""),
+        # Stable signature of what's pending, so the UI can tell "same update
+        # I already dismissed this session" from "something newer arrived".
+        "signature": __import__("hashlib").sha1("|".join(sorted(files)).encode()).hexdigest()[:12] if files else "",
+    }
+    _update_check_cache.update(ts=now, result=result)
+    return result
+
+
+def _update_apply() -> dict:
+    if not _update_lock.acquire(blocking=False):
+        return {"status": "busy", "message": "An update is already in progress."}
+    try:
+        import importlib
+        import self_update as _su
+        importlib.reload(_su)
+        summary = _su.run_update(dry_run=False)
+        _update_check_cache.update(ts=0.0, result=None)   # force a fresh check next time
+        log.info(f"[update] apply via popup: {summary.get('status')} — {summary.get('message')}")
+        will_restart = bool(summary.get("restart_required")) and summary.get("status") in ("ok", "partial")
+        summary["restarting"] = will_restart
+        if will_restart:
+            def _restart_soon():
+                time.sleep(2.0)   # let the HTTP response flush first
+                _do_reboot()
+            threading.Thread(target=_restart_soon, daemon=True).start()
+        return summary
+    finally:
+        _update_lock.release()
+
+
 def _load_standing_orders() -> None:
     global _standing_orders
     if not STANDING_ORDERS_FILE.exists():
@@ -10840,6 +10898,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/health":
             self._json({"status": "online", "agent": "DATA", "mode": BRIDGE_MODE})
 
+        elif path == "/update/check":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try:
+                self._json(_update_check(force=(q.get("force") or [""])[0] == "1"))
+            except Exception as e:
+                log.warning(f"[update] check failed: {e}")
+                self._json({"available": False, "status": "error", "message": str(e)})
+
         elif path == "/mode":
             self._json({"mode": BRIDGE_MODE})
 
@@ -11764,6 +11830,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/shutdown":
             self._json({"shutting_down": True})
             threading.Thread(target=_do_shutdown, daemon=True).start()
+            return
+
+        elif path == "/update/apply":
+            try:
+                self._json(_update_apply())
+            except Exception as e:
+                log.exception(f"[update] apply failed: {e}")
+                self._json({"status": "error", "message": str(e)}, 500)
             return
 
         elif path == "/reboot":
@@ -13108,7 +13182,9 @@ if __name__ == "__main__":
                 # dispatches to a provider. Seed it to whatever brain is actually
                 # installed so the edit dialog never shows a disabled 'n/a' entry.
                 "provider": _pick_seed_provider(),
-                "enabled":  True,
+                # Off by default: updates are offered via the startup popup
+                # (UPDATE NOW / NOT NOW). Users can still enable this order.
+                "enabled":  False,
                 "action":   "update_dashboard",
                 "auto_restart": True,                     # download+apply, then relaunch the bridge to activate
                 "next_run": 0,

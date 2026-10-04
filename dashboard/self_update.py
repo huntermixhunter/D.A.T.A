@@ -57,6 +57,7 @@ RAW_BASE = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/{BRANCH}/"
 DASHBOARD_DIR = Path(__file__).parent.resolve()          # ...\DATA\dashboard
 INSTALL_ROOT  = DASHBOARD_DIR.parent                     # ...\DATA
 BACKUP_ROOT   = DASHBOARD_DIR / ".update_backups"
+STATE_FILE    = DASHBOARD_DIR / ".update_state.json"     # last-synced remote SHAs
 
 # ── Limits (runaway / abuse guards) ──────────────────────────
 MAX_FILE_BYTES  = 60 * 1024 * 1024      # 60 MB per file
@@ -70,6 +71,7 @@ _DENY_EXACT = {
     "dashboard/provider_state.json",
     "dashboard/standing_orders.json",
     "dashboard/daily_briefing.json",
+    "dashboard/.update_state.json",
 }
 _DENY_PREFIX = (
     "dashboard/users/",
@@ -131,10 +133,37 @@ def fetch_remote_tree() -> list:
     return out
 
 
+def _load_state() -> dict:
+    """Sync baseline: {path: remote blob sha this install last matched}."""
+    try:
+        doc = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        return doc if isinstance(doc, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_state(synced: dict) -> None:
+    try:
+        tmp = STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"synced": synced, "updated_at": int(time.time())},
+                                  indent=1), encoding="utf-8")
+        os.replace(tmp, STATE_FILE)
+    except OSError:
+        pass
+
+
 def plan_updates() -> dict:
-    """Compare remote blobs to local files. Returns a plan dict."""
+    """Compare remote blobs to local files. Returns a plan dict.
+
+    A file whose local copy differs from GitHub is only treated as an UPDATE
+    when GitHub's version is new since the last sync (sha != baseline). If
+    GitHub still has the exact version this install last synced, the local
+    difference is a deliberate local edit/customization: it is reported under
+    `local_modified` and left alone, so it never re-triggers the update prompt
+    and is never clobbered. Missing files are always restored."""
     remote = fetch_remote_tree()
-    stale, unchanged = [], 0
+    synced = dict(_load_state().get("synced") or {})
+    stale, local_mod, unchanged = [], [], 0
     for entry in remote:
         rel_from_root = entry["path"]                       # e.g. dashboard/app.js
         local = INSTALL_ROOT / rel_from_root
@@ -145,12 +174,18 @@ def plan_updates() -> dict:
                 local_sha = ""
             if local_sha == entry["sha"]:
                 unchanged += 1
+                synced[rel_from_root] = entry["sha"]        # baseline every match
+                continue
+            if synced.get(rel_from_root) == entry["sha"]:
+                local_mod.append(rel_from_root)             # local edit, upstream unchanged
                 continue
             entry["reason"] = "changed"
         else:
             entry["reason"] = "new"
         stale.append(entry)
-    return {"checked": len(remote), "unchanged": unchanged, "stale": stale}
+    _save_state(synced)
+    return {"checked": len(remote), "unchanged": unchanged, "stale": stale,
+            "local_modified": local_mod, "synced": synced}
 
 
 def _download_verified(entry: dict) -> bytes:
@@ -208,6 +243,7 @@ def run_update(dry_run: bool = False) -> dict:
         "restart_required": False,
         "backup_dir": "",
         "dry_run": bool(dry_run),
+        "local_modified": [],
         "message": "",
     }
 
@@ -227,7 +263,9 @@ def run_update(dry_run: bool = False) -> dict:
 
     result["checked"]   = plan["checked"]
     result["unchanged"] = plan["unchanged"]
+    result["local_modified"] = plan.get("local_modified", [])
     stale = plan["stale"]
+    synced = plan.get("synced", {})
 
     if not stale:
         result["message"] = f"Up to date — {plan['checked']} dashboard file(s) checked, none changed."
@@ -250,6 +288,7 @@ def run_update(dry_run: bool = False) -> dict:
             if total > MAX_TOTAL_BYTES:
                 raise RuntimeError("total download cap exceeded; stopping this run")
             _backup_and_write(entry["path"], data, backup_dir)
+            synced[entry["path"]] = entry["sha"]
             result["updated"].append({"path": entry["path"], "reason": entry["reason"],
                                       "bytes": len(data)})
             if entry["path"].endswith(_RESTART_TRIGGERS):
@@ -259,6 +298,7 @@ def run_update(dry_run: bool = False) -> dict:
 
     if result["updated"]:
         result["backup_dir"] = str(backup_dir)
+        _save_state(synced)
     if result["errors"]:
         result["status"] = "partial" if result["updated"] else "error"
 

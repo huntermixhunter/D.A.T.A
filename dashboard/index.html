@@ -1128,6 +1128,25 @@
     </div>
   </div>
 
+  <!-- ── Update available prompt — checked once on startup ── -->
+  <div id="update-modal" class="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-modal-title" hidden onclick="if (event.target === this) dismissDashboardUpdate()">
+    <div class="update-card">
+      <button class="update-close" type="button" onclick="dismissDashboardUpdate()" aria-label="Not now">✕</button>
+      <div class="update-eyebrow">SYSTEM NOTICE</div>
+      <div class="update-title" id="update-modal-title">UPDATE AVAILABLE</div>
+      <div class="update-body" id="update-modal-body">A new version of DATA is available.</div>
+      <details class="update-files" id="update-modal-files-wrap">
+        <summary>Show changed files</summary>
+        <ul id="update-modal-files"></ul>
+      </details>
+      <div class="update-status" id="update-modal-status" aria-live="polite"></div>
+      <div class="update-actions">
+        <button type="button" class="update-btn update-btn-secondary" id="update-btn-cancel" onclick="dismissDashboardUpdate()">NOT NOW</button>
+        <button type="button" class="update-btn update-btn-primary" id="update-btn-apply" onclick="applyDashboardUpdate()">UPDATE NOW</button>
+      </div>
+    </div>
+  </div>
+
   <!-- REUSABLE SLIDE-IN (shared by every Connections widget) -->
   <div id="slidein-backdrop" class="slidein-backdrop" onclick="closeSlideIn()"></div>
   <aside id="slidein" class="slidein" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="slidein-title">
