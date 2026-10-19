@@ -11,6 +11,207 @@ const API_BASE = (location.protocol === 'file:' || !location.origin || location.
   ? 'http://localhost:7777'
   : location.origin;
 
+// Sidebar visibility is stored separately for each dashboard and profile.
+const SidebarView = (() => {
+  const sidebar = document.querySelector('[data-sidebar-view]');
+  const navigation = document.getElementById('sidebar-navigation');
+  const requiredPanels = new Set(['chat', 'matrix']);
+  const hiddenClass = 'sidebar-view-hidden';
+  let profile = 'default';
+  let preferences = {};
+  let entries = [];
+
+  function storageKey() {
+    return sidebar.dataset.sidebarView + '-sidebar-view-v1:' + profile;
+  }
+
+  function readPreferences() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey()) || '{}');
+      if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+      return Object.fromEntries(Object.entries(saved).filter(([, value]) => value === false));
+    } catch (_) { return {}; }
+  }
+
+  function status(message) {
+    const el = document.getElementById('settings-view-status');
+    if (el) el.textContent = message;
+  }
+
+  function savePreferences() {
+    try {
+      localStorage.setItem(storageKey(), JSON.stringify(preferences));
+      status('Saved for this profile in this browser.');
+    } catch (_) {
+      status('Applied for this session. Browser storage is unavailable.');
+    }
+  }
+
+  function isVisible(entry) {
+    return entry.required || preferences[entry.key] !== false;
+  }
+
+  function apply() {
+    entries.forEach(entry => {
+      entry.element.classList.toggle(hiddenClass, !isVisible(entry));
+    });
+    // Collapse empty widget groups and their separators.
+    sidebar.querySelectorAll(':scope > .sidebar-section').forEach(section => {
+      if (section === navigation) return;
+      const widgets = entries.filter(entry => entry.group === 'widgets' &&
+        (entry.element === section || section.contains(entry.element)));
+      const empty = widgets.length > 0 && !widgets.some(entry =>
+        isVisible(entry) && !entry.element.hidden &&
+        getComputedStyle(entry.element).display !== 'none');
+      section.classList.toggle(hiddenClass, empty);
+      const divider = section.previousElementSibling;
+      if (divider && divider.classList.contains('sidebar-divider')) {
+        divider.classList.toggle(hiddenClass, empty);
+      }
+    });
+    // Hiding the current navigation entry returns to the main page.
+    const active = document.querySelector('.panel.active');
+    if (active && entries.some(entry => entry.panel &&
+        active.id === 'panel-' + entry.panel && !isVisible(entry)) &&
+        typeof showPanel === 'function') {
+      showPanel('chat');
+    }
+  }
+
+  const availabilityObserver = new MutationObserver(apply);
+  const observedWidgets = new WeakSet();
+
+  function discover() {
+    entries = [];
+    navigation.querySelectorAll('button, a').forEach(element => {
+      const handler = element.getAttribute('onclick') || '';
+      const match = handler.match(/\bshowPanel\(\s*['"]([^'"]+)['"]/);
+      const panel = element.dataset.navPanel || (match && match[1]);
+      if (!panel) return;
+      if (element.dataset.navPanel !== panel) element.dataset.navPanel = panel;
+      entries.push({
+        key: 'nav:' + panel,
+        panel,
+        group: 'navigation',
+        label: element.dataset.sidebarLabel || element.textContent.trim(),
+        required: requiredPanels.has(panel),
+        element,
+      });
+    });
+    sidebar.querySelectorAll('[data-sidebar-item]').forEach(element => {
+      entries.push({
+        key: 'widget:' + element.dataset.sidebarItem,
+        group: 'widgets',
+        label: element.dataset.sidebarLabel ||
+          element.querySelector('.section-label')?.textContent.trim() ||
+          element.dataset.sidebarItem,
+        required: false,
+        element,
+      });
+      if (!observedWidgets.has(element)) {
+        // Availability changes, such as a remote-access link appearing,
+        // must not override the user's visibility preference.
+        availabilityObserver.observe(element, { attributes: true, attributeFilter: ['style', 'hidden'] });
+        observedWidgets.add(element);
+      }
+    });
+  }
+
+  function paintControls() {
+    const groups = {
+      navigation: document.getElementById('settings-view-navigation'),
+      widgets: document.getElementById('settings-view-widgets'),
+    };
+    // Preserve keyboard focus when a new navigation entry is added.
+    const focusedKey = document.activeElement?.dataset.sidebarControl;
+    Object.values(groups).forEach(group => { if (group) group.replaceChildren(); });
+    entries.forEach(entry => {
+      const group = groups[entry.group];
+      if (!group) return;
+      const label = document.createElement('label');
+      label.className = 'settings-view-option';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = isVisible(entry);
+      input.disabled = entry.required;
+      input.dataset.sidebarControl = entry.key;
+      input.addEventListener('change', () => {
+        if (entry.required) return;
+        if (input.checked) delete preferences[entry.key];
+        else preferences[entry.key] = false;
+        apply();
+        savePreferences();
+      });
+      const text = document.createElement('span');
+      text.className = 'settings-view-label';
+      text.textContent = entry.label;
+      label.append(input, text);
+      if (entry.required) {
+        const note = document.createElement('span');
+        note.className = 'settings-view-required';
+        note.textContent = 'Always shown';
+        label.append(note);
+      }
+      group.append(label);
+      if (entry.key === focusedKey) input.focus({ preventScroll: true });
+    });
+  }
+
+  function render() {
+    discover();
+    apply();
+    paintControls();
+  }
+
+  function refresh() {
+    discover();
+    apply();
+    if (document.querySelector('.settings-pane[data-pane="view"].active')) paintControls();
+  }
+
+  function setProfile(id) {
+    const next = String(id || 'default');
+    if (next === profile) return;
+    profile = next;
+    preferences = readPreferences();
+    refresh();
+    status('');
+  }
+
+  function showAll() {
+    preferences = {};
+    render();
+    savePreferences();
+  }
+
+  if (sidebar && navigation) {
+    preferences = readPreferences();
+    refresh();
+    // New links, including future modules, become options without a second list.
+    new MutationObserver(records => {
+      const selector = '[data-nav-panel], [data-sidebar-item], .sidebar-section';
+      if (records.some(record => navigation.contains(record.target) ||
+          [...record.addedNodes, ...record.removedNodes].some(node =>
+            node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector))))) {
+        refresh();
+      }
+    }).observe(sidebar, { childList: true, subtree: true });
+    new MutationObserver(refresh).observe(navigation, {
+      attributes: true, subtree: true,
+      attributeFilter: ['onclick', 'data-nav-panel', 'data-sidebar-label'],
+    });
+    window.addEventListener('storage', event => {
+      if (event.storageArea === localStorage && (event.key === storageKey() || event.key === null)) {
+        preferences = readPreferences();
+        refresh();
+      }
+    });
+  }
+
+  return { render, refresh, setProfile, showAll };
+})();
+
+
 // ── Mobile nav + vitals toggles ──────────────────────────────────────────
 function toggleMobileNav() {
   document.body.classList.toggle('mobile-nav-open');
@@ -300,13 +501,15 @@ document.getElementById('init-timestamp').textContent =
 function showPanel(name) {
   playDataSound('confirm');
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.data-btn').forEach(b => b.classList.remove('active'));
 
   document.getElementById(`panel-${name}`).classList.add('active');
 
-  const btnMap = { chat: 0, matrix: 1, orders: 2, widgets: 3 };
-  const idx = btnMap[name];
-  if (idx !== undefined) document.querySelectorAll('.data-btn')[idx].classList.add('active');
+  document.querySelectorAll('#sidebar-navigation [data-nav-panel]').forEach(button => {
+    const selected = button.dataset.navPanel === name;
+    button.classList.toggle('active', selected);
+    if (selected) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
 
   // Lazy-init panels
   if (name === 'matrix' && !matrixInitialized) initMatrix();
@@ -668,6 +871,7 @@ async function bootCaptains() {
     const data = await res.json();
     _captains = Array.isArray(data.users) ? data.users : [];
     _activeCaptain = data.active || (_captains[0] && _captains[0].id) || '';
+    SidebarView.setProfile(_activeCaptain);
     // Hide the switcher entirely if there is only one Captain — no point
     // showing a dropdown with a single item. Multi-user setups get the UI.
     const wrap = document.getElementById('captain-switch-wrap');
@@ -771,6 +975,7 @@ async function switchCaptain(uid) {
     }
     const data = await res.json();
     _activeCaptain = data.active || uid;
+    SidebarView.setProfile(_activeCaptain);
     renderCaptainSwitcher();
     const menu = document.getElementById('captain-menu');
     if (menu) menu.hidden = true;
@@ -9822,6 +10027,7 @@ function _settingsBackdrop(evt) { if (evt.target.id === 'settings-overlay') clos
 function _settingsKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeSettings(); } }
 
 function settingsTab(name) {
+  if (name === 'view') SidebarView.render();
   document.querySelectorAll('.settings-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.settings-pane').forEach(p =>

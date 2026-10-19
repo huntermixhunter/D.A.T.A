@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=models-effort-20261003" />
+  <link rel="stylesheet" href="theme.css?v=sidebar-view-20261018" />
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -61,12 +61,12 @@
     <div class="data-body">
 
       <!-- LEFT SIDEBAR -->
-      <aside class="data-sidebar">
+      <aside class="data-sidebar" data-sidebar-view="data" tabindex="0" aria-label="Sidebar navigation and status">
         <div class="sidebar-elbow-top"></div>
 
-        <div class="sidebar-section">
+        <div class="sidebar-section" id="sidebar-navigation">
           <div class="section-label">NAVIGATION</div>
-          <button class="data-btn orange active" onclick="showPanel('chat')">
+          <button class="data-btn orange active" aria-current="page" onclick="showPanel('chat')">
             THE BRIDGE
           </button>
           <button class="data-btn yellow" onclick="showPanel('matrix')">
@@ -83,47 +83,49 @@
         <div class="sidebar-divider"></div>
 
         <div class="sidebar-section">
-          <div class="section-label ships-health-header">
-            <span>SHIP'S VITALS</span>
-            <span class="alert-dot green" id="alert-dot" title="Alert status — click ship to expand"></span>
-          </div>
-          <div class="ships-health" id="ships-health-widget" onclick="openShipModal()" title="Click for full Master Systems Display">
-            <div class="ship-silhouette" id="ship-silhouette" aria-label="Daemon-Class Starfighter · Lateral View">
-              <!-- Holographic side-view: image base + animated shield / engine-pulse / scan overlay -->
-              <div class="ship-holo-frame ship-holo-frame-side">
-                <img src="assets/schematics/starfighter-side.png"
-                     alt="Daemon-Class Starfighter — lateral schematic"
-                     draggable="false"/>
-                <svg class="ship-holo-overlay" viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true">
-                  <defs>
-                    <radialGradient id="shipEngineGradSm" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%"   stop-color="#ff88ff" stop-opacity="1"/>
-                      <stop offset="55%"  stop-color="#aa22cc" stop-opacity="0.7"/>
-                      <stop offset="100%" stop-color="#220033" stop-opacity="0"/>
-                    </radialGradient>
-                  </defs>
-                  <!-- Scan beam sweeps top-to-bottom -->
-                  <rect class="ship-scan-line" x="0" y="0" width="100" height="0.7"
-                        fill="#00ffff" opacity="0"/>
-                  <!-- Engine glow over the three magenta exhaust ports on the left -->
-                  <circle class="ship-engine-pulse"            cx="6.5" cy="17.5" r="2.4" fill="url(#shipEngineGradSm)"/>
-                  <circle class="ship-engine-pulse engine-mid" cx="4.5" cy="21.0" r="2.9" fill="url(#shipEngineGradSm)"/>
-                  <circle class="ship-engine-pulse engine-low" cx="6.5" cy="24.5" r="2.2" fill="url(#shipEngineGradSm)"/>
-                </svg>
+          <div class="sidebar-widget" data-sidebar-item="vitals" data-sidebar-label="System vitals">
+            <div class="section-label ships-health-header">
+              <span>SHIP'S VITALS</span>
+              <span class="alert-dot green" id="alert-dot" title="Alert status — click ship to expand"></span>
+            </div>
+            <div class="ships-health" id="ships-health-widget" onclick="openShipModal()" title="Click for full Master Systems Display">
+              <div class="ship-silhouette" id="ship-silhouette" aria-label="Daemon-Class Starfighter · Lateral View">
+                <!-- Holographic side-view: image base + animated shield / engine-pulse / scan overlay -->
+                <div class="ship-holo-frame ship-holo-frame-side">
+                  <img src="assets/schematics/starfighter-side.png"
+                       alt="Daemon-Class Starfighter — lateral schematic"
+                       draggable="false"/>
+                  <svg class="ship-holo-overlay" viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true">
+                    <defs>
+                      <radialGradient id="shipEngineGradSm" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%"   stop-color="#ff88ff" stop-opacity="1"/>
+                        <stop offset="55%"  stop-color="#aa22cc" stop-opacity="0.7"/>
+                        <stop offset="100%" stop-color="#220033" stop-opacity="0"/>
+                      </radialGradient>
+                    </defs>
+                    <!-- Scan beam sweeps top-to-bottom -->
+                    <rect class="ship-scan-line" x="0" y="0" width="100" height="0.7"
+                          fill="#00ffff" opacity="0"/>
+                    <!-- Engine glow over the three magenta exhaust ports on the left -->
+                    <circle class="ship-engine-pulse"            cx="6.5" cy="17.5" r="2.4" fill="url(#shipEngineGradSm)"/>
+                    <circle class="ship-engine-pulse engine-mid" cx="4.5" cy="21.0" r="2.9" fill="url(#shipEngineGradSm)"/>
+                    <circle class="ship-engine-pulse engine-low" cx="6.5" cy="24.5" r="2.2" fill="url(#shipEngineGradSm)"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="engine-readout">
+                <div class="speed-row">
+                  <span class="engine-label">IMP</span>
+                  <span class="engine-value" id="impulse-value">0.0</span>
+                </div>
+                <div class="speed-row">
+                  <span class="engine-label">ENGINE</span>
+                  <span class="engine-value" id="engine-value">0.0</span>
+                </div>
               </div>
             </div>
-            <div class="engine-readout">
-              <div class="speed-row">
-                <span class="engine-label">IMP</span>
-                <span class="engine-value" id="impulse-value">0.0</span>
-              </div>
-              <div class="speed-row">
-                <span class="engine-label">ENGINE</span>
-                <span class="engine-value" id="engine-value">0.0</span>
-              </div>
-            </div>
           </div>
-          <div class="neural-bars ships-bars">
+          <div class="neural-bars ships-bars" data-sidebar-item="hull-shields" data-sidebar-label="Hull &amp; Shields">
             <div class="neural-bar-row"><span>HULL</span>
               <div class="bar-track"><div class="bar-fill green" id="hull-bar" style="width:100%"></div></div>
             </div>
@@ -137,11 +139,11 @@
               <div class="bar-track"><div class="bar-fill orange" id="damp-bar" style="width:100%"></div></div>
             </div>
           </div>
-          <div class="status-row" style="margin-top:6px;">
+          <div class="status-row" data-sidebar-item="uptime" data-sidebar-label="Uptime" style="margin-top:6px;">
             <span class="status-label">UPTIME</span>
             <span class="status-indicator" id="vitals-uptime">—</span>
           </div>
-          <div class="status-row" id="tunnel-row" style="display:none;flex-direction:column;align-items:stretch;gap:4px;margin-top:6px;">
+          <div class="status-row" id="tunnel-row" data-sidebar-item="remote-access" data-sidebar-label="Remote access" style="display:none;flex-direction:column;align-items:stretch;gap:4px;margin-top:6px;">
             <span class="status-label">REMOTE ACCESS</span>
             <div style="display:flex;gap:4px;">
               <button id="tunnel-copy"   class="data-btn-sm orange" style="flex:1;" onclick="copyPhoneLink()" title="Copy a one-tap link (token included) to share with your phone">COPY LINK</button>
@@ -153,7 +155,7 @@
         <div class="sidebar-divider"></div>
 
         <!-- CONTEXT BUDGET — token usage vs the active model's context window -->
-        <div class="sidebar-section" id="ctx-budget-section"
+        <div class="sidebar-section" id="ctx-budget-section" data-sidebar-item="context-budget" data-sidebar-label="Context budget"
              title="How much of the active model's context window is being used this turn">
           <div class="section-label">CONTEXT BUDGET</div>
           <div class="ctx-budget-bar-wrap">
@@ -659,6 +661,7 @@
         <div class="settings-body">
           <nav class="settings-nav" id="settings-nav">
             <button class="settings-tab active" data-tab="appearance" onclick="settingsTab('appearance')">APPEARANCE</button>
+            <button class="settings-tab" data-tab="view" onclick="settingsTab('view')">VIEW</button>
             <button class="settings-tab" data-tab="voice"  onclick="settingsTab('voice')">VOICE</button>
             <button class="settings-tab" data-tab="model"  onclick="settingsTab('model')">MODEL</button>
             <button class="settings-tab" data-tab="upgrades" onclick="settingsTab('upgrades')">UPGRADES</button>
@@ -675,6 +678,23 @@
                 <button class="settings-opt" data-theme="minimal" onclick="settingsSetTheme('minimal')">MINIMAL</button>
                 <button class="settings-opt" data-theme="cyber"   onclick="settingsSetTheme('cyber')">CYBER</button>
               </div>
+            </section>
+
+            <section class="settings-pane" data-pane="view">
+              <h3 class="settings-h">Left sidebar</h3>
+              <p class="settings-sub">Choose what appears in the left sidebar. Changes apply immediately and are saved for this profile in this browser.</p>
+              <fieldset class="settings-view-group">
+                <legend class="settings-h">Navigation</legend>
+                <p class="settings-sub">Your two core pages stay available. New navigation entries appear here automatically.</p>
+                <div id="settings-view-navigation"></div>
+              </fieldset>
+              <fieldset class="settings-view-group">
+                <legend class="settings-h">Sidebar widgets</legend>
+                <p class="settings-sub">Choose the status displays and shortcuts you want to see.</p>
+                <div id="settings-view-widgets"></div>
+              </fieldset>
+              <button type="button" class="settings-opt" onclick="SidebarView.showAll()">SHOW ALL</button>
+              <p class="settings-sub settings-view-status" id="settings-view-status" role="status" aria-live="polite"></p>
             </section>
 
             <section class="settings-pane" data-pane="voice">
@@ -1198,6 +1218,6 @@
     // MSD metric-card placement (defined in app.js).
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
   </script>
-  <script src="app.js?v=performance-parity-20261003"></script>
+  <script src="app.js?v=sidebar-view-20261018"></script>
 </body>
 </html>

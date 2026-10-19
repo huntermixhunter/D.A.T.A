@@ -201,6 +201,7 @@ html, body {
    ═══════════════════════════════════════════════════════════ */
 .data-body {
   flex: 1;
+  min-height: 0;
   display: flex;
   overflow: hidden;
   gap: 8px;
@@ -216,7 +217,19 @@ html, body {
   flex-direction: column;
   flex-shrink: 0;
   position: relative;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--data-orange) transparent;
+  scrollbar-gutter: stable;
 }
+
+.data-sidebar > * { flex-shrink: 0; }
+.data-sidebar:focus-visible { outline: 2px solid var(--data-orange); outline-offset: -2px; }
+.data-sidebar::-webkit-scrollbar { width: 8px; }
+.data-sidebar::-webkit-scrollbar-thumb { background: var(--data-orange); border-radius: 8px; }
 
 .sidebar-elbow-top {
   height: 48px;
@@ -5739,6 +5752,40 @@ body.theme-minimal .settings-toggle-cap:hover {
 }
 .settings-pane { display: none; }
 .settings-pane.active { display: block; }
+
+/* Sidebar view preferences */
+.sidebar-view-hidden { display: none !important; }
+.sidebar-widget { display: flex; flex-direction: column; gap: 6px; }
+.settings-view-group { border: 0; min-width: 0; margin: 0 0 22px; padding: 0; }
+.settings-view-group > .settings-h { margin: 0 0 8px; }
+.settings-view-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--data-text-dim) 35%, transparent);
+  color: var(--data-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-view-option:has(input:disabled) { cursor: default; }
+.settings-view-option input {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--data-orange);
+  cursor: inherit;
+}
+.settings-view-option input:focus-visible {
+  outline: 2px solid var(--data-orange);
+  outline-offset: 4px;
+}
+.settings-view-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.settings-view-required { font-size: 10px; color: var(--data-text-dim); }
+.settings-view-status { margin-top: 12px; min-height: 1.5em; }
+
 
 /* Header row for panes that carry an action button (e.g. AI CONNECTORS → RESCAN) */
 .settings-pane-head {
