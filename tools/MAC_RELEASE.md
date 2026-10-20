@@ -28,6 +28,8 @@ Commit the intended source first. From a clean checkout, run:
 Git Bash downloads and verifies the Mac runtime and unpacks the payload under a
 unique build/mac-* directory. It does not execute macOS or create a DMG. A failed
 stage leaves its files for diagnosis and is never treated as a verified release.
+Verified runtime downloads are cached under build/mac-runtime-cache; interrupted
+downloads resume on the next attempt and still require a matching SHA256.
 
 ## Build on real Macs
 

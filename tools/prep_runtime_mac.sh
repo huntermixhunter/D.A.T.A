@@ -41,6 +41,8 @@ fi
 mkdir -p "$OUTDIR"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/data-runtime.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
+CACHE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/build/mac-runtime-cache"
+mkdir -p "$CACHE_DIR"
 
 verify() {
     local actual
@@ -49,22 +51,44 @@ verify() {
     else
         actual="$(shasum -a 256 "$1" | cut -d ' ' -f 1)"
     fi
-    [ "$actual" = "$2" ] || { echo "SHA256 mismatch: $1" >&2; exit 1; }
+    [ "$actual" = "$2" ]
+}
+
+# Slow Windows connections can outlast one request. Keep partial downloads and
+# resume them; never extract anything until the full expected SHA256 matches.
+download() {
+    local url="$1" dest="$2" expected="$3" attempt code
+    if [ -f "$dest" ] && verify "$dest" "$expected"; then return 0; fi
+    for attempt in 1 2 3; do
+        echo "Download attempt $attempt: $(basename "$dest")"
+        if curl -fsSL --continue-at - --connect-timeout 20 --max-time 600 --speed-limit 1024 --speed-time 60 -o "$dest" "$url"; then
+            if verify "$dest" "$expected"; then return 0; fi
+            echo 'Downloaded file failed SHA256 verification. Retrying from scratch.' >&2
+            rm -f "$dest"
+        else
+            code=$?
+            # A server can reject a Range request (including an already-complete
+            # corrupt cache). Other failures retain the partial file for resume.
+            case "$code" in 22|33|36) rm -f "$dest" ;; esac
+        fi
+    done
+    echo "Could not download and verify $(basename "$dest"). Re-run to resume." >&2
+    return 1
 }
 
 PYVER=3.12.15
 PBS_RELEASE=20261013
 URL="https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_RELEASE/cpython-$PYVER%2B$PBS_RELEASE-$TARGET-apple-darwin-install_only.tar.gz"
 echo "Preparing Python $PYVER and psutil 7.2.2 for $ARCH"
-curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 -o "$WORK/python.tar.gz" "$URL"
-verify "$WORK/python.tar.gz" "$PY_SHA"
-curl -fsSL --retry 3 --connect-timeout 20 --max-time 120 -o "$WORK/psutil.whl" "$WHEEL_URL"
-verify "$WORK/psutil.whl" "$WHEEL_SHA"
-tar -xzf "$WORK/python.tar.gz" -C "$OUTDIR"
+PY_ARCHIVE="$CACHE_DIR/python-$PYVER-$PBS_RELEASE-$ARCH.tar.gz"
+PSUTIL_WHEEL="$CACHE_DIR/psutil-7.2.2-$ARCH.whl"
+download "$URL" "$PY_ARCHIVE" "$PY_SHA"
+download "$WHEEL_URL" "$PSUTIL_WHEEL" "$WHEEL_SHA"
+tar -xzf "$PY_ARCHIVE" -C "$OUTDIR"
 
 # The pinned wheel has a flat site-packages layout and no install hooks.
 # unzip runs on the host, so staging never executes a Mac binary on Windows.
-unzip -q "$WORK/psutil.whl" -d "$OUTDIR/python/lib/python3.12/site-packages"
+unzip -q "$PSUTIL_WHEEL" -d "$OUTDIR/python/lib/python3.12/site-packages"
 [ -f "$OUTDIR/python/bin/python3" ] || { echo 'Missing bundled interpreter' >&2; exit 1; }
 if [ "$STAGE_ONLY" = 0 ]; then
     "$OUTDIR/python/bin/python3" -c 'import platform, ssl, sqlite3, psutil; print("Runtime OK:", platform.machine(), psutil.__version__)'
