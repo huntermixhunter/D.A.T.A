@@ -1,130 +1,73 @@
 #!/usr/bin/env bash
-# DATA — bundled-Python runtime builder (macOS)
-# ----------------------------------------------------------------------------
-# Produces a self-contained, RELOCATABLE CPython that DATA's bridge runs on, so
-# a buyer needs ZERO pre-installed Python. macOS has no official "embeddable"
-# package like Windows does, so we use the standalone, relocatable CPython
-# builds from astral-sh/python-build-standalone (the same ones uv/Rye ship).
-# We then pre-install psutil (the bridge's one optional third-party dep);
-# everything else the bridge needs is in the standard library.
-#
-# Output:  <OutDir>/python/  (bin/python3, lib/python3.x/, Lib site-packages w/ psutil)
-#
-# Usage:
-#   ./tools/prep_runtime_mac.sh --out build/staging/DATA/runtime
-#   ./tools/prep_runtime_mac.sh --out build/staging/DATA/runtime --arch x86_64
-#   ./tools/prep_runtime_mac.sh --out build/staging/DATA/runtime --py 3.12.8 --force
-#
-# Idempotent-ish: pass --force to rebuild from scratch (deletes an existing python/).
-# MUST run on macOS (uses the macOS standalone tarball + tar). The build_dmg.sh
-# orchestrator and the GitHub Actions macOS runner both call this.
+# Download a pinned macOS Python and psutil wheel. --stage-only also works in Git Bash.
 set -euo pipefail
-
-# ---- defaults (override with flags) ----------------------------------------
-PYVER="3.12.8"             # CPython version to bundle
-PBS_RELEASE="20241219"     # python-build-standalone release tag holding that version
-ARCH=""                    # aarch64 | x86_64 ; empty = detect host
 OUTDIR=""
-FORCE=0
-
-while [ $# -gt 0 ]; do
+ARCH=""
+STAGE_ONLY=0
+while [ "$#" -gt 0 ]; do
     case "$1" in
-        --out)   OUTDIR="$2"; shift 2 ;;
-        --py)    PYVER="$2"; shift 2 ;;
-        --release) PBS_RELEASE="$2"; shift 2 ;;
-        --arch)  ARCH="$2"; shift 2 ;;
-        --force) FORCE=1; shift ;;
-        *) echo "  [X] Unknown argument: $1" >&2; exit 2 ;;
+        --out) OUTDIR="${2:?--out needs a directory}"; shift 2 ;;
+        --arch) ARCH="${2:?--arch needs arm64 or x86_64}"; shift 2 ;;
+        --stage-only) STAGE_ONLY=1; shift ;;
+        *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-
-if [ -z "$OUTDIR" ]; then
-    echo "  [X] --out <dir> is required (e.g. --out build/staging/DATA/runtime)" >&2
-    exit 2
-fi
-if [ "$(uname -s)" != "Darwin" ]; then
-    echo "  [X] prep_runtime_mac.sh must run on macOS (got $(uname -s))." >&2
-    echo "      Build the DMG on a Mac or via the GitHub Actions macOS runner." >&2
-    exit 1
-fi
-
-# ---- resolve arch ----------------------------------------------------------
-if [ -z "$ARCH" ]; then
-    case "$(uname -m)" in
-        arm64|aarch64) ARCH="aarch64" ;;
-        x86_64)        ARCH="x86_64" ;;
-        *) echo "  [X] Unsupported host arch: $(uname -m). Pass --arch aarch64|x86_64." >&2; exit 1 ;;
-    esac
-fi
+[ -n "$OUTDIR" ] || { echo '--out is required' >&2; exit 2; }
+[ -n "$ARCH" ] || ARCH="$(uname -m)"
 case "$ARCH" in
-    aarch64|arm64) ARCH="aarch64" ;;
-    x86_64|amd64)  ARCH="x86_64" ;;
-    *) echo "  [X] --arch must be aarch64 or x86_64 (got '$ARCH')." >&2; exit 1 ;;
+    arm64|aarch64)
+        ARCH=arm64
+        TARGET=aarch64
+        PY_SHA=ba32036ad8f4c434d97a1ee7feef8b7edc0fac16777639b97e39c74a108e4440
+        WHEEL_URL=https://files.pythonhosted.org/packages/80/c4/f5af4c1ca8c1eeb2e92ccca14ce8effdeec651d5ab6053c589b074eda6e1/psutil-7.2.2-cp36-abi3-macosx_11_0_arm64.whl
+        WHEEL_SHA=1a7b04c10f32cc88ab39cbf606e117fd74721c831c98a27dc04578deb0c16979
+        ;;
+    x86_64|amd64)
+        ARCH=x86_64
+        TARGET=x86_64
+        PY_SHA=9686ddd8639b855905447ea4a16eb54a804a9ef12afbe7c9ecb1412d9c1fbc98
+        WHEEL_URL=https://files.pythonhosted.org/packages/e7/36/5ee6e05c9bd427237b11b3937ad82bb8ad2752d72c6969314590dd0c2f6e/psutil-7.2.2-cp36-abi3-macosx_10_9_x86_64.whl
+        WHEEL_SHA=ed0cace939114f62738d808fdcecd4c869222507e266e574799e9c0faa17d486
+        ;;
+    *) echo "Unsupported architecture: $ARCH" >&2; exit 2 ;;
 esac
-
-PYTHON_DIR="$OUTDIR/python"
-TARBALL_NAME="cpython-${PYVER}+${PBS_RELEASE}-${ARCH}-apple-darwin-install_only.tar.gz"
-URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/${TARBALL_NAME}"
-
-echo ""
-echo "  DATA bundled-runtime builder (macOS)"
-echo "  CPython ${PYVER} (${ARCH}-apple-darwin) -> ${PYTHON_DIR}"
-echo ""
-
-if [ -d "$PYTHON_DIR" ]; then
-    if [ "$FORCE" = "1" ]; then
-        rm -rf "$PYTHON_DIR"
-    else
-        echo "  [X] $PYTHON_DIR already exists. Pass --force to rebuild." >&2
+if [ "$STAGE_ONLY" = 0 ]; then
+    [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = "$ARCH" ] || {
+        echo 'Build on a matching Mac runner, or use --stage-only for a file preview.' >&2
         exit 1
-    fi
+    }
 fi
-
+[ ! -e "$OUTDIR/python" ] || { echo 'Output already contains python; use a fresh output directory.' >&2; exit 1; }
 mkdir -p "$OUTDIR"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/data_runtime_mac.XXXXXX")"
-cleanup() { rm -rf "$WORK"; }
-trap cleanup EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/data-runtime.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
 
-# 1. Download the relocatable standalone CPython
-TARBALL="$WORK/python.tar.gz"
-echo "  [..] Downloading standalone CPython..."
-echo "       $URL"
-if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 -o "$TARBALL" "$URL"
-elif command -v wget >/dev/null 2>&1; then
-    wget -O "$TARBALL" "$URL"
+verify() {
+    local actual
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual="$(sha256sum "$1" | cut -d ' ' -f 1)"
+    else
+        actual="$(shasum -a 256 "$1" | cut -d ' ' -f 1)"
+    fi
+    [ "$actual" = "$2" ] || { echo "SHA256 mismatch: $1" >&2; exit 1; }
+}
+
+PYVER=3.12.15
+PBS_RELEASE=20261013
+URL="https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_RELEASE/cpython-$PYVER%2B$PBS_RELEASE-$TARGET-apple-darwin-install_only.tar.gz"
+echo "Preparing Python $PYVER and psutil 7.2.2 for $ARCH"
+curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 -o "$WORK/python.tar.gz" "$URL"
+verify "$WORK/python.tar.gz" "$PY_SHA"
+curl -fsSL --retry 3 --connect-timeout 20 --max-time 120 -o "$WORK/psutil.whl" "$WHEEL_URL"
+verify "$WORK/psutil.whl" "$WHEEL_SHA"
+tar -xzf "$WORK/python.tar.gz" -C "$OUTDIR"
+
+# The pinned wheel has a flat site-packages layout and no install hooks.
+# unzip runs on the host, so staging never executes a Mac binary on Windows.
+unzip -q "$WORK/psutil.whl" -d "$OUTDIR/python/lib/python3.12/site-packages"
+[ -f "$OUTDIR/python/bin/python3" ] || { echo 'Missing bundled interpreter' >&2; exit 1; }
+if [ "$STAGE_ONLY" = 0 ]; then
+    "$OUTDIR/python/bin/python3" -c 'import platform, ssl, sqlite3, psutil; print("Runtime OK:", platform.machine(), psutil.__version__)'
 else
-    echo "  [X] Need curl or wget to download the runtime." >&2
-    exit 1
+    echo 'Staged files only. macOS execution and DMG creation still require the CI build.'
 fi
-
-# 2. Extract — the install_only tarball unpacks to a top-level 'python/' dir
-echo "  [..] Extracting..."
-tar -xzf "$TARBALL" -C "$WORK"
-if [ ! -x "$WORK/python/bin/python3" ]; then
-    echo "  [X] Extracted tree missing bin/python3 — unexpected tarball layout." >&2
-    exit 1
-fi
-mv "$WORK/python" "$PYTHON_DIR"
-echo "  [OK] Extracted to $PYTHON_DIR"
-
-PYBIN="$PYTHON_DIR/bin/python3"
-
-# 3. Pre-install psutil (system-vitals panel). Baked in -> no internet at install time.
-echo "  [..] Installing psutil into the runtime..."
-"$PYBIN" -m pip install --no-warn-script-location --quiet --upgrade pip >/dev/null 2>&1 || true
-"$PYBIN" -m pip install --no-warn-script-location --quiet psutil
-echo "  [OK] psutil baked in"
-
-# 4. Smoke test: the bundled interpreter must run and import psutil
-CHECK="$("$PYBIN" -c 'import sys, psutil; print(sys.version.split()[0])')"
-echo "  [OK] Runtime verified: Python $CHECK + psutil import OK"
-
-# 5. Trim build noise (pip cache, __pycache__, tests) to keep the bundle lean
-find "$PYTHON_DIR" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
-rm -rf "$PYTHON_DIR/lib"/python*/test "$PYTHON_DIR/lib"/python*/*/test 2>/dev/null || true
-
-SIZE="$(du -sh "$PYTHON_DIR" | cut -f1)"
-echo ""
-echo "  Runtime ready: $PYTHON_DIR ($SIZE)"
-echo ""

@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# DATA — macOS / Linux / ChromeOS installer
+# DATA - macOS / Linux / ChromeOS installer
 # Checks Python, installs optional deps, creates the start_data.sh launcher.
 set -e
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OFFLINE=0
+case "${1:-}" in
+    --offline) OFFLINE=1 ;;
+    '') ;;
+    *) echo "Unknown option: $1" >&2; exit 2 ;;
+esac
 
 echo ""
-echo "  DATA — Dashboard for Analytical Thought and Action"
+echo "  DATA - Dashboard for Analytical Thought and Action"
 echo "  macOS / Linux / ChromeOS installer"
 echo ""
 
 # 1. Find Python 3.10+
 PYTHON=""
-for cmd in python3 python; do
+for cmd in "$ROOT/runtime/python/bin/python3" python3 python; do
     if command -v "$cmd" >/dev/null 2>&1; then
         if "$cmd" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
             PYTHON="$cmd"; break
@@ -24,18 +30,19 @@ if [ -z "$PYTHON" ]; then
     echo "      macOS:                  brew install python3"
     exit 1
 fi
-echo "  [OK] $($PYTHON --version) found ($PYTHON)"
+echo "  [OK] $("$PYTHON" --version) found ($PYTHON)"
 
+if [ "$OFFLINE" = 0 ]; then
 # 2. Optional: psutil for the system-vitals panel
 if "$PYTHON" -c 'import psutil' 2>/dev/null; then
     echo "  [OK] psutil already installed"
 else
-    echo "  [..] Installing psutil (system vitals — optional but recommended)..."
+    echo "  [..] Installing psutil (system vitals - optional but recommended)..."
     if "$PYTHON" -m pip install --quiet --user psutil 2>/dev/null || \
        "$PYTHON" -m pip install --quiet --user --break-system-packages psutil 2>/dev/null; then
         echo "  [OK] psutil installed"
     else
-        echo "  [!!] psutil install failed — vitals will read zero. Continuing."
+        echo "  [!!] psutil install failed - vitals will read zero. Continuing."
     fi
 fi
 
@@ -44,33 +51,36 @@ fi
 if "$PYTHON" -c 'import pyautogui' 2>/dev/null; then
     echo "  [OK] pyautogui already installed (screen control ready)"
 else
-    echo "  [..] Installing pyautogui + pillow (screen control — optional)..."
+    echo "  [..] Installing pyautogui + pillow (screen control - optional)..."
     if "$PYTHON" -m pip install --quiet --user pyautogui pillow 2>/dev/null || \
        "$PYTHON" -m pip install --quiet --user --break-system-packages pyautogui pillow 2>/dev/null; then
         echo "  [OK] screen control ready"
     else
-        echo "  [!!] pyautogui install failed — screen control stays off. Re-run later: pip install pyautogui pillow"
+        echo "  [!!] pyautogui install failed - screen control stays off. Re-run later: pip install pyautogui pillow"
     fi
 fi
 
-# 2c. Optional: clawdcursor — the desktop-takeover MCP server (last-mile GUI
+# 2c. Optional: clawdcursor - the desktop-takeover MCP server (last-mile GUI
 #     automation for the CLI brain). Registered in .mcp.json (seeded below) but
 #     stays DISARMED until you flip the switch in Settings > UPGRADES > Desktop
 #     Takeover. Installed globally via npm; needs Node.js. Skipped cleanly if npm
-#     is absent — DATA runs fine without it and you can install it later.
+#     is absent - DATA runs fine without it and you can install it later.
 if command -v npm >/dev/null 2>&1; then
     if npm ls -g clawdcursor >/dev/null 2>&1; then
-        echo "  [OK] clawdcursor already installed (desktop takeover available — arm it in Settings)"
+        echo "  [OK] clawdcursor already installed (desktop takeover available - arm it in Settings)"
     else
-        echo "  [..] Installing clawdcursor (desktop-takeover MCP server — optional)..."
+        echo "  [..] Installing clawdcursor (desktop-takeover MCP server - optional)..."
         if npm install -g clawdcursor >/dev/null 2>&1; then
             echo "  [OK] clawdcursor installed (stays disarmed until you flip the switch in Settings)"
         else
-            echo "  [!!] clawdcursor install failed — desktop takeover stays off. Re-run later: npm install -g clawdcursor"
+            echo "  [!!] clawdcursor install failed - desktop takeover stays off. Re-run later: npm install -g clawdcursor"
         fi
     fi
 else
-    echo "  [--] npm not found — skipping clawdcursor (desktop takeover). Install Node.js then: npm install -g clawdcursor"
+    echo "  [--] npm not found - skipping clawdcursor (desktop takeover). Install Node.js then: npm install -g clawdcursor"
+fi
+else
+    echo "  [OK] Offline setup: using bundled dependencies. Optional integrations can be installed later."
 fi
 
 # 3. Check for an AI provider CLI
@@ -101,12 +111,12 @@ if [ ! -f "$ROOT/.env" ]; then
 fi
 
 # 4a. Seed .mcp.json from the example if missing. This registers the bundled
-#     MCP servers (clawdcursor — desktop takeover) with the CLI brain. The file
+#     MCP servers (clawdcursor - desktop takeover) with the CLI brain. The file
 #     is local-only (gitignored) so your own edits never travel; the .example is
 #     the shipped default. clawdcursor stays disarmed until you flip the switch.
 if [ ! -f "$ROOT/.mcp.json" ] && [ -f "$ROOT/.mcp.json.example" ]; then
     cp "$ROOT/.mcp.json.example" "$ROOT/.mcp.json"
-    echo "  [OK] Created .mcp.json (registers clawdcursor — stays disarmed until armed in Settings)"
+    echo "  [OK] Created .mcp.json (registers clawdcursor - stays disarmed until armed in Settings)"
 fi
 
 # 4b. Install the bundled DATA-core skills (idempotent; never clobbers your own copies)
@@ -115,20 +125,12 @@ if [ -f "$ROOT/dashboard/install_skills.py" ]; then
     if "$PYTHON" "$ROOT/dashboard/install_skills.py" >/dev/null 2>&1; then
         echo "  [OK] DATA-core skills installed"
     else
-        echo "  [!!] Skill install hit an issue — DATA still runs. Re-run later: python dashboard/install_skills.py"
+        echo "  [!!] Skill install hit an issue - DATA still runs. Re-run later: python dashboard/install_skills.py"
     fi
 fi
 
 # 5. Write the launcher
-cat > "$ROOT/start_data.sh" <<EOF
-#!/usr/bin/env bash
-cd "\$(dirname "\$0")/dashboard"
-( sleep 2
-  if command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:7777
-  elif command -v open >/dev/null 2>&1; then open http://localhost:7777
-  fi ) &
-exec $PYTHON bridge_server.py
-EOF
+cp "$ROOT/install/start_data.sh" "$ROOT/start_data.sh"
 chmod +x "$ROOT/start_data.sh"
 echo "  [OK] Launcher written: start_data.sh"
 

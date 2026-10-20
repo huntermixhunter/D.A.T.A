@@ -19,4 +19,5 @@
 # Excluded from buyer zips (git archive) — dev-only files
 tools/ export-ignore
 installer/ export-ignore
+.github/ export-ignore
 .gitattributes export-ignore
