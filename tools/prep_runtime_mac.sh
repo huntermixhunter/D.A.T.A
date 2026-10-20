@@ -84,7 +84,20 @@ PY_ARCHIVE="$CACHE_DIR/python-$PYVER-$PBS_RELEASE-$ARCH.tar.gz"
 PSUTIL_WHEEL="$CACHE_DIR/psutil-7.2.2-$ARCH.whl"
 download "$URL" "$PY_ARCHIVE" "$PY_SHA"
 download "$WHEEL_URL" "$PSUTIL_WHEEL" "$WHEEL_SHA"
-tar -xzf "$PY_ARCHIVE" -C "$OUTDIR"
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        HOST_PYTHON=""
+        for candidate in python python3; do
+            if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+                HOST_PYTHON="$candidate"
+                break
+            fi
+        done
+        [ -n "$HOST_PYTHON" ] || { echo 'Windows staging requires host Python 3.10+.' >&2; exit 1; }
+        "$HOST_PYTHON" "$(dirname "${BASH_SOURCE[0]}")/unpack_mac_preview.py" "$PY_ARCHIVE" "$OUTDIR"
+        ;;
+    *) tar -xzf "$PY_ARCHIVE" -C "$OUTDIR" ;;
+esac
 
 # The pinned wheel has a flat site-packages layout and no install hooks.
 # unzip runs on the host, so staging never executes a Mac binary on Windows.

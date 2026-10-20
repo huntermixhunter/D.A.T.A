@@ -25,11 +25,14 @@ Commit the intended source first. From a clean checkout, run:
 .\tools\stage_mac.ps1 1.0.57 -Architecture x86_64
 ```
 
-Git Bash downloads and verifies the Mac runtime and unpacks the payload under a
+Git Bash and host Python 3.10+ verify the Mac runtime and unpack the payload under a
 unique build/mac-* directory. It does not execute macOS or create a DMG. A failed
 stage leaves its files for diagnosis and is never treated as a verified release.
 Verified runtime downloads are cached under build/mac-runtime-cache; interrupted
 downloads resume on the next attempt and still require a matching SHA256.
+Windows previews represent archive symbolic links as file copies, so they work
+without Windows Developer Mode. They are for inspection, not DMG production;
+the native Mac builder extracts the original archive with its links intact.
 
 ## Build on real Macs
 
