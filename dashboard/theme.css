@@ -4565,6 +4565,44 @@ body.shields-down .ship-shield-dash { display: none; }
 .ships-health.alert-red .ship-holo-overlay .ship-shield-dash    { stroke: #ff5566; }
 .ships-health.alert-red .ship-holo-overlay .ship-scan-line      { fill: #ff5050; filter: drop-shadow(0 0 3px #ff3030); }
 
+/* ── Condition RED — the system-vitals box itself flashes red ──────────────
+   The alert dot and the MSD pill state THAT the ship went red; this makes it
+   impossible to miss from across the room. Implementation notes:
+     • outline + box-shadow only, never border/padding — the sidebar must not
+       reflow by a single pixel when the condition changes.
+     • `background` is deliberately left untouched so :hover still reads as
+       clickable while the alert is up (an animated background would win the
+       cascade over the hover rule).
+     • ~12px of sidebar padding clears the glow, so .data-sidebar's
+       overflow-x:hidden does not clip it.
+   `.alert-red` is set by _applyShipsHealth() straight from the bridge's
+   h.alert, so this tracks backend truth with no extra wiring. */
+.ships-health.alert-red {
+  outline: 2px solid var(--data-red);
+  outline-offset: 2px;
+  animation: ships-health-alert-flash 0.9s ease-in-out infinite;
+}
+@keyframes ships-health-alert-flash {
+  0%, 100% {
+    outline-color: rgba(255, 68, 68, 0.95);
+    box-shadow: 0 0 12px 1px rgba(255, 50, 50, 0.55),
+                inset 0 0 14px rgba(255, 40, 40, 0.20);
+  }
+  50% {
+    outline-color: rgba(255, 68, 68, 0.18);
+    box-shadow: 0 0 3px 0 rgba(255, 50, 50, 0.10),
+                inset 0 0 4px rgba(255, 40, 40, 0.04);
+  }
+}
+/* Reduced motion: hold a steady red frame rather than pulsing. */
+@media (prefers-reduced-motion: reduce) {
+  .ships-health.alert-red {
+    animation: none;
+    box-shadow: 0 0 10px 1px rgba(255, 50, 50, 0.45),
+                inset 0 0 12px rgba(255, 40, 40, 0.16);
+  }
+}
+
 .engine-readout {
   display: flex; flex-direction: column; align-items: flex-end;
   font-family: 'Antonio', sans-serif;
