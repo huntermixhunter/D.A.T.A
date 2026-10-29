@@ -8,8 +8,16 @@ build. The workflow refuses to run when the repository is private.
 
 - DATA-vX.Y.Z-arm64.dmg for Apple Silicon (M-series Macs).
 - DATA-vX.Y.Z-x86_64.dmg for Intel Macs.
-- Each contains a writable DATA folder to copy into the user's home folder,
-  Start DATA.command, Python 3.12.15, and psutil 7.2.2.
+- Each contains a DATA folder to copy into Downloads (or another writable
+  user folder), Start DATA.command, Python 3.12.15, and psutil 7.2.2.
+- READ ME FIRST.txt is visible beside DATA in the mounted disk image. The
+  same guide ships inside DATA as READ-ME-FIRST-MAC.txt and in the source ZIP.
+  It covers copying out of the read-only image, current macOS approval,
+  a single Downloads-based Terminal recovery command, alternate paths, and
+  optional desktop-control permissions.
+- install/mac_first_run.command clears quarantine only for the copied DATA
+  folder, stops on errors, and keeps bundled DMG setup offline. It requires
+  neither sudo nor a system-wide Gatekeeper change.
 - Both dependency downloads have pinned SHA256 digests. Build provenance records
   the source commit, version, processor, and bundled dependency versions.
 - Voice and desktop-control dependencies are optional and are not bundled here.
@@ -50,9 +58,14 @@ gh run download RUN_ID --repo huntermixhunter/D.A.T.A --dir dist/mac-preview
 Each architecture is executed on its matching runner. Verification covers offline
 installation in a path with spaces, the bundled interpreter, a local HTTP server,
 update notification detection/application, preservation of private state, hdiutil
-verification, and executing the runtime from the mounted image. Test state lives
-in a separate copy and does not enter the package. This is not a manual Finder or
-Gatekeeper usability test and does not establish support for every older macOS.
+verification, matching instructions inside and beside the DATA folder, and
+executing the runtime from the mounted image. Setup-helper regression checks
+cover offline routing, spaces in paths, and stopping on permission/setup failures.
+Run those checks locally with `python tools/test_mac_first_run.py -v`; on Windows
+they use Git Bash with stub Mac commands and do not run the Mac runtime.
+Test state lives in a separate copy and does not enter the package. This is not
+a manual Finder or Gatekeeper usability test and does not establish support for
+every older macOS.
 
 ## Prepare a release
 

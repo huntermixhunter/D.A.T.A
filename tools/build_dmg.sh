@@ -62,6 +62,7 @@ export PYTHONDONTWRITEBYTECODE=1
 bash "$TEST_ROOT/install/install.sh" --offline
 bash "$TEST_ROOT/start_data.sh" --check
 "$TEST_ROOT/runtime/python/bin/python3" tools/test_mac_payload.py "$TEST_ROOT" "$ARCH"
+"$TEST_ROOT/runtime/python/bin/python3" tools/test_mac_first_run.py
 
 DMG="$ROOT/dist/DATA-v$VERSION-$ARCH.dmg"
 [ ! -e "$DMG" ] || { echo "Artifact already exists: $DMG" >&2; exit 1; }
@@ -72,6 +73,8 @@ hdiutil attach -quiet -readonly -nobrowse -mountpoint "$WORK/mounted" "$DMG"
 trap 'hdiutil detach -quiet "$WORK/mounted" || true' EXIT
 cmp "$PAYLOAD/MAC_BUILD.json" "$WORK/mounted/DATA/MAC_BUILD.json"
 cmp "$PAYLOAD/dashboard/bridge_server.py" "$WORK/mounted/DATA/dashboard/bridge_server.py"
+cmp "$PAYLOAD/READ-ME-FIRST-MAC.txt" "$WORK/mounted/READ ME FIRST.txt"
+cmp "$PAYLOAD/READ-ME-FIRST-MAC.txt" "$WORK/mounted/DATA/READ-ME-FIRST-MAC.txt"
 "$WORK/mounted/DATA/runtime/python/bin/python3" -c 'import psutil, ssl, sqlite3; print("Mounted DMG runtime OK")'
 hdiutil detach -quiet "$WORK/mounted"
 trap - EXIT

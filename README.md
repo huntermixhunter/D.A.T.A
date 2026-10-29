@@ -117,11 +117,45 @@ When the installer finishes, you'll have a **DATA** icon on your desktop:
 
 **Double-click it** to start DATA — it launches the bridge and opens the dashboard
 at **http://localhost:7777** automatically. The same mark appears on your browser
-tab and in the taskbar while DATA is running. (Said *no* to the shortcut, or on
-Mac/Linux? Launch with `start_data.bat` / `./start_data.sh` from the DATA folder
-anytime — you can drag it to your dock or taskbar to pin it.)
+tab and in the taskbar while DATA is running. If you skipped the Windows
+shortcut, use `start_data.bat`. The Mac DMG uses `Start DATA.command`;
+Mac source ZIP and Linux installs use `bash start_data.sh`.
 
-### macOS / Linux
+### macOS
+
+Use the Mac **.dmg** for your processor: Apple Silicon / arm64 or Intel /
+x86_64 (check Apple menu > About This Mac). It includes Python and system
+vitals. Copy the **DATA folder out of the mounted disk image into Downloads**,
+then double-click **Start DATA.command** in the copied folder. Keep its
+Terminal window open while using DATA.
+
+DATA is unsigned and not notarized. If a trusted copy is blocked, try opening
+the launcher once, then use **System Settings > Privacy & Security > Open
+Anyway**. Recent macOS versions no longer offer a right-click override.
+See [Apple's opening instructions](https://support.apple.com/en-us/102445).
+If startup is still blocked, open Terminal and paste:
+
+```bash
+bash "$HOME/Downloads/DATA/install/mac_first_run.command"
+```
+
+This clears downloaded-file quarantine only for the copied DATA folder and
+starts setup. It does not disable Gatekeeper system-wide or require `sudo`.
+If the folder is elsewhere, type `bash` and a space, then drag
+`install/mac_first_run.command` from the copied folder into Terminal and
+press Return. Do not assume a damaged-file or malware warning is just an
+unsigned-app warning; get a fresh official copy and contact support if it persists.
+
+The Mac DMG uses offline setup. The cross-platform source ZIP needs Python
+3.10+ installed first and may download optional dependencies. The same
+first-run helper handles either download. For later ZIP launches, use
+`bash start_data.sh` from the installed folder.
+
+Full walkthrough, including Downloads permissions and startup troubleshooting:
+[READ-ME-FIRST-MAC.txt](READ-ME-FIRST-MAC.txt). This guide also appears as
+**READ ME FIRST.txt** beside the DATA folder inside each newly built DMG.
+
+### Linux
 
 **Get the code.** Run `git clone https://github.com/huntermixhunter/D.A.T.A.git` (or
 download and extract the ZIP from the green **Code** button on GitHub), then from
@@ -132,19 +166,10 @@ bash install/install.sh
 ./start_data.sh
 ```
 
-> **macOS, downloaded a .dmg or .zip?** macOS locks downloaded files until you
-> approve them once (Gatekeeper), so the installer may refuse to run with an
-> "unidentified developer" or "damaged" warning. Easiest fix, no typing: drag the
-> DATA folder out of the disk image onto your Desktop, then **right-click**
-> `install/mac_first_run.command` and choose **Open** — it clears the lock, runs
-> the installer, and offers to launch. Prefer the Terminal? Run
-> `xattr -dr com.apple.quarantine .` from the DATA folder before `install.sh`. Full
-> plain-language walkthrough: [READ-ME-FIRST-MAC.txt](READ-ME-FIRST-MAC.txt).
-
 ### Chromebook
 
 1. Turn on the Linux development environment: **Settings → About ChromeOS → Linux**.
-2. Open the Terminal app, then follow the macOS / Linux steps above.
+2. Open the Terminal app, then follow the Linux steps above.
 
 The dashboard opens at **http://localhost:7777**. (Not technical? See
 [INSTALL.txt](INSTALL.txt) for a plain-language walkthrough.)

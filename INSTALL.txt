@@ -20,7 +20,8 @@ full responsibility. See DISCLAIMER.md and LICENSE before you continue.
 ------------------------------------------------------------------------
 
 You will need TWO things:
-  1. Python 3.10 or newer        (free - python.org)
+  1. Python 3.10 or newer        (included in the Mac .dmg download;
+                                 source ZIP users install it separately)
   2. One AI provider you log in to (your own Claude, ChatGPT,
      Gemini, or a free local model - see step 3)
 
@@ -44,34 +45,48 @@ You will need TWO things:
    - From now on, starting DATA is just: double-click the desktop icon.
 
 ------------------------------------------------------------------------
-  MAC / LINUX / CHROMEBOOK
+  MAC
+------------------------------------------------------------------------
+Full walkthrough: READ-ME-FIRST-MAC.txt. The Mac .dmg includes Python;
+choose Apple Silicon or Intel using Apple menu > About This Mac.
+
+1. Open the downloaded .dmg, copy its DATA folder, then paste that folder
+   into Downloads. The mounted disk image is read-only; use the copy.
+   Do not replace or merge an existing DATA folder.
+2. Open Downloads > DATA and double-click Start DATA.command.
+3. If the trusted unsigned launcher is blocked, open System Settings >
+   Privacy & Security > Open Anyway after attempting to open it.
+   Right-click > Open no longer overrides this block on recent macOS.
+4. If startup is still blocked, open Terminal with Command+Space,
+   then paste this entire line and press Return:
+       bash "$HOME/Downloads/DATA/install/mac_first_run.command"
+   Allow Terminal access to Downloads if prompted. The helper clears
+   quarantine for this DATA copy and starts setup. It needs no sudo and
+   does not turn off Gatekeeper for your Mac.
+   If the folder has another name/location, type bash and one space,
+   then drag install/mac_first_run.command from your copied DATA folder
+   into Terminal and press Return.
+5. Keep Terminal open while using DATA. The browser opens the dashboard:
+   http://localhost:7777
+
+Source ZIP: install Python 3.10+ first, extract the ZIP, then use step 4.
+Start later with bash "$HOME/Downloads/DATA/start_data.sh" or use the
+drag-and-drop method for a different folder location.
+Do not treat "damaged" or malware warnings as ordinary unsigned-app
+warnings. Get a fresh official download and contact support if it persists.
+
+Apple's approval instructions:
+https://support.apple.com/en-us/102445
+
+------------------------------------------------------------------------
+  LINUX / CHROMEBOOK
 ------------------------------------------------------------------------
 (Chromebook: first turn on Linux - Settings > About ChromeOS > Linux -
  then open the Terminal app.)
 
-MAC USERS - READ THIS FIRST. macOS locks anything you download until you
-approve it once, so the installer or even this file may refuse to open
-with an "unidentified developer" or "damaged" warning. That is normal,
-not a broken download. The fastest fix needs no typing:
-
-   1. If DATA opened in a disk-image (.dmg) window, drag the DATA folder
-      onto your Desktop first (a disk image is read-only and cannot be
-      unlocked in place). A .zip just needs unzipping.
-   2. Open the "install" folder, RIGHT-CLICK the file
-      "mac_first_run.command" and choose "Open" (a plain double-click is
-      blocked the first time; right-click > Open gets past it).
-   3. Click "Open". A Terminal window unlocks DATA, runs the installer,
-      and offers to launch. That is the whole setup.
-
-   Prefer the Terminal, or on Linux/Chromebook? See the numbered steps
-   below. Full plain-language version: READ-ME-FIRST-MAC.txt.
-
-1. Unzip this folder (Mac: first drag it out of the .dmg if you got one).
-2. In a terminal, go into the folder. Mac only: remove the download lock
-   from every file first, then install:
-       xattr -dr com.apple.quarantine .
+1. Unzip this folder.
+2. In a terminal, go into the folder and install:
        bash install/install.sh
-   (Linux / Chromebook skip the xattr line - just run install.sh.)
 3. Then launch it:
        ./start_data.sh
    Open http://localhost:7777 in your browser (use Chrome for voice
