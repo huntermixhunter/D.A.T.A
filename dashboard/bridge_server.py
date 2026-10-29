@@ -39,6 +39,8 @@ _HERE_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HERE_DIR not in sys.path:
     sys.path.insert(0, _HERE_DIR)
 
+import skill_search
+
 # ── Scrub bad PYTHONHASHSEED ─────────────────────────────────
 # Some prior shell session exported PYTHONHASHSEED=5780483582248244759 — out
 # of CPython's legal range [0, 4294967295]. Inherited into the bridge process
@@ -10588,6 +10590,8 @@ class Handler(BaseHTTPRequestHandler):
             "/index.html":   ("index.html", "text/html; charset=utf-8"),
             "/app.js":       ("app.js",     "application/javascript; charset=utf-8"),
             "/theme.css":    ("theme.css",  "text/css; charset=utf-8"),
+            "/skill_search.js": ("skill_search.js", "application/javascript; charset=utf-8"),
+            "/skill_search.css": ("skill_search.css", "text/css; charset=utf-8"),
             "/favicon.png":  ("favicon.png", "image/png"),
             "/favicon.ico":  ("favicon.ico", "image/x-icon"),
         }
@@ -10686,6 +10690,9 @@ class Handler(BaseHTTPRequestHandler):
 
         # Auth gate — applies to all API routes once a token is configured.
         if not self._check_auth():
+            return
+
+        if skill_search.handle_http(self):
             return
 
         if path == "/status":

@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <link rel="stylesheet" href="theme.css?v=sidebar-view-20261018" />
+  <link rel="stylesheet" href="skill_search.css?v=1" />
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -745,6 +746,29 @@
               </div>
               <div class="connectors-body" id="upgrades-body">
 
+                <section class="conn-section skill-search" aria-labelledby="skill-search-heading">
+                  <h4 class="conn-section-label" id="skill-search-heading">FIND NEW SKILLS</h4>
+                  <p class="skill-search-intro">Search by task, tool, or topic. Find the closest fit, with popular matches ranked higher.</p>
+                  <form class="skill-search-form" id="skill-search-form" role="search" aria-label="Find new skills">
+                    <div class="skill-search-field">
+                      <label for="skill-search-query">Keywords</label>
+                      <input id="skill-search-query" type="search" placeholder="PDF editing, web design, spreadsheets..." maxlength="160" autocomplete="off" aria-describedby="skill-search-note" aria-controls="skill-search-results">
+                    </div>
+                    <div class="skill-search-field skill-search-sort">
+                      <label for="skill-search-sort">Sort results</label>
+                      <select id="skill-search-sort">
+                        <option value="relevance">Best match</option>
+                        <option value="installs">Most installed</option>
+                      </select>
+                    </div>
+                    <button class="data-btn-sm orange" id="skill-search-submit" type="submit">Search</button>
+                    <button class="data-btn-sm" id="skill-search-clear" type="button" hidden>Clear</button>
+                  </form>
+                  <p class="skill-search-note" id="skill-search-note">Searches the public skills.sh catalog as you type. Popularity uses reported installs; this catalog does not provide user ratings.</p>
+                  <p class="skill-search-status" id="skill-search-status" role="status" aria-live="polite">Try a task or topic, such as PDF editing, web design, or spreadsheets.</p>
+                  <div class="skill-search-results" id="skill-search-results" aria-label="Skill search results" aria-busy="false"></div>
+                </section>
+
                 <!-- Desktop Takeover (clawdcursor) — arm/disarm switch -->
                 <section class="conn-section" id="clawd-section">
                   <div class="conn-section-label">DESKTOP TAKEOVER <span class="conn-sub">(let DATA drive your real mouse &amp; keyboard — off by default)</span></div>
@@ -1219,5 +1243,6 @@
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
   </script>
   <script src="app.js?v=sidebar-view-20261018"></script>
+  <script src="skill_search.js?v=1"></script>
 </body>
 </html>

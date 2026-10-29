@@ -1,0 +1,38 @@
+/* Skill discovery uses the dashboard's existing theme tokens. */
+.skill-search { margin-bottom: 28px; padding-bottom: 22px; border-bottom: 1px solid var(--data-text-dim); }
+.skill-search h4 { margin: 0; }
+.skill-search-intro, .skill-search-note, .skill-search-status { color: var(--ink-2, var(--data-text-dim)); line-height: 1.5; }
+.skill-search-intro { margin: 8px 0 16px; font-size: 13px; }
+.skill-search-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; }
+.skill-search-field { display: grid; gap: 6px; flex: 1 1 240px; min-width: 0; }
+.skill-search-sort { flex: 0 1 170px; }
+.skill-search-field label { color: var(--ink-1, var(--data-text)); font-size: 12px; }
+.skill-search-field input, .skill-search-field select {
+  box-sizing: border-box; width: 100%; min-height: 44px; min-width: 0;
+  background: var(--surf-ctl, var(--data-bg2)); color: var(--ink-1, var(--data-text)); border: 1px solid var(--data-text-dim);
+  border-radius: 6px; padding: 10px 12px; font: inherit; font-size: 14px;
+}
+.skill-search-field input::placeholder { color: var(--ink-2, var(--data-text-dim)); opacity: 1; }
+.skill-search-form .data-btn-sm { min-height: 44px; padding: 10px 18px; }
+.skill-search-form [hidden] { display: none; }
+.skill-search :is(input, select, button, a):focus-visible { outline: 2px solid var(--data-orange); outline-offset: 3px; }
+.skill-search-note { margin: 12px 0 0; font-size: 11px; }
+.skill-search-status { margin: 14px 0; font-size: 12px; min-height: 1.5em; overflow-wrap: anywhere; }
+.skill-search-error { color: var(--data-red); }
+.skill-search-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 10px; }
+.skill-search-card {
+  min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 16px;
+  background: var(--surf-card, var(--data-bg2)); border: 1px solid color-mix(in srgb, var(--data-text-dim) 45%, transparent); border-radius: 8px;
+}
+.skill-search-name { font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.skill-search-source, .skill-search-description { margin: 0; color: var(--ink-2, var(--data-text-dim)); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.skill-search-card-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+.skill-search-installs { color: var(--ink-1, var(--data-text)); font-size: 12px; font-variant-numeric: tabular-nums; }
+.skill-search-link { color: var(--data-orange); text-decoration: underline; text-underline-offset: 3px; }
+.skill-search-card-footer .skill-search-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; }
+.settings-pane[data-pane="upgrades"] .connectors-body { padding: 8px 0 0; overflow: visible; }
+@media (max-width: 600px) {
+  .skill-search-field { flex-basis: 100%; }
+  .skill-search-sort { flex: 1 1 150px; }
+  .settings-pane[data-pane="upgrades"] .conn-cards { grid-template-columns: minmax(0, 1fr); }
+}
