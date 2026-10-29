@@ -405,18 +405,20 @@ first" so the change is one revert away.
 
 ## 18. Remote access — reach DATA from anywhere
 
-**What it does.** DATA can open a secure public tunnel (via cloudflared) so you can
-reach your own dashboard from your phone or another computer, while the bridge keeps
-running on your home machine.
+**What it does.** **Settings > Remote Access** offers two guided setup options:
 
-**How to ask:**
+- **Full mobile dashboard:** connect your computer and phone with Tailscale,
+  enable private HTTPS access, and copy your phone link into Safari or Chrome.
+- **Telegram bot:** create a bot with BotFather, paste its token into Settings,
+  and use the one-time pairing link to authorize your private Telegram chat.
 
-- "Start a tunnel so I can reach DATA from my phone."
-- "What is my remote URL right now?"
+Both options can run together. Enabling either also keeps DATA running after you
+close the desktop browser. Your computer must stay on, awake and online. Setup
+and sensitive administrative controls remain available on the computer only.
+Telegram replies use the selected AI connection and its normal limits or charges.
 
-The tunnel URL is shown once it is live. Pair this with daemon lifecycle mode
-([section 21](#21-settings-and-lifecycle)) so standing orders keep firing while you are
-away.
+For the complete steps, privacy details and troubleshooting, see
+[Remote access setup](dashboard/REMOTE_ACCESS.md).
 
 ---
 

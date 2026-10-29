@@ -10,6 +10,7 @@
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <link rel="stylesheet" href="theme.css?v=sidebar-view-20261018" />
   <link rel="stylesheet" href="skill_search.css?v=1" />
+  <link rel="stylesheet" href="remote_access.css?v=1" />
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -663,6 +664,7 @@
           <nav class="settings-nav" id="settings-nav">
             <button class="settings-tab active" data-tab="appearance" onclick="settingsTab('appearance')">APPEARANCE</button>
             <button class="settings-tab" data-tab="view" onclick="settingsTab('view')">VIEW</button>
+            <button class="settings-tab" data-tab="remote-access" onclick="settingsTab('remote-access')">REMOTE ACCESS</button>
             <button class="settings-tab" data-tab="voice"  onclick="settingsTab('voice')">VOICE</button>
             <button class="settings-tab" data-tab="model"  onclick="settingsTab('model')">MODEL</button>
             <button class="settings-tab" data-tab="upgrades" onclick="settingsTab('upgrades')">UPGRADES</button>
@@ -696,6 +698,48 @@
               </fieldset>
               <button type="button" class="settings-opt" onclick="SidebarView.showAll()">SHOW ALL</button>
               <p class="settings-sub settings-view-status" id="settings-view-status" role="status" aria-live="polite"></p>
+            </section>
+
+            <section class="settings-pane remote-access" data-pane="remote-access" aria-labelledby="remote-title">
+              <div class="remote-heading">
+                <div><p class="remote-eyebrow">YOUR DATA, WITH YOU</p><h3 id="remote-title">Use DATA from your phone</h3></div>
+                <button type="button" class="remote-btn" id="remote-refresh">Check connection</button>
+              </div>
+              <p class="remote-intro">Open the full dashboard or send a quick message in Telegram. You can use either option, or both.</p>
+              <div class="remote-choices" role="group" aria-label="Remote access options">
+                <button type="button" class="remote-choice selected" id="remote-choose-mobile" aria-pressed="true" aria-controls="remote-mobile-panel">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4M10 18h4"/></svg>
+                  <strong>Full mobile dashboard</strong><span>Chats, projects, files and status in your phone browser.</span><small>PRIVATE CONNECTION</small>
+                </button>
+                <button type="button" class="remote-choice" id="remote-choose-telegram" aria-pressed="false" aria-controls="remote-telegram-panel">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m3 11 18-8-4 18-6-6-4 3 1-6 9-6-6 9M3 11l5 1"/></svg>
+                  <strong>Telegram bot</strong><span>Message DATA and receive task notifications in Telegram.</span><small>YOUR PAIRED CHAT</small>
+                </button>
+              </div>
+              <p class="remote-feedback" id="remote-feedback" role="status" aria-live="polite">Checking this computer...</p>
+              <fieldset id="remote-controls" class="remote-controls" disabled>
+                <legend class="remote-sr-only">Remote access setup</legend>
+                <div id="remote-mobile-panel" class="remote-panel">
+                  <div class="remote-panel-head"><h4>Set up your phone browser</h4><span class="remote-badge" id="remote-mobile-state">Not connected</span></div>
+                  <p class="remote-copy">Tailscale connects your own devices privately. Install it on both devices and sign in with the same account. Its Personal plan is free for personal use.</p>
+                  <ol class="remote-steps">
+                    <li><div><strong>Install and sign in to Tailscale</strong><p>Use the desktop app on this computer and the Tailscale app on your iPhone or Android phone. Keep Tailscale connected on both.</p><div class="remote-actions"><a class="remote-btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Get Tailscale</a><a class="remote-text-link" href="https://tailscale.com/pricing" target="_blank" rel="noopener noreferrer">Plans and eligibility</a></div></div></li>
+                    <li><div><strong>Enable the dashboard connection</strong><p id="remote-mobile-message">Check the connection after signing in. DATA will create a private HTTPS link with an access key.</p><p class="remote-copy">This grants full dashboard access to anyone with the link who can reach this computer through Tailscale.</p><div class="remote-actions"><button type="button" class="remote-btn primary" id="remote-mobile-enable">Enable full mobile access</button><button type="button" class="remote-btn" id="remote-mobile-disable" hidden>Disable mobile access</button><a class="remote-btn" id="remote-https-approval" target="_blank" rel="noopener noreferrer" hidden>Approve HTTPS in Tailscale</a></div></div></li>
+                    <li><div><strong>Open DATA on your phone</strong><p>Copy your private phone link and transfer it to your phone. Open it in Safari or Chrome, then use Add to Home Screen for a shortcut.</p><div class="remote-link-row" id="remote-phone-row" hidden><input id="remote-phone-link" aria-label="Private phone link" readonly spellcheck="false" autocomplete="off" placeholder="Copy phone link to reveal"/><button type="button" class="remote-btn" id="remote-phone-copy">Copy phone link</button></div><p class="remote-note">Keep this link private. Changing remote access, installing tools and managing marketplace accounts stays on the computer.</p></div></li>
+                  </ol>
+                </div>
+                <div id="remote-telegram-panel" class="remote-panel" hidden>
+                  <div class="remote-panel-head"><h4>Set up your Telegram bot</h4><span class="remote-badge" id="remote-telegram-state">Not connected</span></div>
+                  <p class="remote-copy">Use a dedicated bot for DATA. Pairing limits it to your private Telegram chat and the DATA profile selected during setup.</p>
+                  <ol class="remote-steps">
+                    <li><div><strong>Create a bot with BotFather</strong><p>Open Telegram's official BotFather, send <code>/newbot</code>, then follow the prompts to choose a name and username.</p><a class="remote-btn" href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">Open BotFather</a></div></li>
+                    <li><div><strong>Connect the bot to DATA</strong><p>Paste the token BotFather gives you. It is saved on this computer and is never shown again.</p><form id="remote-telegram-form"><label for="remote-bot-token">Bot token</label><input id="remote-bot-token" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Paste your BotFather token" required maxlength="121"/><p class="remote-note">Messages and replies travel through Telegram. AI replies use your selected DATA connection and its normal usage limits or charges.</p><button type="submit" class="remote-btn primary" id="remote-telegram-connect">Connect Telegram bot</button></form><p class="remote-copy" id="remote-bot-name" hidden></p></div></li>
+                    <li><div><strong>Pair your private chat</strong><p>Open the pairing link in Telegram and tap Start within 10 minutes. Only the account that uses this one-time link can send requests.</p><div class="remote-actions"><a class="remote-btn primary" id="remote-pair-open" target="_blank" rel="noopener noreferrer" hidden>Pair in Telegram</a><button type="button" class="remote-btn" id="remote-pair-copy" hidden>Copy pairing link</button><button type="button" class="remote-btn" id="remote-pair-new" hidden>Create new pairing link</button></div><p class="remote-copy" id="remote-pair-status">Connect your bot first.</p><div class="remote-actions"><button type="button" class="remote-btn" id="remote-telegram-test" hidden>Send test message</button><button type="button" class="remote-btn" id="remote-telegram-restart" hidden>Reconnect bot</button><button type="button" class="remote-btn" id="remote-telegram-disconnect" hidden>Disconnect Telegram</button></div></div></li>
+                  </ol>
+                </div>
+                <label class="remote-background" for="remote-keep-running"><input type="checkbox" id="remote-keep-running"/><span><strong>Keep DATA running when I close the browser</strong><small>Enabled automatically when you connect either option. Your computer must stay powered on, awake and connected to the internet.</small></span></label>
+              </fieldset>
+              <p class="remote-note">Set up remote access on the computer running DATA. Turning the computer off or choosing System Offline disconnects your phone.</p>
             </section>
 
             <section class="settings-pane" data-pane="voice">
@@ -1242,7 +1286,8 @@
     // MSD metric-card placement (defined in app.js).
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
   </script>
-  <script src="app.js?v=sidebar-view-20261018"></script>
+  <script src="app.js?v=remote-access-20261029"></script>
   <script src="skill_search.js?v=1"></script>
+  <script src="remote_access.js?v=1"></script>
 </body>
 </html>

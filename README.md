@@ -13,6 +13,12 @@ Two dark themes ship in the box — toggle from the bottom-left of the footer:
 
 Everything runs on your machine. No accounts, no telemetry, no cloud.
 
+**Settings > Remote Access** guides you through using DATA from your phone.
+Choose the full dashboard over a private Tailscale connection, a Telegram bot
+paired to your account, or both. DATA can keep running after you close the
+desktop browser; the computer must remain powered on, awake and online.
+See `dashboard/REMOTE_ACCESS.md` for setup and connection details.
+
 ![themes](https://img.shields.io/badge/themes-MINIMAL%20%7C%20CYBER-4d9fff) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-Apache%202.0-4d9fff)
 
 ---

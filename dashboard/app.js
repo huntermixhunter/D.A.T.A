@@ -277,14 +277,17 @@ function copyPhoneLink() {
 // header. Stored in localStorage so it survives reloads. First visit on a
 // tunneled URL: bridge returns 401 → we prompt for the token and retry.
 function _getAuthToken() {
-  // URL ?key=<token> override (one-tap link sharing) → write into storage
+  // Phone links use a fragment, so the private key never reaches HTTP logs.
   try {
     const params = new URLSearchParams(location.search);
-    const k = params.get('key');
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    const k = fragment.get('access') || params.get('key');
     if (k) {
       localStorage.setItem('data-bridge-token', k);
-      // Clean the URL so the token isn't visible in browser history
-      history.replaceState({}, '', location.pathname);
+      params.delete('key');
+      const query = params.toString();
+      history.replaceState({}, '', location.pathname + (query ? '?' + query : '') +
+        (fragment.has('access') ? '' : location.hash));
       return k;
     }
   } catch {}
@@ -292,24 +295,46 @@ function _getAuthToken() {
 }
 
 let _authToken = _getAuthToken();
+let _authPromptDeclined = false;
 
 // Wrap window.fetch so every API call carries the auth header automatically.
-// On 401, prompt for token, save, retry once.
+// Prompt only for an explicit bridge authentication error.
 const _rawFetch = window.fetch.bind(window);
 window.fetch = async function(input, init) {
   init = init || {};
   const headers = new Headers(init.headers || {});
-  if (_authToken) headers.set('X-Data-Token', _authToken);
+  let bridgeRequest = false;
+  // Mark calls to our own bridge. A page on another origin cannot set this
+  // header without a preflight the bridge refuses, so endpoints that check it
+  // (the account and profile routes) cannot be driven by a drive-by POST.
+  // Scoped to bridge URLs so third-party requests are not made preflighted.
+  try {
+    if (new URL(input instanceof Request ? input.url : input, location.href).origin
+        === new URL(API_BASE, location.href).origin) {
+      bridgeRequest = true;
+      headers.set('X-Data-Request', '1');
+      if (_authToken) headers.set('X-Data-Token', _authToken);
+    }
+  } catch (_) { /* Opaque input: leave the request untouched. */ }
   init.headers = headers;
+  const requestedToken = _authToken;
   let res = await _rawFetch(input, init);
-  if (res.status === 401) {
-    const tok = prompt('This bridge requires a token. Paste DATA_BRIDGE_TOKEN:');
+  if (res.status === 401 && bridgeRequest) {
+    let error;
+    try { error = (await res.clone().json()).error; } catch (_) { return res; }
+    if (error !== 'auth_required') return res;
+    if (_authToken && _authToken !== requestedToken) {
+      headers.set('X-Data-Token', _authToken);
+      return _rawFetch(input, init);
+    }
+    if (_authPromptDeclined) return res;
+    const tok = prompt('Open the private phone link from Settings > Remote Access, or paste your DATA access key:');
     if (tok) {
       _authToken = tok.trim();
       localStorage.setItem('data-bridge-token', _authToken);
       headers.set('X-Data-Token', _authToken);
       res = await _rawFetch(input, init);
-    }
+    } else _authPromptDeclined = true;
   }
   return res;
 };
@@ -1883,6 +1908,65 @@ function escapeHtml(text) {
 // `Rooted in C:\...\MyProject` style messages become one-click openable.
 const _PATH_RE = /^([A-Za-z]:[\\/][^\s"<>]+|\/(?:[^\s"<>/]+\/?)+)$/;
 
+// Local Markdown previews need bridge headers; remote images keep their normal URLs.
+(() => {
+  const selector = 'img.md-img[data-md-local-src]';
+  const previews = new Map();
+
+  function sync(img) {
+    const source = img.getAttribute('data-md-local-src');
+    const previous = previews.get(img);
+    if (previous && img.isConnected && previous.source === source) return;
+    if (previous) {
+      previous.controller.abort();
+      if (previous.url) {
+        if (img.getAttribute('src') === previous.url) img.removeAttribute('src');
+        URL.revokeObjectURL(previous.url);
+      }
+      previews.delete(img);
+    }
+    if (!img.isConnected || !source) return;
+    let url;
+    try {
+      url = new URL(source, location.href);
+      if (url.origin !== new URL(API_BASE, location.href).origin || url.pathname !== '/file') return;
+    } catch (_) { return; }
+    const preview = { source, controller: new AbortController(), url: '' };
+    previews.set(img, preview);
+    fetch(url, { signal: preview.controller.signal, cache: 'no-store' })
+      .then(response => {
+        if (!response.ok) throw new Error('Image preview unavailable');
+        return response.blob();
+      })
+      .then(blob => {
+        if (previews.get(img) !== preview || !img.isConnected ||
+            img.getAttribute('data-md-local-src') !== source) return;
+        preview.url = URL.createObjectURL(blob);
+        img.src = preview.url;
+      })
+      .catch(() => { /* Keep the image's alt text on failure or cancellation. */ });
+  }
+
+  function visit(node) {
+    if (node.nodeType !== 1) return;
+    if (node.matches(selector)) sync(node);
+    node.querySelectorAll(selector).forEach(sync);
+  }
+
+  new MutationObserver(records => {
+    records.forEach(record => {
+      if (record.type === 'attributes') sync(record.target);
+      else {
+        record.removedNodes.forEach(visit);
+        record.addedNodes.forEach(visit);
+      }
+    });
+  }).observe(document.body, {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['data-md-local-src'],
+  });
+  visit(document.body);
+})();
+
 function _inlineMd(text) {
   // Extract markdown links + bare URLs to placeholders first, so the bold /
   // italic / code regexes below don't chew up URL characters.
@@ -1898,10 +1982,11 @@ function _inlineMd(text) {
   //                                          bridge serves it from the sandbox.
   //    Click opens the full file in Explorer/default viewer via openPath().
   const IMG_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+  const attr = (value) => String(value).replace(/"/g, '&quot;');
   text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt, url) => {
     const safeAlt = alt.replace(/"/g, '&quot;');
     if (/^https?:\/\//i.test(url)) {
-      return stash(`<img class="md-img" src="${url}" alt="${safeAlt}" loading="lazy">`);
+      return stash(`<img class="md-img" src="${attr(url)}" alt="${safeAlt}" loading="lazy">`);
     }
     if (!IMG_EXT_RE.test(url)) {
       const safe = url.replace(/"/g, '&quot;');
@@ -1910,14 +1995,14 @@ function _inlineMd(text) {
     const safePath = url.replace(/"/g, '&quot;');
     const src      = `${API_BASE}/file?path=${encodeURIComponent(url)}`;
     return stash(
-      `<img class="md-img" src="${src}" alt="${safeAlt}" title="${safePath}" ` +
+      `<img class="md-img" data-md-local-src="${src}" alt="${safeAlt}" title="${safePath}" ` +
       `data-open-path="${safePath}" loading="lazy">`
     );
   });
 
   // 1. [label](url)   — full markdown link
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, label, url) =>
-    stash(`<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`));
+    stash(`<a class="md-link" href="${attr(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`));
 
   // 2. Bare http(s) URLs — but only when not already inside a stashed link
   //     Exclude '*' from the URL so a bold/italic wrapper (**url** / *url*)
@@ -7509,28 +7594,32 @@ function _arrangeMsdCards() {
 }
 _arrangeMsdCards();   // place cards for the theme active at load
 
-function subscribeShipsHealth() {
+async function subscribeShipsHealth() {
   if (_shipsHealthSSE) { try { _shipsHealthSSE.close(); } catch (_) {} }
+  const controller = new AbortController();
+  _shipsHealthSSE = { close: () => controller.abort() };
   try {
-    _shipsHealthSSE = new EventSource(`${API_BASE}/vitals_fast`);
-    _shipsHealthSSE.onmessage = (ev) => {
-      try { _applyShipsHealth(JSON.parse(ev.data)); }
-      catch (_) { /* malformed frame — skip */ }
-    };
-    _shipsHealthSSE.onerror = () => {
-      // Browser auto-retries EventSource; if it gives up, reconnect ourselves.
-      if (_shipsHealthSSE.readyState === EventSource.CLOSED) {
-        setTimeout(subscribeShipsHealth, 3000);
+    // Fetch carries the access-key header. Native EventSource cannot set it.
+    const response = await fetch(`${API_BASE}/vitals_fast`, { signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error('Status stream unavailable');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (!controller.signal.aborted) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let end;
+      while ((end = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, end).trim();
+        buffer = buffer.slice(end + 1);
+        if (!line.startsWith('data:')) continue;
+        try { _applyShipsHealth(JSON.parse(line.slice(5).trim())); } catch (_) {}
       }
-    };
-  } catch (e) {
-    // Browser too old, or fetch base unreachable — fall back to slow polling.
-    setInterval(async () => {
-      try {
-        const r = await fetch(`${API_BASE}/ships_health`);
-        if (r.ok) _applyShipsHealth(await r.json());
-      } catch (_) {}
-    }, 2000);
+    }
+  } catch (_) { /* Offline connections retry below. */ }
+  finally {
+    if (!controller.signal.aborted) setTimeout(subscribeShipsHealth, 3000);
   }
 }
 
@@ -10018,6 +10107,7 @@ function openSettings() {
   _settingsLoadConvo();
 }
 function closeSettings() {
+  if (typeof RemoteAccessUI !== 'undefined') RemoteAccessUI.hide();
   const ov = document.getElementById('settings-overlay');
   if (ov) ov.classList.add('hidden');
   document.removeEventListener('keydown', _settingsKey);
@@ -10027,6 +10117,10 @@ function _settingsBackdrop(evt) { if (evt.target.id === 'settings-overlay') clos
 function _settingsKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeSettings(); } }
 
 function settingsTab(name) {
+  if (typeof RemoteAccessUI !== 'undefined') {
+    if (name === 'remote-access') RemoteAccessUI.load();
+    else RemoteAccessUI.hide();
+  }
   if (name === 'view') SidebarView.render();
   document.querySelectorAll('.settings-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.tab === name));

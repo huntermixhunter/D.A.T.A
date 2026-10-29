@@ -22,6 +22,7 @@ import html as html_module
 import threading
 import time
 import collections
+from contextlib import nullcontext
 from pathlib import Path
 
 # ── Make sibling modules importable (embeddable-Python fix) ──────────
@@ -40,6 +41,7 @@ if _HERE_DIR not in sys.path:
     sys.path.insert(0, _HERE_DIR)
 
 import skill_search
+import remote_access
 
 # ── Scrub bad PYTHONHASHSEED ─────────────────────────────────
 # Some prior shell session exported PYTHONHASHSEED=5780483582248244759 — out
@@ -564,7 +566,19 @@ def _resolve_user_paths() -> None:
     CONVERSATION_ARCHIVE_FILE = d / "conversation_archive.jsonl"
     RECALL_INDEX_DB           = d / "recall_index.db"
 
+_profile_dispatch_lock = threading.RLock()
+
+
 def _switch_active_user(uid: str) -> dict:
+    if not _profile_dispatch_lock.acquire(blocking=False):
+        raise ValueError("A task using the current profile is running. Wait for it to finish before changing profiles.")
+    try:
+        return _switch_active_user_unlocked(uid)
+    finally:
+        _profile_dispatch_lock.release()
+
+
+def _switch_active_user_unlocked(uid: str) -> dict:
     """Swap the active Captain, persist outgoing histories, reload incoming
     histories, repoint per-user paths, and persist the new active selection."""
     global _ACTIVE_USER, _histories_by_path
@@ -596,6 +610,20 @@ def _switch_active_user(uid: str) -> dict:
 DATA_BRIDGE_TOKEN = os.environ.get("DATA_BRIDGE_TOKEN", "").strip()
 PYTHON_EXE  = Path(sys.executable)   # the interpreter running this bridge
 PORT = int(os.environ.get("DATA_PORT", "7777"))
+
+
+def _telegram_reply(message, profile, chat_id):
+    # The bridge stores the active profile globally. Hold its switch lock for
+    # the complete request so a Telegram reply cannot cross profile histories.
+    with _profile_dispatch_lock:
+        if profile != _ACTIVE_USER:
+            return "Select your DATA profile on the computer to resume Telegram."
+        return _dispatch_with_provider(ACTIVE_PROVIDER, message, "", "telegram-" + chat_id)
+
+
+REMOTE_ACCESS = remote_access.RemoteAccess(
+    USERS_DIR / "remote-access", PORT, profile=lambda: _ACTIVE_USER,
+    reply=_telegram_reply, env_token=DATA_BRIDGE_TOKEN, daemon=_LIFECYCLE_MODE == "daemon")
 # Alias auto-ride (locked 2026-08-07): pass the Claude CLI tier alias — NOT a
 # pinned version id — to `--model`, so the newest Opus/Sonnet/Haiku the
 # subscription can serve rides in automatically when Anthropic ships it, with
@@ -5243,6 +5271,8 @@ def _fire_standing_order(order: dict) -> None:
 
     Special actions bypass the LLM and call a hard-coded handler instead
     (e.g. action='refresh_upgrades' reruns the Potential Upgrades scan)."""
+    source_profile = _ACTIVE_USER
+    notify_telegram = bool(order.get("notify_telegram"))
     action = (order.get("action") or "").strip()
     log.info(f"[orders] firing {order['id']} ({order['name']!r}) → "
              f"{'action=' + action if action else order['provider']}")
@@ -5327,11 +5357,15 @@ def _fire_standing_order(order: dict) -> None:
             response = f"(Dashboard self-update failed: {e})"
     else:
         try:
-            response = _dispatch_with_provider(
-                order["provider"],
-                order["prompt"],
-                project_path="",
-            )
+            # Notification results must stay with the profile that started them.
+            with _profile_dispatch_lock if notify_telegram else nullcontext():
+                if notify_telegram and source_profile != _ACTIVE_USER:
+                    raise ValueError("The DATA profile changed before this standing order could run.")
+                response = _dispatch_with_provider(
+                    order["provider"],
+                    order["prompt"],
+                    project_path="",
+                )
         except Exception as e:
             log.exception(f"[orders] dispatch failed: {e}")
             response = f"(Standing order failed: {e})"
@@ -5344,12 +5378,11 @@ def _fire_standing_order(order: dict) -> None:
         "prompt":   order["prompt"],
         "response": response,
     })
-    # Optional Telegram push — fires only if the order opted in AND
-    # TELEGRAM_BOT_TOKEN + a whitelist are configured.
-    if order.get("notify_telegram"):
+    # Optional Telegram push requires Settings pairing and a matching source profile.
+    if notify_telegram:
         try:
             import telegram_bot
-            telegram_bot.notify(f"📋 {order['name']}\n\n{response}")
+            telegram_bot.notify(f"📋 {order['name']}\n\n{response}", source_profile=source_profile)
         except Exception as e:
             log.exception(f"[orders] telegram notify failed: {e}")
 
@@ -10408,18 +10441,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _check_auth(self) -> bool:
-        """Return True if request is authorized. If DATA_BRIDGE_TOKEN is unset,
-        always returns True (backward-compatible localhost-only behavior).
-        Otherwise checks `X-Data-Token` header or `?key=` query param."""
-        if not DATA_BRIDGE_TOKEN:
-            return True
-        # Header
-        supplied = self.headers.get("X-Data-Token", "").strip()
-        # Query param fallback (so a URL with ?key=... auto-authenticates)
-        if not supplied:
-            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            supplied = (q.get("key") or [""])[0].strip()
-        if supplied == DATA_BRIDGE_TOKEN:
+        """Remote requests always require a key; local setup stays on loopback."""
+        if remote_access.authorized(self, REMOTE_ACCESS, DATA_BRIDGE_TOKEN):
             return True
         # 401 — frontend prompts for token + retries
         self.send_response(401)
@@ -10576,8 +10599,10 @@ class Handler(BaseHTTPRequestHandler):
                 break
 
     def do_GET(self):
+        if remote_access.handle_http(self, REMOTE_ACCESS):
+            return
         path = urllib.parse.urlparse(self.path).path
-        log.debug(f"do_GET: raw={self.path!r} parsed={path!r}")
+        log.debug("do_GET: path=%r", path)
 
         # ── Static dashboard files (so phone via Cloudflare can load /) ──
         # Two layers:
@@ -10592,6 +10617,8 @@ class Handler(BaseHTTPRequestHandler):
             "/theme.css":    ("theme.css",  "text/css; charset=utf-8"),
             "/skill_search.js": ("skill_search.js", "application/javascript; charset=utf-8"),
             "/skill_search.css": ("skill_search.css", "text/css; charset=utf-8"),
+            "/remote_access.js": ("remote_access.js", "application/javascript; charset=utf-8"),
+            "/remote_access.css": ("remote_access.css", "text/css; charset=utf-8"),
             "/favicon.png":  ("favicon.png", "image/png"),
             "/favicon.ico":  ("favicon.ico", "image/x-icon"),
         }
@@ -11509,6 +11536,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        if remote_access.handle_http(self, REMOTE_ACCESS):
+            return
         path = urllib.parse.urlparse(self.path).path
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
@@ -13223,13 +13252,9 @@ if __name__ == "__main__":
     print(f"Loaded {len(_standing_orders)} standing order(s).")
     threading.Thread(target=_scheduler_loop, daemon=True).start()
 
-    # Telegram bot — only starts if TELEGRAM_BOT_TOKEN env is set
+    # Resume only the bot explicitly configured in Settings > Remote Access.
     try:
-        import telegram_bot
-        if telegram_bot.start_bot():
-            print("Telegram bot polling started.")
-        else:
-            print("Telegram bot disabled (no TELEGRAM_BOT_TOKEN).")
+        REMOTE_ACCESS.start()
     except Exception as _e:
         log.exception(f"[telegram] startup failed: {_e}")
 
@@ -13237,12 +13262,19 @@ if __name__ == "__main__":
     if DATA_BRIDGE_TOKEN:
         print(f"Auth: token required (X-Data-Token header). Token length: {len(DATA_BRIDGE_TOKEN)}")
     else:
-        print("Auth: OPEN — set DATA_BRIDGE_TOKEN env var before exposing publicly.")
+        print("Auth: local access; remote API requests require a configured access key.")
     # Browser-coupled shutdown watcher (skip when run as a headless daemon).
     if _LIFECYCLE_MODE != "daemon":
         def _lifecycle_watcher():
+            global _last_heartbeat, _lifecycle_leaving
             while True:
                 time.sleep(5)
+                if REMOTE_ACCESS.keep_running:
+                    # Reset the grace period while background access is enabled.
+                    # Turning it off later must not cause an immediate shutdown.
+                    _last_heartbeat = datetime.datetime.now()
+                    _lifecycle_leaving = False
+                    continue
                 if _last_heartbeat is None:
                     continue  # browser hasn't connected yet — don't shut down on boot
                 gap = (datetime.datetime.now() - _last_heartbeat).total_seconds()
