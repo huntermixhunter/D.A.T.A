@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "text-workshop",
+  "version": "1.0.1",
+  "name": "Text Workshop",
+  "description": "Count words, clean pasted lists, remove duplicate lines, sort text, and change case. A small utility page that works entirely in your browser.",
+  "kind": "tool",
+  "license": "Apache-2.0",
+  "permissions": [
+    "navigation.page",
+    "text.local"
+  ],
+  "external_costs": "None. Text stays in this browser tab and is not sent to an AI provider.",
+  "components": [
+    {
+      "kind": "tool",
+      "entry": "tool.json",
+      "label": "Text Workshop"
+    }
+  ]
+}

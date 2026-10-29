@@ -1,0 +1,3 @@
+Original DATA instructions, adapted from the repository inspection workflow already available through the bundled codebase-inspection skill.
+This package does not copy that skill's pygount dependency installer or execute its commands.
+Copyright 2026 DATA contributors. Licensed under Apache-2.0, with the full license included in LICENSE.txt.

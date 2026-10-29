@@ -40,7 +40,9 @@ _HERE_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HERE_DIR not in sys.path:
     sys.path.insert(0, _HERE_DIR)
 
+import marketplace
 import skill_search
+import advanced_tools
 import remote_access
 
 # ── Scrub bad PYTHONHASHSEED ─────────────────────────────────
@@ -602,6 +604,113 @@ def _switch_active_user_unlocked(uid: str) -> dict:
     _save_users_registry()
     print(f"[users] active user → {uid}")
     return _active_user_dict()
+
+# ── Avatars — the Captain's picture and one per bridge-crew officer ──
+# Images live on disk as plain PNG/JPEG files, not inside users.json, so the
+# registry stays small and readable. Uploads are validated with the same
+# marketplace image checks the Marketplace and Forum use: raster PNG/JPEG only,
+# real file headers, bounded bytes and dimensions. No SVG, no active content.
+AGENT_AVATAR_DIR = USERS_DIR / "agent_avatars"
+AVATAR_EXTENSIONS = (".png", ".jpg")
+ACCENT_CHOICES = ("orange", "lavender", "blue", "teal", "cyan", "yellow", "green", "pink")
+
+def _decode_avatar(value: str) -> tuple[bytes, str]:
+    """Validate a data: URL and return (raw bytes, extension)."""
+    checked = marketplace.image_data(value)
+    header, encoded = checked.split(",", 1)
+    return base64.b64decode(encoded), ".png" if "image/png" in header else ".jpg"
+
+def _avatar_file(directory: Path, stem: str) -> Path | None:
+    for ext in AVATAR_EXTENSIONS:
+        candidate = directory / f"{stem}{ext}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+def _write_avatar(directory: Path, stem: str, value: str) -> str:
+    """Store one avatar, or remove it when value is empty. Returns the filename.
+
+    The image is decoded and validated BEFORE anything is deleted, so a rejected
+    upload leaves the existing picture untouched instead of wiping it."""
+    decoded = _decode_avatar(value) if value else None
+    directory.mkdir(parents=True, exist_ok=True)
+    for ext in AVATAR_EXTENSIONS:
+        try:
+            (directory / f"{stem}{ext}").unlink()
+        except FileNotFoundError:
+            pass
+    if decoded is None:
+        return ""
+    raw, ext = decoded
+    target = directory / f"{stem}{ext}"
+    target.write_bytes(raw)
+    return target.name
+
+def _avatar_url(route: str, directory: Path, stem: str, identifier: str) -> str:
+    """A cache-busting URL, or '' when no avatar is stored. The mtime query
+    makes a replaced picture show up immediately instead of from cache. The
+    id in the URL is what the GET handler resolves — not the file stem, which
+    for a Captain is always "avatar" inside their own folder."""
+    found = _avatar_file(directory, stem)
+    if not found:
+        return ""
+    try:
+        version = int(found.stat().st_mtime)
+    except OSError:
+        version = 0
+    return f"{route}?id={urllib.parse.quote(identifier, safe='')}&v={version}"
+
+def _user_avatar_url(uid: str) -> str:
+    return _avatar_url("/user/avatar", _user_dir(uid), "avatar", uid)
+
+def _agent_avatar_url(aid: str) -> str:
+    return _avatar_url("/agents/avatar", AGENT_AVATAR_DIR, aid, aid)
+
+def _user_payload(uid: str) -> dict:
+    """A registry entry plus its avatar URL — what the dashboard renders."""
+    spec = _USERS.get(uid, {"id": uid, "name": uid, "rank": "Captain"})
+    return dict(spec, id=uid, avatar=_user_avatar_url(uid))
+
+def _update_user_profile(uid: str, data: dict) -> dict:
+    """Apply a Captain profile edit. Only the four known fields are writable;
+    everything else in the registry entry is preserved untouched.
+
+    Every field is validated before any of them is applied, so a request that
+    is rejected halfway leaves the profile exactly as it was."""
+    if uid not in _USERS:
+        raise ValueError(f"unknown user {uid!r}")
+    pending = {}
+    if "name" in data:
+        name = str(data.get("name") or "").strip()
+        if not 1 <= len(name) <= 60:
+            raise ValueError("Nickname must be 1 to 60 characters.")
+        if any(ord(c) < 32 for c in name):
+            raise ValueError("Nickname contains invalid characters.")
+        pending["name"] = name
+    if "rank" in data:
+        rank = str(data.get("rank") or "").strip()
+        if len(rank) > 24 or any(ord(c) < 32 for c in rank):
+            raise ValueError("Title must be at most 24 characters.")
+        pending["rank"] = rank
+    if "accent" in data:
+        accent = str(data.get("accent") or "").strip().lower()
+        if accent not in ACCENT_CHOICES:
+            raise ValueError(f"Accent must be one of: {', '.join(ACCENT_CHOICES)}.")
+        pending["accent"] = accent
+    if "account_id" in data:
+        # Which Marketplace/Forum account this dashboard profile is signed in as.
+        account_id = str(data.get("account_id") or "").strip().lower()
+        if account_id and not re.fullmatch(r"[a-f0-9]{32}", account_id):
+            raise ValueError("Invalid account id.")
+        pending["account_id"] = account_id
+    if "avatar" in data:
+        value = data.get("avatar")
+        if not isinstance(value, str):
+            raise ValueError("Avatar must be a data URL or an empty string.")
+        _write_avatar(_ensure_user_dir(uid), "avatar", value)
+    _USERS[uid].update(pending)
+    _save_users_registry()
+    return _user_payload(uid)
 
 # Optional shared-secret. If set, every API request must include X-Data-Token
 # (header) or ?key=<token> (query) matching this value. Static files (the
@@ -3515,21 +3624,23 @@ def _active_captain_block() -> str:
     Listing both Captains by name keeps the assistant from confusing them
     after a profile switch mid-session."""
     u = _active_user_dict()
-    rank = u.get("rank", "Captain")
     name = u.get("name", "Captain")
+    # The title is optional — a Captain who clears it is addressed by nickname
+    # alone, so the prompt never reads "You are speaking with ** Gyani**".
+    title = f"{u.get('rank', 'Captain')} {name}".strip()
     others = [v.get("name", k) for k, v in _USERS.items() if k != _ACTIVE_USER]
     if others:
         roster = ", ".join(others)
         return (
             f"## Active Captain\n"
-            f"You are speaking with **{rank} {name}**. There are multiple Captains "
-            f"aboard the DATA system ({rank} {name}, plus {roster}). Each Captain has "
+            f"You are speaking with **{title}**. There are multiple Captains "
+            f"aboard the DATA system ({title}, plus {roster}). Each Captain has "
             f"their own private chat history and persistent memory — never reference "
             f"another Captain's notes, work, or conversations. When the soul or these "
-            f"instructions say \"the Captain\", treat it as {rank} {name} unless the "
+            f"instructions say \"the Captain\", treat it as {title} unless the "
             f"context names a different one explicitly.\n\n"
         )
-    return f"## Active Captain\nYou are speaking with **{rank} {name}**.\n\n"
+    return f"## Active Captain\nYou are speaking with **{title}**.\n\n"
 
 
 def _load_soul(mode: str = "api") -> str:
@@ -10465,6 +10576,59 @@ class Handler(BaseHTTPRequestHandler):
     _CONSOLE_PROXY_HEADERS = ("Cf-Connecting-Ip", "Cf-Ray", "Cdn-Loop", "X-Forwarded-For",
                               "X-Forwarded-Host", "X-Real-Ip", "Forwarded", "Via")
 
+    def _dashboard_gate(self) -> str:
+        """'' if this request came from the DATA dashboard page itself.
+
+        The bridge answers `Access-Control-Allow-Origin: *` and does not require
+        a JSON content type, so without this ANY page the Captain happens to
+        have open can POST here. That matters for the account routes in
+        particular: the nickname saved through them is interpolated into Data's
+        system prompt on every turn, so a drive-by write is prompt injection
+        against an agent holding shell, file and mail tools.
+
+        Three checks, cheapest first:
+          - X-Data-Request cannot be set cross-origin without a preflight, and
+            do_OPTIONS does not list it in Access-Control-Allow-Headers, so the
+            request never leaves the attacking tab;
+          - Sec-Fetch-Site names the relationship outright in modern browsers;
+          - Origin must match the Host actually addressed.
+        Host is deliberately NOT pinned to localhost, so the dashboard keeps
+        working over the Captain's own tunnel, where the page and the bridge
+        share one origin. Off the loopback names a shared secret is required —
+        exposing the bridge that way already demands one — which is what stops
+        a hostname the attacker owns from being rebound onto this port.
+        """
+        blocked = "Blocked: this request did not come from the DATA dashboard."
+        if self.headers.get("X-Data-Request") != "1":
+            return blocked
+        if (self.headers.get("Sec-Fetch-Site") or "").strip().lower() in ("cross-site", "same-site"):
+            return blocked
+        host = (self.headers.get("Host") or "").strip().lower()
+        origin = (self.headers.get("Origin") or "").strip().lower()
+        if origin and origin.rsplit("://", 1)[-1] != host:
+            return blocked
+        # The port the socket is actually bound to, not the configured default —
+        # they differ whenever the bridge is started on another port.
+        try:
+            bound = self.server.server_address[1]
+        except Exception:
+            bound = PORT
+        if (host not in {f"localhost:{bound}", f"127.0.0.1:{bound}", f"[::1]:{bound}"}
+                and not (DATA_BRIDGE_TOKEN or REMOTE_ACCESS.remote_key())):
+            # _check_auth has already verified the token when one is configured.
+            return "Blocked: open the dashboard on this computer to change your account."
+        return ""
+
+    def _dashboard_only(self) -> bool:
+        """Refuse with 403 and log when _dashboard_gate rejects. True = refused."""
+        reason = self._dashboard_gate()
+        if not reason:
+            return False
+        log.warning(f"[account] refused {self.path} from {self.client_address[0]} "
+                    f"origin={self.headers.get('Origin')!r} host={self.headers.get('Host')!r}")
+        self._json({"error": reason, "forbidden": True}, 403)
+        return True
+
     def _console_gate(self) -> str:
         """'' if the request may use the console, else a buyer-facing reason."""
         local_only = ("Commands only run on the computer DATA is installed on. "
@@ -10601,6 +10765,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if remote_access.handle_http(self, REMOTE_ACCESS):
             return
+        if advanced_tools.handle_http(self, _user_dir() / "advanced-tools", _detect_hardware):
+            return
+        if marketplace.handle_http(self):
+            return
         path = urllib.parse.urlparse(self.path).path
         log.debug("do_GET: path=%r", path)
 
@@ -10617,8 +10785,14 @@ class Handler(BaseHTTPRequestHandler):
             "/theme.css":    ("theme.css",  "text/css; charset=utf-8"),
             "/skill_search.js": ("skill_search.js", "application/javascript; charset=utf-8"),
             "/skill_search.css": ("skill_search.css", "text/css; charset=utf-8"),
+            "/advanced_tools.js": ("advanced_tools.js", "application/javascript; charset=utf-8"),
+            "/advanced_tools.css": ("advanced_tools.css", "text/css; charset=utf-8"),
             "/remote_access.js": ("remote_access.js", "application/javascript; charset=utf-8"),
             "/remote_access.css": ("remote_access.css", "text/css; charset=utf-8"),
+            "/marketplace.js": ("marketplace.js", "application/javascript; charset=utf-8"),
+            "/marketplace.css": ("marketplace.css", "text/css; charset=utf-8"),
+            "/forum.js": ("forum.js", "application/javascript; charset=utf-8"),
+            "/forum.css": ("forum.css", "text/css; charset=utf-8"),
             "/favicon.png":  ("favicon.png", "image/png"),
             "/favicon.ico":  ("favicon.ico", "image/x-icon"),
         }
@@ -10972,8 +11146,8 @@ class Handler(BaseHTTPRequestHandler):
                             body = f.read_text(encoding="utf-8", errors="replace")
                         except Exception as e:
                             body = f"(could not read: {e})"
-                        roster.append({"id": oid, "name": name,
-                                       "path": str(f), "content": body})
+                        roster.append({"id": oid, "name": name, "path": str(f),
+                                       "content": body, "avatar": _agent_avatar_url(oid)})
             except Exception as e:
                 self._json({"error": str(e), "agents": []}, 500); return
             self._json({"agents": roster, "dir": str(agents_dir)})
@@ -11089,10 +11263,44 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/user/list":
             # All registered users + which one is active. The frontend renders
             # the switcher dropdown from this.
+            if self._dashboard_only():
+                return
             self._json({
                 "active": _ACTIVE_USER,
-                "users":  [_USERS[uid] for uid in _USERS],
+                "users":  [_user_payload(uid) for uid in _USERS],
             })
+
+        elif path == "/user/profile":
+            # The active Captain's editable identity — nickname, title, accent
+            # and avatar. Settings → Account reads and writes this; the nickname
+            # is what the dashboard shows and what Data calls the Captain.
+            if self._dashboard_only():
+                return
+            self._json({
+                "active":  _ACTIVE_USER,
+                "user":    _user_payload(_ACTIVE_USER),
+                "accents": list(ACCENT_CHOICES),
+            })
+
+        elif path == "/user/avatar":
+            # The stored Captain picture. Unknown ids simply have no avatar.
+            if self._dashboard_only():
+                return
+            uid = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
+            found = _avatar_file(_user_dir(uid), "avatar") if uid in _USERS else None
+            if not found:
+                self._json({"error": "no avatar"}, 404); return
+            self._send_avatar(found)
+
+        elif path == "/agents/avatar":
+            # One officer's picture, uploaded in Settings → Crew Personalities.
+            if self._dashboard_only():
+                return
+            aid = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0].lower()
+            found = _avatar_file(AGENT_AVATAR_DIR, aid) if re.fullmatch(r"[a-z0-9_-]{1,40}", aid) else None
+            if not found:
+                self._json({"error": "no avatar"}, 404); return
+            self._send_avatar(found)
 
         elif path == "/voice/voices":
             # Roster of bridge-crew voices the dashboard selector renders.
@@ -11538,6 +11746,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if remote_access.handle_http(self, REMOTE_ACCESS):
             return
+        if advanced_tools.handle_http(self, _user_dir() / "advanced-tools", _detect_hardware):
+            return
+        if marketplace.handle_http(self):
+            return
         path = urllib.parse.urlparse(self.path).path
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
@@ -11823,6 +12035,8 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/user/switch":
             # Flip the active Captain. Body: {"user": "<uid>"}. The switch
+            if self._dashboard_only():
+                return
             # flushes outgoing rolling history, repoints the per-user file
             # constants, reloads incoming history, and persists the selection
             # so the next bridge restart comes up on the same Captain.
@@ -11840,6 +12054,51 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
                 return
             self._json({"active": _ACTIVE_USER, "user": u})
+            return
+
+        elif path == "/user/profile":
+            # Edit the active Captain's identity. Body may carry any of
+            # {name, rank, accent, account_id, avatar}; absent fields are left
+            # alone. The nickname saved here is what the header pill shows and
+            # what Data is told to call the Captain on the next turn.
+            if self._dashboard_only():
+                return
+            try:
+                u = _update_user_profile(_ACTIVE_USER, data if isinstance(data, dict) else {})
+            except ValueError as e:
+                self._json({"error": str(e)}, 400)
+                return
+            except Exception as e:
+                log.exception(f"/user/profile failed: {e}")
+                self._json({"error": str(e)}, 500)
+                return
+            log.info(f"[users] profile updated for {_ACTIVE_USER}: {sorted(data)}")
+            self._json({"active": _ACTIVE_USER, "user": u})
+            return
+
+        elif path == "/agents/avatar":
+            # Set or clear one officer's picture. Body: {id, image}. An empty
+            # image removes it. Only officers with a personality file on disk
+            # can have one, so the avatar folder mirrors the real roster.
+            if self._dashboard_only():
+                return
+            aid = (data.get("id") or "").strip().lower()
+            image = data.get("image", "")
+            if not re.fullmatch(r"[a-z0-9_-]{1,40}", aid):
+                self._json({"error": "invalid agent id"}, 400); return
+            if not isinstance(image, str):
+                self._json({"error": "image must be a data URL or an empty string"}, 400); return
+            if not (Path.home() / ".claude" / "agents" / f"{aid}.md").exists():
+                self._json({"error": f"unknown agent '{aid}'"}, 404); return
+            try:
+                saved = _write_avatar(AGENT_AVATAR_DIR, aid, image)
+            except ValueError as e:      # marketplace.MarketError subclasses ValueError
+                self._json({"error": str(e)}, 400); return
+            except Exception as e:
+                log.exception(f"/agents/avatar failed: {e}")
+                self._json({"error": str(e)}, 500); return
+            log.info(f"[AGENTS] avatar {'saved' if saved else 'removed'} for {aid}")
+            self._json({"id": aid, "avatar": _agent_avatar_url(aid)})
             return
 
         elif path == "/tts":
@@ -12983,6 +13242,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_cors()
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_avatar(self, path: Path):
+        """Serve a stored avatar. The bytes were validated as PNG/JPEG on
+        upload; nosniff and a no-script CSP keep them inert if that ever
+        changes. Callers resolve the path themselves — this never takes one
+        from the query string."""
+        try:
+            raw = path.read_bytes()
+        except OSError as e:
+            self._json({"error": str(e)}, 404); return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png" if path.suffix == ".png" else "image/jpeg")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+        self.send_cors()
+        self.end_headers()
+        self.wfile.write(raw)
 
 
 # Voice readiness gate — set when both Whisper and F5-TTS finish loading.

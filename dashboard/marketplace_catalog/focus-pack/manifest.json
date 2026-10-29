@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "focus-pack",
+  "version": "1.0.1",
+  "name": "Focus Pack",
+  "description": "A warm graphite palette and a simple daily focus page, bundled as one reversible upgrade. Choose the colors after installation and keep your priorities close.",
+  "kind": "upgrade",
+  "license": "Apache-2.0",
+  "permissions": [
+    "appearance.colors",
+    "navigation.page"
+  ],
+  "external_costs": "None. Colors and checklist state stay in this browser.",
+  "components": [
+    {
+      "kind": "theme",
+      "entry": "theme.json",
+      "label": "Warm graphite colors"
+    },
+    {
+      "kind": "page",
+      "entry": "page.json",
+      "label": "Daily Focus"
+    }
+  ]
+}

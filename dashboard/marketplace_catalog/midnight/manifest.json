@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "midnight",
+  "version": "1.0.1",
+  "name": "Midnight",
+  "description": "A quieter take on DATA's Minimal palette. Deep graphite surfaces, clear blue highlights, and comfortable contrast for a long working session.",
+  "kind": "theme",
+  "license": "Apache-2.0",
+  "permissions": [
+    "appearance.colors"
+  ],
+  "external_costs": "None. Colors are applied locally in your browser.",
+  "components": [
+    {
+      "kind": "theme",
+      "entry": "theme.json",
+      "label": "Midnight colors"
+    }
+  ]
+}

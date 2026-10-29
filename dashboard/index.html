@@ -8,9 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=sidebar-view-20261018" />
+  <link rel="stylesheet" href="theme.css?v=dark-themes-20261029" />
   <link rel="stylesheet" href="skill_search.css?v=1" />
+  <link rel="stylesheet" href="advanced_tools.css?v=1" />
   <link rel="stylesheet" href="remote_access.css?v=1" />
+  <link rel="stylesheet" href="marketplace.css?v=preview-divider-20261029" />
+  <link rel="stylesheet" href="forum.css?v=1" />
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -61,9 +64,16 @@
 
     <!-- MAIN LAYOUT -->
     <div class="data-body">
+      <!-- Sidebar controls stay outside the flex flow and follow this layout. -->
+      <button type="button" class="rail-toggle rail-toggle-left" id="rail-toggle-left"
+              onclick="toggleRail('left')" aria-controls="rail-left" aria-expanded="true"
+              aria-label="Hide the left sidebar" title="Hide the left sidebar"><span class="rail-toggle-chevron">&lsaquo;</span></button>
+      <button type="button" class="rail-toggle rail-toggle-right" id="rail-toggle-right"
+              onclick="toggleRail('right')" aria-controls="rail-right" aria-expanded="true"
+              aria-label="Hide the right sidebar" title="Hide the right sidebar"><span class="rail-toggle-chevron">&rsaquo;</span></button>
 
       <!-- LEFT SIDEBAR -->
-      <aside class="data-sidebar" data-sidebar-view="data" tabindex="0" aria-label="Sidebar navigation and status">
+      <aside class="data-sidebar" id="rail-left" data-sidebar-view="data" tabindex="0" aria-label="Sidebar navigation and status">
         <div class="sidebar-elbow-top"></div>
 
         <div class="sidebar-section" id="sidebar-navigation">
@@ -79,6 +89,12 @@
           </button>
           <button class="data-btn teal" onclick="showPanel('widgets')">
             CONNECTIONS
+          </button>
+          <button class="data-btn purple" data-nav-panel="marketplace" onclick="showPanel('marketplace')">
+            MARKETPLACE
+          </button>
+          <button class="data-btn blue sidebar-view-hidden" data-nav-panel="forum" data-sidebar-label="Community Forum" data-default-visible="false" onclick="showPanel('forum')">
+            FORUM
           </button>
         </div>
 
@@ -190,7 +206,7 @@
 
         <!-- PANEL: CHAT -->
         <div class="panel active" id="panel-chat">
-          <div class="panel-header">
+          <div class="panel-header" id="chat-panel-header">
             <div class="panel-title-bar">
               <span class="panel-title">COMMUNICATIONS</span>
               <div class="panel-pills">
@@ -203,6 +219,9 @@
                 <button class="fullscreen-btn" id="chat-prompts-btn" onclick="togglePromptLibrary()" title="Prompt library — saved prompts (Ctrl+Shift+P)">📋</button>
                 <button class="fullscreen-btn" id="chat-export-btn" onclick="exportConversation(this)" title="Download this conversation as Markdown">⭳</button>
                 <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleChatFullscreen()" title="Toggle fullscreen">⛶</button>
+                <button type="button" class="fullscreen-btn" id="chat-minimize-btn" onclick="toggleChatHeader()"
+                        title="Minimize the title bar"
+                        aria-label="Minimize title bar" aria-controls="chat-panel-header" aria-expanded="true">▲</button>
 
                 <!-- TEXT SIZE — scales all conversation text (main + workspace
                      panes) for readability. Persists across sessions. Hidden
@@ -216,6 +235,10 @@
               </div>
             </div>
           </div>
+
+          <button type="button" class="chat-header-restore" id="chat-header-restore" hidden
+                  onclick="toggleChatHeader(false)" title="Restore the title bar"
+                  aria-label="Restore title bar" aria-controls="chat-panel-header">▼ COMMUNICATIONS</button>
 
           <!-- CLI sign-in call-to-action. Hidden by default; app.js reveals it when
                a CLI (e.g. Claude Code) is installed but not signed in and DATA is
@@ -516,10 +539,17 @@
           </div>
         </div>
 
+        <section class="panel" id="panel-marketplace" aria-label="Extension marketplace">
+          <div class="mp" id="marketplace-root"></div>
+        </section>
+        <section class="panel" id="panel-forum" aria-label="Community forum">
+          <div class="mp forum" id="forum-root"></div>
+        </section>
+
       </main>
 
       <!-- RIGHT PANEL -->
-      <aside class="data-right">
+      <aside class="data-right" id="rail-right">
         <div class="right-elbow-top"></div>
 
         <div class="right-section">
@@ -565,12 +595,10 @@
         <div class="right-divider"></div>
 
         <div class="right-section">
-          <button class="data-btn" id="reboot-btn" onclick="systemReboot()"
-            style="background:#0a1420;border-color:#3a6ea5;color:#66b2ff;width:100%;font-size:11px;letter-spacing:0.15em;margin-bottom:6px;">
+          <button class="data-btn sys-power-btn reboot" id="reboot-btn" onclick="systemReboot()">
             ⟳ REBOOT BRIDGE
           </button>
-          <button class="data-btn" id="shutdown-btn" onclick="systemShutdown()"
-            style="background:#1a0505;border-color:#660000;color:#ff4444;width:100%;font-size:11px;letter-spacing:0.15em;">
+          <button class="data-btn sys-power-btn shutdown" id="shutdown-btn" onclick="systemShutdown()">
             ◼ SYSTEM SHUTDOWN
           </button>
         </div>
@@ -584,7 +612,7 @@
     <footer class="data-footer">
       <button class="footer-left-cap settings-toggle-cap" id="settings-btn"
               onclick="openSettings()"
-              title="Open Settings — themes, voice, model, crew personalities, memory">
+              title="Open Settings: appearance, account, view, voice, model and more">
         <span class="settings-toggle-label" id="settings-toggle-label">⚙ SETTINGS</span>
       </button>
       <!-- CONVERSATION MODE button removed (Captain order 2026-07-10). The
@@ -663,6 +691,7 @@
         <div class="settings-body">
           <nav class="settings-nav" id="settings-nav">
             <button class="settings-tab active" data-tab="appearance" onclick="settingsTab('appearance')">APPEARANCE</button>
+            <button class="settings-tab" data-tab="account" onclick="settingsTab('account')">ACCOUNT</button>
             <button class="settings-tab" data-tab="view" onclick="settingsTab('view')">VIEW</button>
             <button class="settings-tab" data-tab="remote-access" onclick="settingsTab('remote-access')">REMOTE ACCESS</button>
             <button class="settings-tab" data-tab="voice"  onclick="settingsTab('voice')">VOICE</button>
@@ -683,12 +712,29 @@
               </div>
             </section>
 
+            <!-- ACCOUNT — one identity for the dashboard, the Marketplace and
+                 the Forum. Built entirely by _settingsRenderAccount() in app.js
+                 because it has two very different states (signed out / signed
+                 in) and every field saves on its own. -->
+            <section class="settings-pane" data-pane="account">
+              <div id="settings-account-root">
+                <p class="settings-sub">Loading your account…</p>
+              </div>
+            </section>
+
             <section class="settings-pane" data-pane="view">
+              <h3 class="settings-h">Sidebars</h3>
+              <p class="settings-sub">Fold either sidebar away to give the page its full width. The same toggles sit on the slim handles at the inner edge of each sidebar, and on Ctrl+Alt+Left / Ctrl+Alt+Right.</p>
+              <div class="settings-opt-row" id="settings-rail-row">
+                <button type="button" class="settings-opt" data-rail="left" onclick="toggleRail('left')">LEFT SIDEBAR</button>
+                <button type="button" class="settings-opt" data-rail="right" onclick="toggleRail('right')">RIGHT SIDEBAR</button>
+              </div>
+
               <h3 class="settings-h">Left sidebar</h3>
               <p class="settings-sub">Choose what appears in the left sidebar. Changes apply immediately and are saved for this profile in this browser.</p>
               <fieldset class="settings-view-group">
                 <legend class="settings-h">Navigation</legend>
-                <p class="settings-sub">Your two core pages stay available. New navigation entries appear here automatically.</p>
+                <p class="settings-sub">Your two core pages stay available. Enable Community Forum to browse discussions and join with your account. Optional pages can be hidden again at any time.</p>
                 <div id="settings-view-navigation"></div>
               </fieldset>
               <fieldset class="settings-view-group">
@@ -783,12 +829,22 @@
             <section class="settings-pane" data-pane="upgrades">
               <div class="settings-pane-head">
                 <div>
-                  <h3 class="settings-h">Upgrades — make DATA smarter</h3>
-                  <p class="settings-sub">One store for everything you can add: local AI models, CLI providers, skills, tools, offline knowledge, and feature unlocks. Install anything and the dashboard picks it up and uses it going forward.</p>
+                  <h3 class="settings-h">Upgrades</h3>
+                  <p class="settings-sub">Skills, applications, models and tools for DATA.</p>
                 </div>
                 <button class="data-btn-sm orange" onclick="loadUpgrades(true)" id="connectors-refresh-btn">RESCAN</button>
               </div>
               <div class="connectors-body" id="upgrades-body">
+
+                <section class="conn-section advanced-tools" id="advanced-tools" aria-labelledby="advanced-tools-heading">
+                  <div class="advanced-tools-heading">
+                    <div><h4 id="advanced-tools-heading">Advanced tools</h4><p>Manage optional video, image and transcription apps on this computer.</p></div>
+                    <button class="data-btn-sm" type="button" id="advanced-tools-library">Browse marketplace</button>
+                  </div>
+                  <p class="advanced-tools-note">Get workflow packs in Marketplace, then set up their apps here. Applications and model downloads are separate.</p>
+                  <p id="advanced-tools-status" role="status" aria-live="polite"></p>
+                  <div id="advanced-tools-list" aria-busy="false"></div>
+                </section>
 
                 <section class="conn-section skill-search" aria-labelledby="skill-search-heading">
                   <h4 class="conn-section-label" id="skill-search-heading">FIND NEW SKILLS</h4>
@@ -921,6 +977,10 @@
               <h3 class="settings-h">Crew personalities</h3>
               <p class="settings-sub">Edit each officer's personality file in ~/.claude/agents. Saved to disk.</p>
               <div class="settings-opt-row" id="settings-crew-pick"></div>
+              <h3 class="settings-h">Officer picture</h3>
+              <p class="settings-sub">Give the selected officer a face. PNG or JPEG, up to 512 KB. Pictures are stored on this computer and shown wherever the officer appears.</p>
+              <div class="settings-avatar-row" id="settings-crew-avatar"></div>
+              <h3 class="settings-h">Personality file</h3>
               <textarea class="settings-editor" id="settings-crew-editor" spellcheck="false" placeholder="Select an officer above to load their personality file…"></textarea>
               <div class="settings-editor-bar">
                 <span class="settings-editor-path" id="settings-crew-path"></span>
@@ -1254,40 +1314,124 @@
   <div id="email-cockpit" class="email-cockpit" aria-hidden="true"><!-- cockpit fills this --></div>
 
   <script>
-    // Theme bootstrap — runs before app.js to avoid flash-of-wrong-theme
-    // ── Themes: MINIMAL (default) ↔ CYBER ─────────────────────────
-    // Both themes fly the same Daemon-Class Starfighter schematic, so only
-    // the body class swaps. The toggle label always names the OTHER theme.
-    (function () {
-      var saved = localStorage.getItem('data-theme') || 'minimal';
-      document.body.classList.remove('theme-minimal', 'theme-cyberpunk');
-      document.body.classList.add(saved === 'cyber' ? 'theme-cyberpunk' : 'theme-minimal');
-    })();
+    // Theme bootstrap, runs before app.js to avoid flash-of-wrong-theme.
+    // Dark themes cycle in order: MINIMAL (default), CYBER.
+    var THEME_CYCLE = ['minimal', 'cyber'];
+    var THEME_NEXT_LABEL = { minimal: 'CYBER', cyber: 'MINIMAL' };
 
-    function _themeLabel() {
-      var isCyber = document.body.classList.contains('theme-cyberpunk');
-      var lbl = document.getElementById('theme-toggle-label');
-      if (lbl) lbl.textContent = isCyber ? 'MINIMAL' : 'CYBER';
+    function currentTheme() {
+      var c = document.body.classList;
+      if (c.contains('theme-cyberpunk')) return 'cyber';
+      return 'minimal';
+    }
+
+    function applyTheme(theme) {
+      if (THEME_CYCLE.indexOf(theme) === -1) theme = 'minimal';
+      var c = document.body.classList;
+      c.toggle('theme-cyberpunk', theme === 'cyber');
+      c.toggle('theme-minimal', theme !== 'cyber');
+      c.remove('theme-light'); // Clear the retired skin on older pages.
+      try { localStorage.setItem('data-theme', theme); } catch (e) {}
+      _themeLabel();
+      if (typeof addLog === 'function') addLog('Theme → ' + theme.toUpperCase());
+      if (typeof _settingsPaintTheme === 'function') _settingsPaintTheme();
     }
 
     function toggleTheme() {
-      var body = document.body;
-      var toCyber = !body.classList.contains('theme-cyberpunk');
-      body.classList.toggle('theme-cyberpunk', toCyber);
-      body.classList.toggle('theme-minimal', !toCyber);
-      localStorage.setItem('data-theme', toCyber ? 'cyber' : 'minimal');
-      _themeLabel();
-      if (typeof addLog === 'function') addLog('Theme → ' + (toCyber ? 'CYBER' : 'MINIMAL'));
+      var i = THEME_CYCLE.indexOf(currentTheme());
+      applyTheme(THEME_CYCLE[(i + 1) % THEME_CYCLE.length]);
     }
+
+    function _themeLabel() {
+      var lbl = document.getElementById('theme-toggle-label');
+      if (lbl) lbl.textContent = THEME_NEXT_LABEL[currentTheme()];
+    }
+
+    (function () {
+      var saved = 'minimal';
+      try { saved = localStorage.getItem('data-theme') || 'minimal'; } catch (e) {}
+      if (saved === 'cyberpunk') saved = 'cyber';   // older stored value
+      // Retired or unrecognized preferences use the dark default.
+      if (THEME_CYCLE.indexOf(saved) === -1) saved = 'minimal';
+      try { localStorage.setItem('data-theme', saved); } catch (e) {}
+      var c = document.body.classList;
+      c.remove('theme-minimal', 'theme-cyberpunk', 'theme-light');
+      if (saved === 'cyber') c.add('theme-cyberpunk');
+      else c.add('theme-minimal');
+    })();
 
     document.addEventListener('DOMContentLoaded', _themeLabel);
     _themeLabel();
 
     // MSD metric-card placement (defined in app.js).
     if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
+
+    // Collapsible rails
+    // Either sidebar can be folded away to give the page its width back.
+    // Collapsing sets that side's width variable to zero, which shrinks the
+    // matching header elbow with it. State is per browser, restored on load.
+    var RAIL_KEY = 'data-rails-v1';
+    var RAIL_CLASS = { left: 'rail-left-collapsed', right: 'rail-right-collapsed' };
+
+    function _railState() {
+      try {
+        var s = JSON.parse(localStorage.getItem(RAIL_KEY) || '{}');
+        return (s && typeof s === 'object' && !Array.isArray(s)) ? s : {};
+      } catch (e) { return {}; }
+    }
+
+    function _railPaint() {
+      var state = _railState();
+      Object.keys(RAIL_CLASS).forEach(function (side) {
+        var collapsed = !!state[side];
+        document.body.classList.toggle(RAIL_CLASS[side], collapsed);
+        var btn = document.getElementById('rail-toggle-' + side);
+        if (btn) {
+          btn.setAttribute('aria-expanded', String(!collapsed));
+          btn.title = (collapsed ? 'Show' : 'Hide') + ' the ' + side + ' sidebar';
+          btn.setAttribute('aria-label', btn.title);
+          var chev = btn.querySelector('.rail-toggle-chevron');
+          // The chevron always points the way the rail is about to move.
+          if (chev) chev.textContent = ((side === 'left') === collapsed) ? '\u203A' : '\u2039';
+        }
+        var opt = document.querySelector('#settings-rail-row [data-rail="' + side + '"]');
+        if (opt) {
+          opt.classList.toggle('active', !collapsed);
+          opt.setAttribute('aria-pressed', String(!collapsed));
+        }
+      });
+    }
+
+    function toggleRail(side) {
+      if (!RAIL_CLASS[side]) return;
+      var state = _railState();
+      state[side] = !state[side];
+      try { localStorage.setItem(RAIL_KEY, JSON.stringify(state)); } catch (e) {}
+      _railPaint();
+      if (typeof addLog === 'function') {
+        addLog((state[side] ? 'Collapsed ' : 'Restored ') + side + ' sidebar');
+      }
+    }
+
+    _railPaint();
+    document.addEventListener('DOMContentLoaded', _railPaint);
+
+    // Ctrl+Alt+Left / Ctrl+Alt+Right fold the matching rail. Ignored while a
+    // field has focus, so it can never swallow a keystroke in the chat box.
+    document.addEventListener('keydown', function (e) {
+      if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey) return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      var t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+      e.preventDefault();
+      toggleRail(e.key === 'ArrowLeft' ? 'left' : 'right');
+    });
   </script>
-  <script src="app.js?v=remote-access-20261029"></script>
+  <script src="app.js?v=dark-themes-20261029"></script>
+  <script src="advanced_tools.js?v=1"></script>
   <script src="skill_search.js?v=1"></script>
   <script src="remote_access.js?v=1"></script>
+  <script src="marketplace.js?v=1"></script>
+  <script src="forum.js?v=1"></script>
 </body>
 </html>

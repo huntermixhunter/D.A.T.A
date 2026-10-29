@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "project-checklist",
+  "version": "1.0.1",
+  "name": "Project Checklist",
+  "description": "Keep your next release in view. A focused sidebar page for scope, implementation, verification, and handoff, with checkmarks saved in your browser.",
+  "kind": "page",
+  "license": "Apache-2.0",
+  "permissions": [
+    "navigation.page"
+  ],
+  "external_costs": "None. Checklist state stays in this browser.",
+  "components": [
+    {
+      "kind": "page",
+      "entry": "page.json",
+      "label": "Project Checklist"
+    }
+  ]
+}

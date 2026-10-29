@@ -1,0 +1,2 @@
+Original DATA extension. Uses only the dashboard's built-in text operations.
+Copyright 2026 DATA contributors. Licensed under Apache-2.0, with the full license included in LICENSE.txt.

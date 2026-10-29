@@ -1,0 +1,1 @@
+{"operations":["word-count","trim-lines","deduplicate-lines","sort-lines","uppercase","lowercase"],"placeholder":"Paste text or a list here. Choose an operation to see the result below."}

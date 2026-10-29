@@ -1,0 +1,4 @@
+Original DATA workflow instructions, copyright 2026 DATA contributors.
+Licensed under MIT; see LICENSE.txt.
+No third-party application, model weights, skill scripts or artwork are included.
+Referenced software and resources retain their own licenses and terms.

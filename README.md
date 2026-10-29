@@ -11,13 +11,33 @@ Two dark themes ship in the box — toggle from the bottom-left of the footer:
   surfaces, hairline borders, one electric-blue accent, built for long sessions.
 - **CYBER** — neon cyan/magenta, chamfered edges, scanlines.
 
-Everything runs on your machine. No accounts, no telemetry, no cloud.
+Everything runs on your machine. No online account is required and no telemetry
+is collected. Optional marketplace profiles and listings stay local.
+
+The extension marketplace supports themes, instruction skills, text tools,
+sidebar pages and upgrade packs, with creator uploads, version-specific security
+reviews, ratings and reversible free installs. It currently runs locally;
+public sharing and paid checkout are not active. See `dashboard/MARKETPLACE.md`
+for the preview, package format and review workflow.
+
+**Settings > View** lets you choose which optional pages appear in navigation,
+including Marketplace and Community Forum, and which sidebar widgets are visible.
+Changes apply immediately and are saved for each dashboard profile in this
+browser. The two core pages stay available, and Community Forum starts hidden.
+You can also collapse either sidebar or use Show All to restore every item.
 
 **Settings > Remote Access** guides you through using DATA from your phone.
 Choose the full dashboard over a private Tailscale connection, a Telegram bot
 paired to your account, or both. DATA can keep running after you close the
 desktop browser; the computer must remain powered on, awake and online.
 See `dashboard/REMOTE_ACCESS.md` for setup and connection details.
+
+**Settings → Account** holds one identity for the dashboard, the Marketplace and
+the Forum: sign in or sign up, set the nickname and picture DATA uses for you,
+give each AI officer a face, and change your username, email, password and
+crypto wallet addresses. Everything stays on this computer. Wallet addresses are
+recorded for your own reference — DATA never holds a key, signs a transaction or
+sends to them. See `dashboard/ACCOUNT.md`.
 
 ![themes](https://img.shields.io/badge/themes-MINIMAL%20%7C%20CYBER-4d9fff) ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![license](https://img.shields.io/badge/license-Apache%202.0-4d9fff)
 

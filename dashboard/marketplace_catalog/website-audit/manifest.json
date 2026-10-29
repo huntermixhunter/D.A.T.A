@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "website-audit",
+  "version": "1.0.0",
+  "name": "Website Audit",
+  "description": "Review mobile usability, accessibility, copy and conversion paths with evidence, prioritized fixes and a practical verification plan.",
+  "kind": "skill",
+  "license": "MIT",
+  "permissions": [
+    "agent.instructions"
+  ],
+  "external_costs": "Installation is free. Using these instructions sends a request through your selected AI provider and may consume its allowance or incur charges. No paid service is required by this pack.",
+  "components": [
+    {
+      "kind": "skill",
+      "entry": "SKILL.md",
+      "label": "Website Audit"
+    }
+  ]
+}

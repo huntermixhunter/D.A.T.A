@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "repository-snapshot",
+  "version": "1.0.1",
+  "name": "Repository Snapshot",
+  "description": "Get oriented before changing code. Map the project, identify its entry points and checks, and produce a compact report with evidence from real files.",
+  "kind": "skill",
+  "license": "Apache-2.0",
+  "permissions": [
+    "agent.instructions"
+  ],
+  "external_costs": "Installation is free. Using this skill sends a request through your selected AI provider and may consume its usage allowance. No dependency installation is required.",
+  "components": [
+    {
+      "kind": "skill",
+      "entry": "SKILL.md",
+      "label": "Repository Snapshot"
+    }
+  ]
+}

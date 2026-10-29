@@ -1,0 +1,3 @@
+Original DATA package, adapted from the Minimal theme in dashboard/theme.css.
+Copyright 2026 DATA contributors. Licensed under Apache-2.0, with the full license included in LICENSE.txt.
+Only listed color variables change. Layout, scripts and network behavior are unchanged.

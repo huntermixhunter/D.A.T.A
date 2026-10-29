@@ -1,0 +1,2 @@
+Original DATA package. Combines the existing color-token system with a declarative sidebar page.
+Copyright 2026 DATA contributors. Licensed under Apache-2.0, with the full license included in LICENSE.txt.

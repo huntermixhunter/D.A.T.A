@@ -1,0 +1,62 @@
+{
+  "b7c70a6fed0e20a176176062af9c6eee9584ee45244d93ed6a03386af363cf7f": {
+    "reviewer": "DATA Security",
+    "method": "Independent AI source inspection",
+    "reviewed_at": 1792394662,
+    "sha256": "b7c70a6fed0e20a176176062af9c6eee9584ee45244d93ed6a03386af363cf7f",
+    "version": "1.0.1",
+    "package_id": "focus-pack",
+    "policy": "data-packages-1",
+    "risk": "low",
+    "verdict": "approved",
+    "findings": "Inspected the manifest, color tokens, page data, notice and license. Uses only supported hexadecimal colors and fixed headings, paragraphs and checkboxes. No scripts, network access, dependencies or installation hooks. Checklist values are stored in this browser."
+  },
+  "c7378f2a50eb520873db9c1795acb0cb831a723ee92f6ce5ed9fce153f761658": {
+    "reviewer": "DATA Security",
+    "method": "Independent AI source inspection",
+    "reviewed_at": 1792394662,
+    "sha256": "c7378f2a50eb520873db9c1795acb0cb831a723ee92f6ce5ed9fce153f761658",
+    "version": "1.0.1",
+    "package_id": "midnight",
+    "policy": "data-packages-1",
+    "risk": "low",
+    "verdict": "approved",
+    "findings": "Inspected the manifest, color tokens, notice and license. Only supported hexadecimal color values are provided. No executable code, external requests, dependencies or installation hooks."
+  },
+  "dfbb15a30dc65902a44c9abc4f1b7c905cd32d0c58809baf316dbc9eb9678040": {
+    "reviewer": "DATA Security",
+    "method": "Independent AI source inspection",
+    "reviewed_at": 1792394662,
+    "sha256": "dfbb15a30dc65902a44c9abc4f1b7c905cd32d0c58809baf316dbc9eb9678040",
+    "version": "1.0.1",
+    "package_id": "project-checklist",
+    "policy": "data-packages-1",
+    "risk": "low",
+    "verdict": "approved",
+    "findings": "Inspected the manifest, page data, notice and license. Contains fixed headings, paragraphs and checkboxes rendered as text. No HTML, scripts, links, process execution or network behavior. Checklist values are stored in this browser."
+  },
+  "512f0a221bca296862d1bc97b47c29aaa362d8bfcd2dfa5f2aa4773cf564952c": {
+    "reviewer": "DATA Security",
+    "method": "Independent AI source inspection",
+    "reviewed_at": 1792394662,
+    "sha256": "512f0a221bca296862d1bc97b47c29aaa362d8bfcd2dfa5f2aa4773cf564952c",
+    "version": "1.0.1",
+    "package_id": "repository-snapshot",
+    "policy": "data-packages-1",
+    "risk": "moderate",
+    "verdict": "approved",
+    "findings": "Inspected all instructions, manifest, notice and license. Explicitly limits use to the chosen project and read-only inspection, without credentials, private history, execution of project code, dependency installation, external services or spending. Instructions still influence an AI agent and are not a security sandbox. Use is manual and may consume the selected provider allowance."
+  },
+  "9e08353ff6537ce234628998094661d18216682af73298996719b0da79ff8240": {
+    "reviewer": "DATA Security",
+    "method": "Independent AI source inspection",
+    "reviewed_at": 1792394662,
+    "sha256": "9e08353ff6537ce234628998094661d18216682af73298996719b0da79ff8240",
+    "version": "1.0.1",
+    "package_id": "text-workshop",
+    "policy": "data-packages-1",
+    "risk": "low",
+    "verdict": "approved",
+    "findings": "Inspected the manifest, tool data, notice and license. Selects only the six supported browser text operations. Pasted input stays on the active page. No arbitrary code, dependencies, installation hooks or network actions."
+  }
+}

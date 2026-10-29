@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "brand-kit",
+  "version": "1.0.0",
+  "name": "Brand Kit",
+  "description": "Develop a coordinated palette, typography, voice and practical brand guide from a real business brief.",
+  "kind": "skill",
+  "license": "MIT",
+  "permissions": [
+    "agent.instructions"
+  ],
+  "external_costs": "Installation is free. Using these instructions sends a request through your selected AI provider and may consume its allowance or incur charges. No paid service is required by this pack.",
+  "components": [
+    {
+      "kind": "skill",
+      "entry": "SKILL.md",
+      "label": "Brand Kit"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "marketplace-creator-kit",
+  "version": "1.0.0",
+  "name": "Marketplace Creator Kit",
+  "description": "Build valid DATA extension packages with a manifest, useful instructions, permissions, licensing and honest listing copy.",
+  "kind": "skill",
+  "license": "MIT",
+  "permissions": [
+    "agent.instructions"
+  ],
+  "external_costs": "Installation is free. Using these instructions sends a request through your selected AI provider and may consume its allowance or incur charges. No paid service is required by this pack.",
+  "components": [
+    {
+      "kind": "skill",
+      "entry": "SKILL.md",
+      "label": "Marketplace Creator Kit"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "image-studio",
+  "version": "1.0.0",
+  "name": "Image Studio",
+  "description": "A ComfyUI workflow guide for thumbnails, product scenes and upscaling, with local setup checks. ComfyUI and its models are installed separately.",
+  "kind": "upgrade",
+  "license": "MIT",
+  "permissions": [
+    "agent.instructions",
+    "navigation.page"
+  ],
+  "external_costs": "This instruction pack is free. Applications and models are separate downloads. Local processing uses this computer's resources. Optional cloud/API services can charge separately; using DATA's AI provider may consume its allowance or incur charges.",
+  "components": [
+    {
+      "kind": "skill",
+      "entry": "SKILL.md",
+      "label": "Image Studio"
+    },
+    {
+      "kind": "page",
+      "entry": "checklist.json",
+      "label": "Image Studio checklist"
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+.settings-pane[data-pane="upgrades"] .connectors-body {
+  padding: 8px 0 0;
+  overflow: visible;
+  flex: none;
+}
+.advanced-tools {
+  --advanced-card: var(--surf-card, var(--data-bg2));
+  --advanced-text: var(--ink-1, var(--data-text));
+  --advanced-muted: var(--ink-4, var(--data-text-dim));
+  --advanced-edge: var(--edge-4, var(--data-blue));
+  color: var(--advanced-text);
+  font-family: var(--font-main);
+  letter-spacing: normal;
+}
+.advanced-tools-heading { display: flex; gap: 16px; justify-content: space-between; align-items: start; }
+.advanced-tools-heading h4 { font-size: 20px; font-weight: 600; margin-bottom: 7px; }
+.advanced-tools p { font-size: 14px; line-height: 1.55; }
+.advanced-tools-heading p, .advanced-tools-note, #advanced-tools-status { color: var(--advanced-muted); }
+.advanced-tools .advanced-tools-note { font-size: 12px; margin-top: 12px; }
+#advanced-tools-status { margin: 10px 0 16px; font-size: 12px; }
+#advanced-tools-list { display: grid; gap: 12px; }
+.advanced-tool-card { border: 1px solid var(--advanced-edge); border-radius: 12px; background: var(--advanced-card); padding: 20px; min-width: 0; scroll-margin-top: 16px; }
+.advanced-tool-summary { display: flex; gap: 20px; justify-content: space-between; }
+.advanced-tool-category { font-size: 11px; color: var(--data-orange); letter-spacing: .06em; text-transform: uppercase; }
+.advanced-tool-summary h5 { margin: 7px 0; font-size: 18px; font-weight: 600; }
+.advanced-tool-summary p { max-width: 55ch; color: var(--advanced-muted); }
+.advanced-tool-badges { display: flex; gap: 6px; flex-wrap: wrap; align-content: start; justify-content: end; max-width: 240px; }
+.advanced-tool-badge { border: 1px solid var(--advanced-edge); border-radius: 6px; padding: 5px 8px; font-size: 11px; line-height: 1.5; }
+.advanced-tool-badge[data-state="unsupported"] { color: var(--data-red); }
+.advanced-tool-badge[data-state="compatible"] { color: var(--data-green); }
+.advanced-tool-card details { margin-top: 14px; }
+.advanced-tool-card summary { cursor: pointer; color: var(--data-orange); padding: 10px 0; font-size: 13px; }
+.advanced-tool-card details[open] summary { margin-bottom: 10px; border-bottom: 1px solid var(--advanced-edge); }
+.advanced-tool-facts { display: grid; gap: 12px; margin-bottom: 16px; font-size: 13px; line-height: 1.6; }
+.advanced-tool-facts > div { display: grid; grid-template-columns: 105px minmax(0, 1fr); gap: 12px; }
+.advanced-tool-facts dt { color: var(--advanced-muted); }
+.advanced-tool-facts dd { margin: 0; }
+.advanced-tool-source { color: var(--data-orange); font-size: 13px; text-underline-offset: 3px; }
+.advanced-tool-steps { padding-left: 20px; margin: 16px 0 20px; font-size: 13px; line-height: 1.7; }
+.advanced-tool-steps li + li { margin-top: 6px; }
+.advanced-tool-form { display: grid; gap: 14px; }
+.advanced-tool-field { display: grid; gap: 6px; min-width: 0; }
+.advanced-tool-field label { font-size: 13px; font-weight: 600; }
+.advanced-tool-field input { width: 100%; min-width: 0; border: 1px solid var(--advanced-edge); border-radius: 6px; padding: 10px 12px; background: var(--surf-field, var(--data-bg)); color: var(--advanced-text); font: inherit; font-size: 14px; }
+.advanced-tool-field small { color: var(--advanced-muted); font-size: 12px; line-height: 1.5; }
+.advanced-tool-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.advanced-tools .data-btn-sm { min-height: 40px; white-space: normal; text-decoration: none; align-content: center; }
+.advanced-tools :is(button, input, summary, a):focus-visible { outline: 2px solid var(--data-orange); outline-offset: 3px; }
+.advanced-tool-feedback { overflow-wrap: anywhere; }
+@media (max-width: 680px) {
+  .advanced-tools-heading, .advanced-tool-summary { flex-direction: column; gap: 12px; }
+  .advanced-tool-badges { justify-content: start; max-width: none; }
+  .advanced-tool-card { padding: 16px; }
+  .advanced-tool-facts > div { grid-template-columns: 1fr; gap: 3px; }
+  .advanced-tools .data-btn-sm { min-height: 44px; }
+  .advanced-tool-field input { font-size: 16px; }
+}

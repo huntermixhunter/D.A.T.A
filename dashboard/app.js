@@ -29,7 +29,7 @@ const SidebarView = (() => {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey()) || '{}');
       if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
-      return Object.fromEntries(Object.entries(saved).filter(([, value]) => value === false));
+      return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === 'boolean'));
     } catch (_) { return {}; }
   }
 
@@ -48,7 +48,7 @@ const SidebarView = (() => {
   }
 
   function isVisible(entry) {
-    return entry.required || preferences[entry.key] !== false;
+    return entry.required || (preferences[entry.key] ?? entry.defaultVisible);
   }
 
   function apply() {
@@ -95,6 +95,7 @@ const SidebarView = (() => {
         group: 'navigation',
         label: element.dataset.sidebarLabel || element.textContent.trim(),
         required: requiredPanels.has(panel),
+        defaultVisible: element.dataset.defaultVisible !== 'false',
         element,
       });
     });
@@ -106,6 +107,7 @@ const SidebarView = (() => {
           element.querySelector('.section-label')?.textContent.trim() ||
           element.dataset.sidebarItem,
         required: false,
+        defaultVisible: true,
         element,
       });
       if (!observedWidgets.has(element)) {
@@ -137,8 +139,7 @@ const SidebarView = (() => {
       input.dataset.sidebarControl = entry.key;
       input.addEventListener('change', () => {
         if (entry.required) return;
-        if (input.checked) delete preferences[entry.key];
-        else preferences[entry.key] = false;
+        preferences[entry.key] = input.checked;
         apply();
         savePreferences();
       });
@@ -179,7 +180,7 @@ const SidebarView = (() => {
   }
 
   function showAll() {
-    preferences = {};
+    preferences = Object.fromEntries(entries.map(entry => [entry.key, true]));
     render();
     savePreferences();
   }
@@ -208,7 +209,12 @@ const SidebarView = (() => {
     });
   }
 
-  return { render, refresh, setProfile, showAll };
+  function visible(panel) {
+    const entry = entries.find(item => item.panel === panel);
+    return !entry || isVisible(entry);
+  }
+
+  return { render, refresh, setProfile, showAll, visible };
 })();
 
 
@@ -524,6 +530,7 @@ document.getElementById('init-timestamp').textContent =
 
 // ── Panel navigation ──────────────────────────────────────
 function showPanel(name) {
+  if (name === 'forum' && !SidebarView.visible('forum')) return;
   playDataSound('confirm');
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
 
@@ -540,6 +547,8 @@ function showPanel(name) {
   if (name === 'matrix' && !matrixInitialized) initMatrix();
   if (name === 'orders') refreshStandingOrders();
   if (name === 'widgets') renderWidgetsGrid();
+  if (name === 'marketplace' && window.MarketplaceUI) window.MarketplaceUI.refresh();
+  if (name === 'forum' && window.ForumUI) window.ForumUI.refresh();
 }
 
 // ── Open a path in Windows Explorer ──────────────────────
@@ -897,11 +906,14 @@ async function bootCaptains() {
     _captains = Array.isArray(data.users) ? data.users : [];
     _activeCaptain = data.active || (_captains[0] && _captains[0].id) || '';
     SidebarView.setProfile(_activeCaptain);
-    // Hide the switcher entirely if there is only one Captain — no point
-    // showing a dropdown with a single item. Multi-user setups get the UI.
+    // With a single unnamed Captain there is nothing worth showing, so the
+    // pill stays hidden. Once a nickname or picture is set in Settings →
+    // Account it becomes the identity chip, and clicking it goes back there.
     const wrap = document.getElementById('captain-switch-wrap');
     if (!wrap) return;
-    if (_captains.length < 2) { wrap.hidden = true; return; }
+    const active = _captainById(_activeCaptain) || _captains[0];
+    const named = active && ((active.name && active.name !== 'Captain') || active.avatar);
+    if (_captains.length < 2 && !named) { wrap.hidden = true; return; }
     wrap.hidden = false;
     renderCaptainSwitcher();
   } catch (e) {
@@ -918,6 +930,7 @@ function _accentColor(c) {
     lavender: '#b794f6',
     blue:     '#5599ff',
     teal:     '#33ccaa',
+    cyan:     '#33ddff',
     yellow:   '#ffcc33',
     green:    '#66cc66',
     pink:     '#ff66aa',
@@ -937,28 +950,67 @@ function renderCaptainSwitcher() {
   if (!active) return;
   const accent = _accentColor(active);
   wrap.style.setProperty('--captain-accent', accent);
-  av.textContent = (active.name || '?').slice(0, 1).toUpperCase();
+  _paintCaptainAvatar(av, active);
   nameEl.textContent = (active.name || active.id).toUpperCase();
-  btn.title = `Active Captain: ${active.rank || 'Captain'} ${active.name}. Click to switch.`;
+  const rankLine = wrap.querySelector('.captain-rank-line');
+  if (rankLine) rankLine.textContent = (active.rank || '').toUpperCase() || 'ACCOUNT';
+  btn.title = _captains.length > 1
+    ? `Active Captain: ${[active.rank, active.name].filter(Boolean).join(' ')}. Click to switch.`
+    : `${[active.rank, active.name].filter(Boolean).join(' ')} — click to open account settings.`;
 
   // Build dropdown — every Captain (active row highlighted, click is a no-op).
-  menu.innerHTML = '';
+  menu.replaceChildren();
   _captains.forEach(c => {
     const item = document.createElement('button');
     item.className = 'captain-menu-item' + (c.id === _activeCaptain ? ' active' : '');
     item.style.setProperty('--row-accent', _accentColor(c));
-    item.innerHTML = `
-      <span class="captain-menu-av">${(c.name || '?').slice(0, 1).toUpperCase()}</span>
-      <span>${c.name || c.id}</span>
-      <span class="captain-menu-rank">${(c.rank || 'CAPTAIN').toUpperCase()}</span>
-    `;
+    const rowAv = document.createElement('span');
+    rowAv.className = 'captain-menu-av';
+    _paintCaptainAvatar(rowAv, c);
+    const rowName = document.createElement('span');
+    rowName.textContent = c.name || c.id;
+    const rowRank = document.createElement('span');
+    rowRank.className = 'captain-menu-rank';
+    rowRank.textContent = (c.rank || 'CAPTAIN').toUpperCase();
+    item.append(rowAv, rowName, rowRank);
     item.addEventListener('click', () => switchCaptain(c.id));
     menu.appendChild(item);
   });
+  const settings = document.createElement('button');
+  settings.className = 'captain-menu-item captain-menu-settings';
+  settings.textContent = '⚙  Account settings';
+  settings.addEventListener('click', () => {
+    menu.hidden = true;
+    openSettingsTab('account');
+  });
+  menu.appendChild(settings);
+}
+
+// The bridge may require an auth header, which an <img src> cannot send, so
+// the picture is fetched and swapped in as a blob. Initial = fallback.
+function _paintCaptainAvatar(host, captain) {
+  if (!host) return;
+  host.replaceChildren();
+  host.textContent = ((captain && captain.name) || '?').slice(0, 1).toUpperCase();
+  if (!captain || !captain.avatar) return;
+  fetch(`${API_BASE}${captain.avatar}`).then(async res => {
+    if (!res.ok) return;
+    const blob = await res.blob();
+    if (!['image/png', 'image/jpeg'].includes(blob.type)) return;
+    const obj = URL.createObjectURL(blob);
+    const img = document.createElement('img');
+    img.alt = '';
+    img.addEventListener('load', () => { host.replaceChildren(img); URL.revokeObjectURL(obj); }, { once: true });
+    img.addEventListener('error', () => URL.revokeObjectURL(obj), { once: true });
+    img.src = obj;
+  }).catch(() => { /* Fall back to the initial. */ });
 }
 
 function toggleCaptainMenu(ev) {
   if (ev) ev.stopPropagation();
+  // A single-Captain install has nothing to switch between — the pill is an
+  // identity chip, so it opens the account settings directly.
+  if (_captains.length < 2) { openSettingsTab('account'); return; }
   const menu = document.getElementById('captain-menu');
   if (!menu) return;
   const willShow = menu.hidden;
@@ -1012,10 +1064,13 @@ async function switchCaptain(uid) {
     const win = document.getElementById('chat-window');
     if (win) {
       win.innerHTML = '';
-      const rank = (target.rank || 'Captain');
+      // The name is Captain-supplied, so it must not reach the markdown
+      // renderer. Strip the characters markdown reacts to and leave the rest
+      // as plain text in the sentence.
+      const who = [target.rank || 'Captain', target.name].join(' ').replace(/[*_`[\]()<>"&]/g, '').trim();
       appendMessage(
         'data',
-        `Captain identity updated. Welcome aboard, **${rank} ${target.name}**. Your private memory and history are loaded. How may I assist you?`
+        `Captain identity updated. Welcome aboard, ${who}. Your private memory and history are loaded. How may I assist you?`
       );
     }
     playDataSound('engage');
@@ -1982,6 +2037,9 @@ function _inlineMd(text) {
   //                                          bridge serves it from the sandbox.
   //    Click opens the full file in Explorer/default viewer via openPath().
   const IMG_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+  // A quote inside a URL would close the attribute it is interpolated into and
+  // let the rest of the URL become new attributes (src="x" onerror="…").
+  // The surrounding escape pass handles & < > but not " — so do it here.
   const attr = (value) => String(value).replace(/"/g, '&quot;');
   text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt, url) => {
     const safeAlt = alt.replace(/"/g, '&quot;');
@@ -6776,6 +6834,7 @@ async function loadConnectors(force = false) {
 // skills, MCP tools, python packages, knowledge packs. Installing anything
 // writes the backend registry so the dashboard uses it going forward.
 async function loadUpgrades(force = false) {
+  if (window.AdvancedToolsUI) window.AdvancedToolsUI.load(force);
   const btn = document.getElementById('connectors-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'SCANNING…'; }
   try {
@@ -9459,6 +9518,35 @@ function removeThinkingFromPane(winEl) {
   });
 }
 
+// Collapsible communications title bar. Keep a restore control available.
+function toggleChatHeader(collapse) {
+  const panel = document.getElementById('panel-chat');
+  if (!panel) return;
+  const next = collapse === undefined
+    ? !panel.classList.contains('header-collapsed') : !!collapse;
+  const header = document.getElementById('chat-panel-header');
+  const restore = document.getElementById('chat-header-restore');
+  const button = document.getElementById('chat-minimize-btn');
+  const moveFocus = next
+    ? header?.contains(document.activeElement) : document.activeElement === restore;
+  panel.classList.toggle('header-collapsed', next);
+  if (restore) restore.hidden = !next;
+  if (button) button.setAttribute('aria-expanded', String(!next));
+  if (moveFocus) (next ? restore : button)?.focus();
+  try { localStorage.setItem('chat-header-collapsed', next ? '1' : '0'); } catch (_) {}
+}
+
+function _initChatHeaderState() {
+  try {
+    if (localStorage.getItem('chat-header-collapsed') === '1') toggleChatHeader(true);
+  } catch (_) {}
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _initChatHeaderState);
+} else {
+  _initChatHeaderState();
+}
+
 function toggleChatFullscreen() {
   playDataSound('confirm');
   const panel = document.getElementById('panel-chat');
@@ -10100,6 +10188,7 @@ function openSettings() {
   document.addEventListener('keydown', _settingsKey);
   settingsTab('appearance');
   _settingsPaintTheme();
+  if (typeof _railPaint === 'function') _railPaint();
   _settingsLoadVoice();
   _settingsLoadModel();
   _settingsLoadCrew();
@@ -10132,6 +10221,9 @@ function settingsTab(name) {
     if (typeof loadUpgrades === 'function') loadUpgrades();
     if (typeof loadBriefing === 'function') loadBriefing();
   }
+  // Account state is fetched when the tab is opened, not on every Settings
+  // open, so a signed-out dashboard never makes the request at all.
+  if (name === 'account') _settingsLoadAccount();
 }
 
 // Open Settings directly on a given tab (e.g. from the provider menu)
@@ -10140,9 +10232,502 @@ function openSettingsTab(tab) {
   if (tab) settingsTab(tab);
 }
 
-// ── Appearance — retail 2-theme system (MINIMAL default / CYBER) ────────────
+// ══════════════════════════════════════════════════════════════════
+// ACCOUNT — one identity for the dashboard, Marketplace and Forum
+// ══════════════════════════════════════════════════════════════════
+// Two records sit behind this pane and they are deliberately different:
+//
+//   • The ACCOUNT (users/marketplace/marketplace.sqlite3, via
+//     /marketplace/account/*) — username, password, email, avatar, nickname
+//     and wallet addresses. This is the same account the Marketplace and the
+//     local Forum use, so a post signed here is signed there.
+//   • The CAPTAIN PROFILE (users/users.json, via /user/profile) — the local
+//     dashboard identity. Its nickname is what the header pill shows and what
+//     Data is told to call you in every system prompt.
+//
+// Saving the nickname or the picture writes BOTH, so there is one name and one
+// face everywhere. The profile half still works signed out, so a single-user
+// install can set what Data calls them without creating an account at all.
+let _acct = { account: null, profile: null, scope: null, error: '', mode: 'login', busy: false, rerender: false, flash: null };
+
+async function _acctApi(action, data) {
+  const res = await fetch(`${API_BASE}/marketplace/account/${action}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Marketplace-Request': '1' },
+    body: JSON.stringify(data || {}),
+  });
+  let out;
+  try { out = await res.json(); }
+  catch (_) { throw new Error('Accounts are unavailable. Restart DATA and reload.'); }
+  if (!res.ok) {
+    const error = new Error(out.error || 'That did not go through. Please try again.');
+    error.status = res.status;
+    throw error;
+  }
+  if (out.identity_scope) _acct.scope = out;
+  return out;
+}
+
+// The bridge needs the X-Data-Token header when one is configured, and an
+// <img src> cannot carry it — so avatars are fetched and shown as blob URLs.
+function _acctAvatarImg(url, cls, fallbackText) {
+  const wrap = document.createElement('span');
+  wrap.className = cls;
+  wrap.textContent = (fallbackText || '?').slice(0, 1).toUpperCase();
+  if (!url) return wrap;
+  fetch(url).then(async res => {
+    if (!res.ok) return;
+    const blob = await res.blob();
+    if (!['image/png', 'image/jpeg'].includes(blob.type) || blob.size > 512 * 1024) return;
+    const obj = URL.createObjectURL(blob);
+    const img = document.createElement('img');
+    img.alt = '';
+    img.addEventListener('load', () => { wrap.textContent = ''; wrap.appendChild(img); URL.revokeObjectURL(obj); }, { once: true });
+    img.addEventListener('error', () => URL.revokeObjectURL(obj), { once: true });
+    img.src = obj;
+  }).catch(() => { /* No picture is not an error. */ });
+  return wrap;
+}
+
+function _acctReadImage(input) {
+  const file = input.files && input.files[0];
+  if (!file) return Promise.resolve('');
+  if (!['image/png', 'image/jpeg'].includes(file.type)) return Promise.reject(new Error('Choose a PNG or JPEG image.'));
+  if (file.size > 512 * 1024) return Promise.reject(new Error('Pictures must be under 512 KB.'));
+  return new Promise((ok, fail) => {
+    const reader = new FileReader();
+    reader.onload = () => ok(String(reader.result));
+    reader.onerror = () => fail(new Error('Could not read that file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── Small DOM builders, so member text is never parsed as markup ────────────
+function _acctEl(tag, attrs, children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') el.className = v;
+    else if (k === 'text') el.textContent = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined && v !== false) el.setAttribute(k, v === true ? '' : String(v));
+  }
+  for (const child of [].concat(children || [])) if (child) el.append(child);
+  return el;
+}
+let _acctFieldSeq = 0;
+function _acctInput(attrs) { return _acctEl('input', Object.assign({ class: 'settings-input' }, attrs)); }
+function _acctField(label, input, hint) {
+  const id = 'acct-f' + (++_acctFieldSeq);
+  input.id = id;
+  return _acctEl('div', { class: 'settings-field' }, [
+    _acctEl('label', { class: 'settings-field-label', for: id, text: label }),
+    input,
+    hint ? _acctEl('small', { class: 'settings-field-hint', text: hint }) : null,
+  ]);
+}
+function _acctCard(title, subtitle, children) {
+  return _acctEl('section', { class: 'settings-card' }, [
+    _acctEl('h3', { class: 'settings-h', text: title }),
+    subtitle ? _acctEl('p', { class: 'settings-sub', text: subtitle }) : null,
+  ].concat(children || []));
+}
+// A save usually rebuilds the pane (a new username changes three cards at
+// once), which would detach the very element holding the confirmation. So the
+// outcome is parked on _acct.flash and painted into the FRESH card afterwards,
+// addressed by key rather than by element reference.
+function _acctStatus(key) { return _acctEl('p', { class: 'settings-status', role: 'status', 'data-acct-status': key }); }
+function _acctPaintStatus(key, tone, text) {
+  const node = document.querySelector(`[data-acct-status="${key}"]`);
+  if (!node) return;
+  node.className = 'settings-status' + (tone ? ' ' + tone : '');
+  node.textContent = text;
+}
+function _acctApplyFlash() {
+  const flash = _acct.flash;
+  _acct.flash = null;
+  if (flash) _acctPaintStatus(flash.key, flash.ok ? 'ok' : 'err', flash.text);
+}
+function _acctSubmit(label, key, run) {
+  const btn = _acctEl('button', { type: 'button', class: 'settings-save', text: label });
+  btn.addEventListener('click', async () => {
+    if (_acct.busy) return;
+    _acct.busy = true;
+    btn.disabled = true;
+    _acctPaintStatus(key, '', 'Working…');
+    try {
+      // A run may hand back {key, text} to put its confirmation on a different
+      // card — signing in replaces this one, so the message would vanish.
+      const done = await run();
+      const where = (done && done.key) || key;
+      _acct.flash = { key: where, ok: true, text: (done && done.text) || done || 'Saved.' };
+    } catch (e) {
+      _acct.flash = { key, ok: false, text: e.message || 'That did not go through.' };
+    } finally {
+      _acct.busy = false;
+      btn.disabled = false;
+      if (_acct.rerender) { _acct.rerender = false; _settingsRenderAccount(); }
+      else _acctApplyFlash();
+    }
+  });
+  return btn;
+}
+
+async function _settingsLoadAccount() {
+  const root = document.getElementById('settings-account-root');
+  if (!root) return;
+  try {
+    const profile = await (await fetch(`${API_BASE}/user/profile`)).json();
+    _acct.profile = profile.user || null;
+  } catch (e) { _acct.profile = null; }
+  _acct.error = '';
+  try {
+    const response = await fetch(`${API_BASE}/marketplace/session`, { credentials: 'same-origin' });
+    const session = await response.json();
+    if (!response.ok) throw new Error(session.error || 'Accounts are unavailable. Please retry.');
+    _acct.scope = session;
+    _acct.account = session.account ? (await _acctApi('me', {})).account : null;
+  } catch (e) { _acct.account = null; _acct.error = e.message; }
+  _settingsRenderAccount();
+}
+
+function _settingsRenderAccount() {
+  const root = document.getElementById('settings-account-root');
+  if (!root) return;
+  root.replaceChildren();
+  if (_acct.error) {
+    root.append(_acctEl('p', { class: 'settings-sub', role: 'alert', text: _acct.error }),
+      _acctEl('button', { class: 'settings-save', type: 'button', text: 'TRY AGAIN', onclick: _settingsLoadAccount }));
+    return;
+  }
+  // A connected community keeps its own accounts on the service, so this page
+  // is not the place to change those. Only shown when one is actually wired up.
+  if (_acct.scope?.identity_scope === 'shared') {
+    root.append(_acctEl('p', { class: 'settings-sub', text:
+      'One shared account for Marketplace and Forum. Account changes are saved online. Your private chats, memory, files and installed extensions stay on this device.' }),
+      _acctEl('p', { class: 'settings-sub', text: _acct.scope.service_url || '' }));
+  } else if (window.ForumUI && typeof window.ForumUI.shared === 'function' && window.ForumUI.shared()) {
+    root.append(_acctEl('p', { class: 'settings-sub', text:
+      'This dashboard is connected to a shared community. The account below is the one on this computer. Your community sign-in is separate and is managed from the Forum page.' }));
+  }
+  root.append(_acct.account ? _acctIdentityCard() : _acctSignInCard());
+  root.append(_acctProfileCard());
+  if (_acct.account) {
+    root.append(_acctCredentialsCard());
+    root.append(_acctWalletsCard());
+    root.append(_acctDangerCard());
+  }
+  _acctApplyFlash();
+}
+
+// ── Signed out: sign in, or create the account ──────────────────────────────
+function _acctSignInCard() {
+  const register = _acct.mode === 'register';
+  const key = 'signin';
+  const status = _acctStatus(key);
+  const username = _acctInput({ autocomplete: 'username', maxlength: 32, placeholder: 'your.username' });
+  const password = _acctInput({ type: 'password', autocomplete: register ? 'new-password' : 'current-password', maxlength: 128 });
+  const nickname = _acctInput({ autocomplete: 'nickname', maxlength: 60, placeholder: 'What should Data call you?' });
+  const email = _acctInput({ type: 'email', autocomplete: 'email', maxlength: 254, placeholder: 'optional' });
+
+  const toggle = _acctEl('div', { class: 'settings-opt-row' }, [
+    _acctEl('button', {
+      class: 'settings-opt' + (register ? '' : ' active'), type: 'button', text: 'SIGN IN',
+      onclick: () => { _acct.mode = 'login'; _settingsRenderAccount(); },
+    }),
+    _acctEl('button', {
+      class: 'settings-opt' + (register ? ' active' : ''), type: 'button', text: 'CREATE ACCOUNT',
+      onclick: () => { _acct.mode = 'register'; _settingsRenderAccount(); },
+    }),
+  ]);
+
+  const fields = [
+    _acctField('Username', username, 'Letters, numbers, dots, hyphens or underscores.'),
+    _acctField('Password', password, '12 to 128 characters.'),
+  ];
+  if (register) {
+    fields.push(_acctField('Nickname', nickname, 'Shown on your posts, and what Data calls you. You can change it later.'));
+    fields.push(_acctField('Email (optional)', email, 'Saved privately with your account. It is never verified, never emailed, and cannot recover a lost password.'));
+  }
+
+  const submit = _acctSubmit(register ? 'CREATE ACCOUNT' : 'SIGN IN', key, async () => {
+    const body = { username: username.value, password: password.value };
+    if (register) {
+      body.name = nickname.value.trim();
+      if (email.value.trim()) body.email = email.value.trim();
+      if (!body.name) throw new Error('Pick a nickname.');
+    }
+    const out = await _acctApi(register ? 'register' : 'login', body);
+    _acct.account = (await _acctApi('me', {})).account || out.account;
+    // Adopt the account's nickname and picture as this dashboard's identity,
+    // so signing in on a fresh machine carries your name and face across.
+    await _acctSyncProfile({ name: _acct.account.name, account_id: _acct.account.id });
+    window.dispatchEvent(new CustomEvent('data-account-changed', { detail: _acct.account }));
+    _acct.rerender = true;
+    addLog(`Signed in as ${_acct.account.name}`);
+    return { key: 'profile', text: register ? 'Account created. You are signed in.' : 'Signed in.' };
+  });
+
+  return _acctCard(
+    register ? 'Create your DATA account' : 'Sign in to DATA',
+    _acct.scope?.identity_scope === 'shared' ? 'One online account for Marketplace, Forum and Account settings across connected devices.' : 'One account for the Marketplace, the local Forum and this dashboard, stored on this computer.',
+    [toggle].concat(fields, [_acctEl('div', { class: 'settings-editor-bar' }, [status, submit])]),
+  );
+}
+
+// ── Signed in: who you are ──────────────────────────────────────────────────
+function _acctIdentityCard() {
+  const a = _acct.account;
+  const avatarUrl = (_acct.profile && _acct.profile.avatar) || (a.avatar ? `${API_BASE}${a.avatar}` : '');
+  const created = a.created ? new Date(a.created * 1000).toLocaleDateString() : '';
+  return _acctEl('section', { class: 'settings-card settings-identity' }, [
+    _acctAvatarImg(avatarUrl, 'settings-identity-av', a.name),
+    _acctEl('div', { class: 'settings-identity-text' }, [
+      _acctEl('div', { class: 'settings-identity-name', text: a.name }),
+      _acctEl('div', { class: 'settings-identity-meta', text: '@' + a.username + (a.email ? ' · ' + a.email : '') }),
+      _acctEl('div', { class: 'settings-identity-meta', text: created ? 'Member since ' + created : '' }),
+    ]),
+    _acctEl('span', { class: 'settings-identity-pill', text: 'SIGNED IN' }),
+  ]);
+}
+
+// ── Nickname + picture: the two things that change what you are called ──────
+function _acctProfileCard() {
+  const key = 'profile';
+  const status = _acctStatus(key);
+  const current = (_acct.account && _acct.account.name) || (_acct.profile && _acct.profile.name) || '';
+  const nickname = _acctInput({ maxlength: 60, autocomplete: 'nickname', value: current });
+  const title = _acctInput({ maxlength: 24, value: (_acct.profile && _acct.profile.rank) || '' });
+  const picker = _acctEl('input', { type: 'file', class: 'settings-file', accept: 'image/png,image/jpeg' });
+  const avatarUrl = (_acct.profile && _acct.profile.avatar) || (_acct.account && _acct.account.avatar ? `${API_BASE}${_acct.account.avatar}` : '');
+  const preview = _acctAvatarImg(avatarUrl, 'settings-identity-av', current || 'C');
+  let pendingImage = null;        // null = unchanged, '' = remove, string = new
+
+  picker.addEventListener('change', async () => {
+    status.className = 'settings-status';
+    status.textContent = '';
+    try {
+      const data = await _acctReadImage(picker);
+      if (!data) return;
+      pendingImage = data;
+      preview.textContent = '';
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = data;
+      preview.appendChild(img);
+      status.textContent = 'Picture ready — press SAVE to keep it.';
+    } catch (e) {
+      picker.value = '';
+      status.className = 'settings-status err';
+      status.textContent = e.message;
+    }
+  });
+
+  const remove = _acctEl('button', {
+    class: 'settings-opt', type: 'button', text: 'REMOVE PICTURE',
+    onclick: () => {
+      pendingImage = '';
+      picker.value = '';
+      preview.replaceChildren();
+      preview.textContent = (nickname.value || '?').slice(0, 1).toUpperCase();
+      status.className = 'settings-status';
+      status.textContent = 'Picture will be removed on SAVE.';
+    },
+  });
+
+  const save = _acctSubmit('SAVE', key, async () => {
+    const name = nickname.value.trim();
+    if (!name) throw new Error('Pick a nickname.');
+    if (_acct.account) {
+      const body = { name };
+      if (pendingImage !== null) body.avatar = pendingImage;
+      _acct.account = Object.assign({}, _acct.account, (await _acctApi('profile', body)).account);
+    }
+    const profileBody = { name, rank: title.value.trim() };
+    if (pendingImage !== null) profileBody.avatar = pendingImage;
+    await _acctSyncProfile(profileBody);
+    pendingImage = null;
+    picker.value = '';
+    window.dispatchEvent(new CustomEvent('data-account-changed', { detail: _acct.account }));
+    addLog(`Nickname → ${name}`);
+    return `Saved. Data will call you ${[title.value.trim(), name].filter(Boolean).join(' ')} from your next message.`;
+  });
+
+  return _acctCard('Nickname and picture',
+    _acct.account
+      ? 'Your nickname is what the dashboard shows, what Data calls you, and the name on your Marketplace and Forum posts. The picture goes with it.'
+      : 'Your nickname is what the dashboard shows and what Data calls you. Sign in above to use the same name and picture on your Marketplace and Forum posts.',
+    [
+      _acctEl('div', { class: 'settings-avatar-row' }, [
+        preview,
+        _acctEl('div', { class: 'settings-avatar-actions' }, [
+          _acctEl('label', { class: 'settings-opt settings-opt-file', text: 'CHOOSE PICTURE' }, [picker]),
+          remove,
+        ]),
+      ]),
+      _acctField('Nickname', nickname, 'For example: Gyani. 1 to 60 characters.'),
+      _acctField('Title (optional)', title, 'Goes in front of your nickname — "Captain", "Dr.", or leave it empty for no title.'),
+      _acctEl('div', { class: 'settings-editor-bar' }, [status, save]),
+    ]);
+}
+
+async function _acctSyncProfile(body) {
+  const res = await fetch(`${API_BASE}/user/profile`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || 'Could not save your dashboard profile.');
+  _acct.profile = out.user || _acct.profile;
+  if (typeof bootCaptains === 'function') bootCaptains();   // repaint the header pill
+  return _acct.profile;
+}
+
+// ── Sign-in details: username, email, password ──────────────────────────────
+function _acctCredentialsCard() {
+  const a = _acct.account;
+  const key = 'credentials';
+  const status = _acctStatus(key);
+  const username = _acctInput({ maxlength: 32, autocomplete: 'username', value: a.username });
+  const email = _acctInput({ type: 'email', maxlength: 254, autocomplete: 'email', value: a.email || '', placeholder: 'you@example.com' });
+  const next = _acctInput({ type: 'password', maxlength: 128, autocomplete: 'new-password', placeholder: 'leave empty to keep it' });
+  const confirm = _acctInput({ type: 'password', maxlength: 128, autocomplete: 'new-password', placeholder: 'repeat the new password' });
+  const currentPassword = _acctInput({ type: 'password', maxlength: 128, autocomplete: 'current-password' });
+
+  const save = _acctSubmit('UPDATE SIGN-IN DETAILS', key, async () => {
+    const body = { current_password: currentPassword.value };
+    const changes = [];
+    if (username.value.trim().toLowerCase() !== a.username) { body.username = username.value.trim(); changes.push('username'); }
+    if (email.value.trim() !== (a.email || '')) { body.email = email.value.trim(); changes.push('email'); }
+    if (next.value) {
+      if (next.value !== confirm.value) throw new Error('The two new passwords do not match.');
+      body.password = next.value;
+      changes.push('password');
+    }
+    if (!changes.length) throw new Error('Change a field first, then save.');
+    if (!currentPassword.value) throw new Error('Enter your current password to confirm.');
+    const out = await _acctApi('credentials', body);
+    _acct.account = out.account;
+    currentPassword.value = next.value = confirm.value = '';
+    _acct.rerender = true;
+    addLog(`Account updated: ${changes.join(', ')}`);
+    return changes.includes('password')
+      ? 'Updated. Every other signed-in device was signed out.'
+      : `Updated your ${changes.join(' and ')}.`;
+  });
+
+  return _acctCard('Sign-in details',
+    'Your current password confirms each of these changes, so a browser someone else left open cannot take the account over.',
+    [
+      _acctField('Username', username, 'You sign in with this. It also appears on your posts as @' + a.username + '.'),
+      _acctField('Email', email, 'Optional, saved privately with your account. Never verified, never emailed, and it cannot recover a lost password.'),
+      _acctField('New password', next, '12 to 128 characters. Leave empty to keep your current one.'),
+      _acctField('Repeat new password', confirm),
+      _acctField('Current password', currentPassword, 'Required to save anything in this section.'),
+      _acctEl('div', { class: 'settings-editor-bar' }, [status, save]),
+    ]);
+}
+
+// ── Crypto wallet addresses ─────────────────────────────────────────────────
+// Receiving addresses only, recorded for the Captain's own reference. DATA
+// never holds a key, signs a transaction or sends to them.
+const ACCT_CHAINS = [
+  ['bitcoin', 'Bitcoin'], ['ethereum', 'Ethereum'], ['solana', 'Solana'], ['base', 'Base'],
+  ['polygon', 'Polygon'], ['arbitrum', 'Arbitrum'], ['optimism', 'Optimism'],
+  ['bnb', 'BNB Smart Chain'], ['avalanche', 'Avalanche'], ['litecoin', 'Litecoin'],
+  ['dogecoin', 'Dogecoin'], ['monero', 'Monero'], ['cardano', 'Cardano'],
+  ['tron', 'Tron'], ['other', 'Other'],
+];
+
+function _acctWalletsCard() {
+  const key = 'wallets';
+  const status = _acctStatus(key);
+  const list = _acctEl('div', { class: 'settings-wallets' });
+  const rows = [];
+
+  function addRow(wallet) {
+    if (rows.length >= 12) {
+      status.className = 'settings-status err';
+      status.textContent = 'Twelve addresses is the limit.';
+      return;
+    }
+    const chain = _acctEl('select', { class: 'settings-input settings-wallet-chain' });
+    for (const [id, label] of ACCT_CHAINS) {
+      const option = _acctEl('option', { value: id, text: label });
+      if (wallet && wallet.chain === id) option.selected = true;
+      chain.append(option);
+    }
+    const address = _acctInput({ class: 'settings-input settings-wallet-address', maxlength: 128, spellcheck: 'false', placeholder: 'receiving address', value: (wallet && wallet.address) || '' });
+    const label = _acctInput({ class: 'settings-input settings-wallet-label', maxlength: 40, placeholder: 'label (optional)', value: (wallet && wallet.label) || '' });
+    const row = _acctEl('div', { class: 'settings-wallet-row' }, [chain, address, label]);
+    // A stored row the server could not re-validate is shown and flagged, not
+    // hidden. Hiding it would drop the address from the next save silently.
+    if (wallet && wallet.invalid) {
+      row.classList.add('settings-wallet-bad');
+      address.setAttribute('aria-invalid', 'true');
+      row.append(_acctEl('small', { class: 'settings-field-hint settings-wallet-warning',
+        text: 'Needs attention: ' + wallet.invalid + ' Fix or remove it before saving.' }));
+    }
+    const entry = { row, chain, address, label };
+    row.append(_acctEl('button', {
+      class: 'settings-wallet-remove', type: 'button', text: '✕', title: 'Remove this address',
+      onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); if (!rows.length) list.append(empty); },
+    }));
+    rows.push(entry);
+    empty.remove();
+    list.append(row);
+  }
+
+  const empty = _acctEl('p', { class: 'settings-sub', text: 'No addresses saved.' });
+  list.append(empty);
+  for (const wallet of (_acct.account.wallets || [])) addRow(wallet);
+
+  const add = _acctEl('button', { class: 'settings-opt', type: 'button', text: '+ ADD ADDRESS', onclick: () => addRow(null) });
+  const currentPassword = _acctInput({ type: 'password', maxlength: 128, autocomplete: 'current-password' });
+
+  const save = _acctSubmit('SAVE ADDRESSES', key, async () => {
+    if (!currentPassword.value) throw new Error('Enter your current password to confirm.');
+    const wallets = rows
+      .filter(r => r.address.value.trim())
+      .map(r => ({ chain: r.chain.value, address: r.address.value.trim(), label: r.label.value.trim() }));
+    const out = await _acctApi('wallets', { current_password: currentPassword.value, wallets });
+    _acct.account = out.account;
+    currentPassword.value = '';
+    _acct.rerender = true;
+    addLog(`Wallet addresses saved (${wallets.length})`);
+    return wallets.length ? `Saved ${wallets.length} address${wallets.length === 1 ? '' : 'es'}.` : 'All addresses removed.';
+  });
+
+  return _acctCard('Crypto wallet addresses',
+    'Your own receiving addresses, saved privately with your account for your reference. DATA never holds a key, signs a transaction, or sends anything to them. Format checks cannot verify ownership or guarantee that an address is correct.',
+    [
+      list,
+      _acctEl('div', { class: 'settings-opt-row' }, [add]),
+      _acctField('Current password', currentPassword, 'Required — changing a payout address is exactly what someone else would try to do.'),
+      _acctEl('div', { class: 'settings-editor-bar' }, [status, save]),
+    ]);
+}
+
+function _acctDangerCard() {
+  const key = 'session';
+  const status = _acctStatus(key);
+  const out = _acctSubmit('SIGN OUT', key, async () => {
+    await _acctApi('logout', {});
+    _acct.account = null;
+    _acct.mode = 'login';
+    window.dispatchEvent(new CustomEvent('data-account-changed', { detail: null }));
+    _acct.rerender = true;
+    addLog('Signed out of your DATA account');
+    return { key: 'signin', text: 'Signed out.' };
+  });
+  return _acctCard('Session',
+    'Signing out ends this browser\'s session. Your nickname and picture stay on the dashboard, and nothing on this computer is deleted.',
+    [_acctEl('div', { class: 'settings-editor-bar' }, [status, out])]);
+}
+
+// Appearance: dark Minimal (default) and Cyber.
 function _settingsCurrentTheme() {
-  return document.body.classList.contains('theme-cyberpunk') ? 'cyber' : 'minimal';
+  // Use the same theme selection as the bootstrap in index.html.
+  return (typeof currentTheme === 'function') ? currentTheme() : 'minimal';
 }
 function _settingsPaintTheme() {
   const cur = _settingsCurrentTheme();
@@ -10150,12 +10735,7 @@ function _settingsPaintTheme() {
     b.classList.toggle('active', b.dataset.theme === cur));
 }
 function settingsSetTheme(t) {
-  const toCyber = (t === 'cyber');
-  document.body.classList.toggle('theme-cyberpunk', toCyber);
-  document.body.classList.toggle('theme-minimal', !toCyber);
-  try { localStorage.setItem('data-theme', toCyber ? 'cyber' : 'minimal'); } catch (e) {}
-  if (typeof _themeLabel === 'function') _themeLabel();
-  if (typeof addLog === 'function') addLog('Theme → ' + (toCyber ? 'CYBER' : 'MINIMAL'));
+  if (typeof applyTheme === 'function') applyTheme(t);
   _settingsPaintTheme();
 }
 
@@ -10270,12 +10850,20 @@ async function _settingsLoadCrew() {
     _settingsAgents = d.agents || [];
     const pick = document.getElementById('settings-crew-pick');
     if (pick) {
-      pick.innerHTML = _settingsAgents.length
-        ? _settingsAgents.map(a =>
-            `<button class="settings-opt${a.id === _settingsActiveAgent ? ' active' : ''}" data-agent="${a.id}" onclick="settingsPickAgent('${a.id}')">${(a.name || a.id).toUpperCase()}</button>`).join('')
-        : '<span class="settings-sub">No officer personality files found in ~/.claude/agents.</span>';
+      // Built as nodes, not markup: the id is a filename from ~/.claude/agents
+      // and a quote in it would otherwise break out of the inline handler.
+      pick.replaceChildren(..._settingsAgents.length
+        ? _settingsAgents.map(a => _acctEl('button', {
+            class: 'settings-opt' + (a.id === _settingsActiveAgent ? ' active' : ''),
+            type: 'button', 'data-agent': a.id, text: (a.name || a.id).toUpperCase(),
+            onclick: () => settingsPickAgent(a.id),
+          }))
+        : [_acctEl('span', { class: 'settings-sub', text: 'No officer personality files found in ~/.claude/agents.' })]);
     }
-    if (_settingsActiveAgent && _settingsAgents.some(a => a.id === _settingsActiveAgent)) settingsPickAgent(_settingsActiveAgent);
+    const first = _settingsActiveAgent && _settingsAgents.some(a => a.id === _settingsActiveAgent)
+      ? _settingsActiveAgent : (_settingsAgents[0] || {}).id;
+    if (first) settingsPickAgent(first);
+    else _settingsRenderAgentAvatar(null);
   } catch (e) { addLog(`Crew personalities load failed: ${e.message || e}`); }
 }
 function settingsPickAgent(id) {
@@ -10287,6 +10875,68 @@ function settingsPickAgent(id) {
   if (a && pa) pa.textContent = a.path || '';
   document.querySelectorAll('#settings-crew-pick .settings-opt').forEach(b =>
     b.classList.toggle('active', b.dataset.agent === id));
+  _settingsRenderAgentAvatar(a || null);
+}
+
+// ── Officer pictures ────────────────────────────────────────────────────────
+// One picture per officer, stored next to the Captain's under users/ and
+// validated with the same PNG/JPEG checks. Lives with the other AI agent
+// settings so an officer's face and personality are edited in one place.
+function _settingsRenderAgentAvatar(agent, flash) {
+  const host = document.getElementById('settings-crew-avatar');
+  if (!host) return;
+  host.replaceChildren();
+  if (!agent) {
+    host.append(_acctEl('p', { class: 'settings-sub', text: 'Select an officer above to set their picture.' }));
+    return;
+  }
+  const status = _acctStatus('crew-avatar');
+  const preview = _acctAvatarImg(agent.avatar ? `${API_BASE}${agent.avatar}` : '', 'settings-identity-av', agent.name);
+  const picker = _acctEl('input', { type: 'file', class: 'settings-file', accept: 'image/png,image/jpeg' });
+
+  async function send(image, done) {
+    status.className = 'settings-status';
+    status.textContent = 'Working…';
+    try {
+      const res = await fetch(`${API_BASE}/agents/avatar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: agent.id, image }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.error || 'Could not save that picture.');
+      agent.avatar = out.avatar || '';
+      addLog(`${agent.name} picture ${image ? 'updated' : 'removed'}`);
+      // Repaint first — the REMOVE button appears or disappears — then write
+      // the confirmation into the control that actually ended up on screen.
+      _settingsRenderAgentAvatar(agent, { tone: 'ok', text: done });
+    } catch (e) {
+      status.className = 'settings-status err';
+      status.textContent = e.message || 'Could not save that picture.';
+    }
+  }
+
+  picker.addEventListener('change', async () => {
+    try {
+      const data = await _acctReadImage(picker);
+      if (data) await send(data, 'Picture saved.');
+    } catch (e) {
+      status.className = 'settings-status err';
+      status.textContent = e.message;
+    } finally { picker.value = ''; }
+  });
+
+  host.append(
+    preview,
+    _acctEl('div', { class: 'settings-avatar-actions' }, [
+      _acctEl('label', { class: 'settings-opt settings-opt-file', text: 'CHOOSE PICTURE' }, [picker]),
+      agent.avatar ? _acctEl('button', {
+        class: 'settings-opt', type: 'button', text: 'REMOVE PICTURE',
+        onclick: () => send('', 'Picture removed.'),
+      }) : null,
+      status,
+    ]),
+  );
+  if (flash) { status.className = 'settings-status ' + flash.tone; status.textContent = flash.text; }
 }
 async function settingsSaveAgent() {
   if (!_settingsActiveAgent) { addLog('Pick an officer first'); return; }

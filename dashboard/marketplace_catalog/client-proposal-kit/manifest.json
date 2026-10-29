@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "client-proposal-kit",
+  "version": "1.0.0",
+  "name": "Client Proposal Kit",
+  "description": "Turn discovery notes into a proposal, scope, timeline, assumptions and onboarding checklist.",
+  "kind": "skill",
+  "license": "MIT",
+  "permissions": [
+    "agent.instructions"
+  ],
+  "external_costs": "Installation is free. Using these instructions sends a request through your selected AI provider and may consume its allowance or incur charges. No paid service is required by this pack.",
+  "components": [
+    {
+      "kind": "skill",
+      "entry": "SKILL.md",
+      "label": "Client Proposal Kit"
+    }
+  ]
+}

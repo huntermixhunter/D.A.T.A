@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "web-design-studio",
+  "version": "1.0.0",
+  "name": "Web Design Studio",
+  "description": "Create websites, landing pages and redesigns with guided briefs, three style starting points and the design skills already bundled with DATA.",
+  "kind": "skill",
+  "license": "MIT",
+  "permissions": [
+    "agent.instructions"
+  ],
+  "external_costs": "Installation is free. Using these instructions sends a request through your selected AI provider and may consume its allowance or incur charges. No paid service is required by this pack.",
+  "components": [
+    {
+      "kind": "skill",
+      "entry": "SKILL.md",
+      "label": "Web Design Studio"
+    }
+  ]
+}

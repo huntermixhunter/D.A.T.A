@@ -1,0 +1,590 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DATA EXTENSION MARKETPLACE (themed shell)
+   ───────────────────────────────────────────────────────────────────────────
+   The marketplace used to be a hardcoded blue-grey island that ignored the
+   dashboard it lived inside. It is now driven entirely by a --mp-* token
+   contract, so the panel repaints with the host theme:
+
+     §1  Host integration      panel sizing + standalone-preview chrome
+     §2  Token contract        the full --mp-* surface (neutral defaults)
+     §3  Structure             layout only, every colour/shape via a token
+     §4  MINIMAL theme         editorial: hairlines, one blue accent, no glow
+     §5  CYBERPUNK theme       HUD plating: chamfers, neon rims, mono terminal
+     §6  Responsive + a11y
+
+   Styles stay scoped to .mp (the panel), .mp-dialog (dialogs are appended to
+   <body>, outside the panel) and .mp-extension (extension-rendered pages), so
+   nothing leaks into the host dashboard.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── §1  Host integration ────────────────────────────────────────────────── */
+#panel-marketplace { min-height: 0; overflow: auto; }
+/* The preview has navigation but no right sidebar or matching controls. */
+body[data-marketplace-preview] { --right-w: 0px; }
+body[data-marketplace-preview] .data-right,
+body[data-marketplace-preview] .rail-toggle-right,
+body[data-marketplace-preview] #settings-rail-row [data-rail="right"],
+body[data-marketplace-preview] .data-footer > :not(#settings-btn),
+body[data-marketplace-preview] .mobile-vitals-toggle,
+body[data-marketplace-preview] .data-sidebar > .sidebar-divider,
+body[data-marketplace-preview] .data-sidebar > .sidebar-section:not(#sidebar-navigation),
+body[data-marketplace-preview] #sidebar-navigation button:not([data-nav-panel="marketplace"]):not([data-nav-panel="forum"]):not([data-marketplace-nav]) { display: none !important; }
+
+/* Keep the preview control on its sidebar divider, clear of page content. */
+@media (min-width: 901px) {
+  body[data-marketplace-preview] .data-body { position: relative; gap: 16px; }
+  body[data-marketplace-preview] .rail-toggle-left {
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: var(--sidebar-w);
+    width: 16px;
+    height: auto;
+    transform: none;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    opacity: .75;
+  }
+  body[data-marketplace-preview] .rail-toggle-left::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    background: var(--edge-4);
+  }
+  body[data-marketplace-preview] .rail-toggle-left .rail-toggle-chevron {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 40px;
+    border: 1px solid var(--edge-4);
+    border-radius: 4px;
+    background: var(--surf-ctl);
+  }
+  body[data-marketplace-preview] .rail-toggle-left:hover,
+  body[data-marketplace-preview] .rail-toggle-left:focus-visible { opacity: 1; }
+  body[data-marketplace-preview].rail-left-collapsed .rail-toggle-left { left: 0; }
+
+  /* Saved dashboard preferences must not reserve an absent right handle. */
+  body[data-marketplace-preview].rail-right-collapsed .data-body,
+  body[data-marketplace-preview].rail-right-collapsed .data-header,
+  body[data-marketplace-preview].rail-right-collapsed .data-footer { padding-right: 0; }
+}
+
+/* ── §2  Token contract ──────────────────────────────────────────────────── */
+/* Neutral defaults so the panel is still legible if it renders with no theme
+   class on <body> (standalone preview, bare embed). §4/§5 override these. */
+.mp, .mp-dialog, .mp-extension {
+  --mp-bg:         #0B0D10;
+  --mp-surface:    #14181D;
+  --mp-raised:     #1A2026;
+  --mp-raised-2:   #222933;
+  --mp-sunken:     #0F1318;
+
+  --mp-line:       #20262E;
+  --mp-line-2:     #313B47;
+
+  --mp-text:       #E6E9EE;
+  --mp-muted:      #9AA4B2;
+  --mp-dim:        #828B98;
+
+  --mp-accent:      #4D9FFF;
+  --mp-accent-2:    #8FA8C7;
+  --mp-accent-soft: rgba(77, 159, 255, 0.14);
+  --mp-accent-line: rgba(77, 159, 255, 0.45);
+  --mp-on-accent:   #07101C;
+
+  --mp-ok:      #46A758;
+  --mp-warn:    #E3B341;
+  --mp-danger:  #E5484D;
+
+  --mp-r:       10px;
+  --mp-r-sm:    6px;
+  --mp-r-pill:  99px;
+
+  --mp-font:    'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --mp-display: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --mp-mono:    'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+
+  --mp-case:    none;            /* heading case             */
+  --mp-track:   -0.035em;        /* display tracking         */
+  --mp-track-2: 0.14em;          /* eyebrow / label tracking */
+
+  --mp-glow:        none;        /* accent glow (off in minimal) */
+  --mp-text-glow:   none;
+  --mp-card-shadow: none;
+  --mp-art-ink:     #9CC9FF;     /* per-kind artwork ink, set by .mp-art-* */
+
+  color: var(--mp-text);
+  font-family: var(--mp-font);
+  font-size: 14px;
+  line-height: 1.6;
+  letter-spacing: normal;
+  box-sizing: border-box;
+}
+
+/* ── §3  Structure ───────────────────────────────────────────────────────── */
+.mp { padding: clamp(20px, 3vw, 42px); background: var(--mp-bg); min-height: 100%; }
+.mp *, .mp-dialog *, .mp-extension * { box-sizing: border-box; }
+.mp button, .mp-dialog button, .mp-extension button { font: inherit; cursor: pointer; }
+.mp button:disabled, .mp-dialog button:disabled { opacity: .5; cursor: not-allowed; }
+.mp button:focus-visible, .mp-dialog :focus-visible, .mp-extension :focus-visible { outline: 2px solid var(--mp-accent); outline-offset: 3px; }
+.mp h1, .mp h2, .mp h3, .mp p, .mp-dialog h2, .mp-dialog h3, .mp-dialog p { margin: 0; }
+
+/* Masthead */
+.mp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 28px; }
+.mp-eyebrow { color: var(--mp-accent); font-family: var(--mp-mono); font-size: 11px; letter-spacing: var(--mp-track-2); text-transform: uppercase; font-weight: 600; }
+.mp h1 {
+  font-family: var(--mp-display); font-size: clamp(26px, 2.9vw, 38px);
+  letter-spacing: var(--mp-track); line-height: 1.14; margin: 10px 0 12px;
+  font-weight: 600; text-transform: var(--mp-case); text-shadow: var(--mp-text-glow);
+}
+.mp-muted { color: var(--mp-muted); }
+.mp-head .mp-muted { max-width: 520px; }
+
+/* Buttons */
+.mp-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mp-btn {
+  display: inline-flex; gap: 8px; justify-content: center; align-items: center;
+  min-height: 42px; padding: 9px 15px; border: 1px solid var(--mp-line);
+  border-radius: var(--mp-r-sm); background: var(--mp-raised); color: var(--mp-text);
+  text-decoration: none; transition: background 140ms, border-color 140ms, color 140ms;
+}
+.mp-btn:hover { background: var(--mp-raised-2); border-color: var(--mp-line-2); }
+.mp .mp-btn-primary, .mp-dialog .mp-btn-primary, .mp-extension .mp-btn-primary {
+  background: var(--mp-accent); color: var(--mp-on-accent);
+  border-color: var(--mp-accent); font-weight: 600; box-shadow: var(--mp-glow);
+}
+.mp .mp-btn-primary:hover, .mp-dialog .mp-btn-primary:hover { filter: brightness(1.12); background: var(--mp-accent); }
+.mp-btn-danger { color: var(--mp-danger); border-color: var(--mp-line); }
+.mp-btn-danger:hover { border-color: var(--mp-danger); }
+
+.mp-avatar {
+  width: 30px; height: 30px; border-radius: var(--mp-r-pill); object-fit: cover;
+  background: var(--mp-raised-2); display: inline-flex; align-items: center;
+  justify-content: center; flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--mp-text);
+}
+
+/* Callouts */
+.mp-note {
+  border: 1px solid var(--mp-line); border-left: 3px solid var(--mp-accent);
+  border-radius: var(--mp-r-sm); padding: 12px 16px; margin: 18px 0;
+  font-size: 12px; color: var(--mp-muted); background: var(--mp-surface);
+}
+.mp-note-warning { border-left-color: var(--mp-warn); color: var(--mp-warn); background: var(--mp-surface); }
+
+/* Tabs */
+.mp-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--mp-line); margin-top: 26px; }
+.mp-tab {
+  border: 0; border-bottom: 2px solid transparent; background: none; padding: 12px 0;
+  color: var(--mp-muted); min-height: 44px; letter-spacing: 0.02em; transition: color 140ms, border-color 140ms;
+}
+.mp-tab:hover { color: var(--mp-text); }
+.mp-tab[aria-pressed="true"] { border-color: var(--mp-accent); color: var(--mp-text); font-weight: 600; }
+
+/* Toolbar + form controls */
+.mp-toolbar { display: flex; gap: 10px; margin: 22px 0 14px; }
+.mp-search { flex: 1; min-width: 80px; }
+.mp input:not([type=checkbox]), .mp select, .mp textarea,
+.mp-dialog input:not([type=checkbox]), .mp-dialog select, .mp-dialog textarea,
+.mp-extension input:not([type=checkbox]), .mp-extension select, .mp-extension textarea {
+  width: 100%; background: var(--mp-sunken); border: 1px solid var(--mp-line);
+  border-radius: var(--mp-r-sm); color: var(--mp-text); font: inherit;
+  padding: 10px 12px; min-height: 44px; transition: border-color 140ms, box-shadow 140ms;
+}
+.mp input:focus, .mp select:focus, .mp textarea:focus,
+.mp-dialog input:focus, .mp-dialog select:focus, .mp-dialog textarea:focus {
+  outline: none; border-color: var(--mp-accent); box-shadow: 0 0 0 2px var(--mp-accent-soft);
+}
+.mp input::placeholder, .mp-dialog input::placeholder, .mp-dialog textarea::placeholder { color: var(--mp-dim); }
+.mp-toolbar select { max-width: 165px; }
+
+/* Category chips */
+.mp-categories { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 24px; }
+.mp-category {
+  border: 1px solid transparent; color: var(--mp-muted); background: transparent;
+  border-radius: var(--mp-r-pill); padding: 6px 13px; min-height: 36px;
+  transition: color 140ms, background 140ms, border-color 140ms, box-shadow 140ms;
+}
+.mp-category:hover { color: var(--mp-text); border-color: var(--mp-line); }
+.mp-category[aria-pressed="true"] { border-color: var(--mp-accent-line); background: var(--mp-accent-soft); color: var(--mp-text); }
+
+.mp .mp-result-count { font-size: 12px; color: var(--mp-muted); margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+
+/* Card grid */
+.mp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); gap: 18px; align-items: start; }
+.mp-card {
+  position: relative; min-width: 0; border: 1px solid var(--mp-line); border-radius: var(--mp-r);
+  overflow: hidden; background: var(--mp-surface); box-shadow: var(--mp-card-shadow);
+  transition: border-color 160ms, box-shadow 160ms;
+}
+.mp-card:hover { border-color: var(--mp-line-2); }
+.mp-card-open { display: block; width: 100%; padding: 0; text-align: left; color: inherit; background: none; border: none; }
+.mp-card-open:focus-visible { outline-offset: -3px; }
+
+/* Artwork tile. Hue comes from the per-kind --mp-art-* tokens below */
+.mp-art {
+  height: 136px; position: relative; padding: 22px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(140deg, var(--mp-art-a, var(--mp-raised)), var(--mp-art-b, var(--mp-surface)));
+}
+.mp-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mp-art-theme   { --mp-art-ink: #9CC9FF; --mp-art-a: #17222F; --mp-art-b: #0F1820; }
+.mp-art-skill   { --mp-art-ink: #C4B5FD; --mp-art-a: #1F1B2E; --mp-art-b: #14121D; }
+.mp-art-tool    { --mp-art-ink: #7FD9C7; --mp-art-a: #122520; --mp-art-b: #0E1A17; }
+.mp-art-page    { --mp-art-ink: #E8C98A; --mp-art-a: #241D12; --mp-art-b: #17130D; }
+.mp-art-upgrade { --mp-art-ink: #A8B4F0; --mp-art-a: #171B2E; --mp-art-b: #0F121E; }
+
+/* Wireframe mock used for theme / page listings */
+.mp-preview-window {
+  width: 154px; height: 100px; border: 1px solid var(--mp-art-ink); border-radius: var(--mp-r-sm);
+  background: var(--mp-sunken); display: flex; overflow: hidden; transform: translateY(12px); opacity: .9;
+}
+.mp-preview-rail { width: 32px; border-right: 1px solid var(--mp-line-2); padding: 16px 8px; display: grid; align-content: start; gap: 6px; }
+.mp-preview-rail i { height: 4px; border-radius: 1px; background: var(--mp-art-ink); opacity: .75; }
+.mp-preview-body { padding: 16px 12px; flex: 1; }
+.mp-preview-body i { display: block; height: 5px; margin-bottom: 8px; background: var(--mp-muted); width: 80%; border-radius: 1px; opacity: .55; }
+.mp-preview-body i:first-child { background: var(--mp-art-ink); width: 58%; opacity: 1; }
+.mp-preview-symbol { font-size: 37px; font-family: var(--mp-mono); color: var(--mp-art-ink); letter-spacing: -.08em; }
+.mp-art-label {
+  position: absolute; top: 11px; left: 13px; z-index: 2; color: var(--mp-text);
+  font-family: var(--mp-mono); font-size: 9px; letter-spacing: var(--mp-track-2);
+  text-transform: uppercase; text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+}
+
+/* Card body */
+.mp-card-body { padding: 17px 18px 12px; }
+.mp-card h3 { font-family: var(--mp-display); font-size: 16px; line-height: 1.4; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; letter-spacing: -.012em; }
+.mp-card-description { font-size: 12px; line-height: 1.6; color: var(--mp-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 38px; }
+.mp-card-meta { display: flex; align-items: center; gap: 7px; margin-top: 13px; font-size: 11px; color: var(--mp-muted); }
+.mp-card-meta .mp-avatar { width: 20px; height: 20px; font-size: 9px; }
+.mp-card-footer {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  border-top: 1px solid var(--mp-line); padding: 11px 18px; font-size: 12px;
+  font-family: var(--mp-mono); font-variant-numeric: tabular-nums;
+}
+.mp-badge {
+  display: inline-block; font-family: var(--mp-mono); font-size: 10px; letter-spacing: .05em;
+  padding: 3px 7px; border: 1px solid var(--mp-warn); border-radius: 4px;
+  color: var(--mp-warn); background: transparent;
+}
+.mp-badge-reviewed { color: var(--mp-ok); border-color: var(--mp-ok); }
+.mp-card-manage { padding: 0 16px 14px; display: flex; gap: 7px; flex-wrap: wrap; }
+.mp-card-manage .mp-btn { font-size: 11px; min-height: 36px; padding: 6px 10px; }
+.mp-empty { grid-column: 1 / -1; padding: 45px 15px; border: 1px dashed var(--mp-line); border-radius: var(--mp-r); text-align: center; color: var(--mp-muted); }
+
+/* Dialogs.
+   margin: auto restores the UA centering that the host theme's global
+   `*, *::before, *::after { margin: 0 }` reset wipes out. Without it every
+   modal pins to the top-left corner of the viewport. */
+.mp-dialog {
+  width: min(710px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0;
+  margin: auto;
+  background: var(--mp-surface); border: 1px solid var(--mp-line-2);
+  border-radius: var(--mp-r); overflow: auto; box-shadow: var(--mp-card-shadow);
+}
+.mp-dialog::backdrop { background: rgb(0 0 0 / .72); }
+.mp-dialog-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  padding: 18px 24px; border-bottom: 1px solid var(--mp-line);
+  position: sticky; top: 0; z-index: 2; background: var(--mp-surface);
+}
+.mp-dialog-head h2 { font-family: var(--mp-display); font-size: 19px; letter-spacing: -.02em; text-transform: var(--mp-case); }
+/* The close glyph also carries .mp-btn, so this needs three classes to outrank
+   the themed `body.theme-* .mp-btn` sizing rules in §4/§5. */
+.mp-dialog .mp-btn.mp-dialog-close {
+  border: 0; color: var(--mp-muted); background: transparent;
+  width: 36px; min-width: 36px; height: 36px; min-height: 36px; padding: 0;
+  font-size: 23px; line-height: 1; letter-spacing: normal; border-radius: var(--mp-r-sm);
+}
+.mp-dialog .mp-btn.mp-dialog-close:hover { color: var(--mp-text); background: var(--mp-raised); box-shadow: none; }
+.mp-dialog-body { padding: 24px; }
+.mp-dialog h3 { font-family: var(--mp-display); font-size: 15px; margin: 24px 0 10px; }
+.mp-dialog-body > .mp-muted { margin-bottom: 16px; }
+
+/* Forms */
+.mp-form { display: grid; gap: 16px; }
+.mp-field { display: grid; gap: 6px; font-size: 12px; font-weight: 500; }
+.mp-field small { font-weight: 400; color: var(--mp-muted); font-size: 11px; }
+.mp-field textarea { resize: vertical; min-height: 95px; }
+.mp-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.mp-check { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; color: var(--mp-muted); }
+.mp-check input { margin-top: 4px; width: 17px; height: 17px; accent-color: var(--mp-accent); flex: 0 0 auto; }
+.mp-error { color: var(--mp-danger); font-size: 12px; min-height: 20px; white-space: pre-wrap; }
+.mp-status { min-height: 22px; font-size: 12px; color: var(--mp-ok); margin: 10px 0; }
+.mp-status:empty { display: none; }
+
+/* Detail view */
+.mp-detail-description, .mp-review-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mp-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 24px; padding: 18px 0; border-bottom: 1px solid var(--mp-line); }
+.mp-fact { font-size: 12px; font-variant-numeric: tabular-nums; }
+.mp-fact span { display: block; font-family: var(--mp-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--mp-muted); margin-bottom: 3px; }
+.mp-digest { display: block; overflow-wrap: anywhere; font-family: var(--mp-mono); font-size: 10px; line-height: 1.7; color: var(--mp-muted); margin: 12px 0; }
+.mp-source {
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto;
+  font-family: var(--mp-mono); font-size: 11px; line-height: 1.6; padding: 12px;
+  background: var(--mp-sunken); border: 1px solid var(--mp-line); border-radius: var(--mp-r-sm);
+}
+.mp-dialog details { margin: 9px 0; font-size: 12px; }
+.mp-dialog summary { cursor: pointer; min-height: 32px; color: var(--mp-muted); }
+.mp-dialog summary:hover { color: var(--mp-text); }
+.mp-review { border-bottom: 1px solid var(--mp-line); padding: 15px 0; font-size: 12px; }
+.mp-review-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.mp-review-head .mp-muted { margin-left: auto; }
+.mp-version { padding: 12px 0; border-bottom: 1px solid var(--mp-line); }
+.mp-version .mp-btn { margin-top: 8px; }
+
+/* Extension-rendered pages */
+.mp-extension { padding: 28px; overflow: auto; background: var(--mp-bg); min-height: 100%; }
+.mp-extension h1 { font-family: var(--mp-display); font-size: 26px; letter-spacing: -.025em; text-transform: var(--mp-case); }
+.mp-extension textarea { min-height: 200px; resize: vertical; margin: 16px 0; }
+.mp-extension pre { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 18px; font: inherit; }
+.mp-extension p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mp-extension .mp-check { padding: 10px 0; border-bottom: 1px solid var(--mp-line); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   §4  MINIMAL THEME / body.theme-minimal
+   Editorial and quiet. Near-black surfaces, hairline borders, a single
+   electric-blue accent, Inter for text and JetBrains Mono for anything
+   numeric. No glow, no gradients fighting for attention.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body.theme-minimal .mp,
+body.theme-minimal .mp-dialog,
+body.theme-minimal .mp-extension {
+  --mp-bg:         #0B0D10;
+  --mp-surface:    #14181D;
+  --mp-raised:     #1A2026;
+  --mp-raised-2:   #222933;
+  --mp-sunken:     #0F1318;
+
+  --mp-line:       #20262E;
+  --mp-line-2:     #39434F;
+
+  --mp-text:       #E6E9EE;
+  --mp-muted:      #9AA4B2;
+  --mp-dim:        #828B98;
+
+  --mp-accent:      #4D9FFF;
+  --mp-accent-2:    #8FA8C7;
+  --mp-accent-soft: rgba(77, 159, 255, 0.14);
+  --mp-accent-line: rgba(77, 159, 255, 0.45);
+  --mp-on-accent:   #07101C;
+
+  --mp-ok:     #46A758;
+  --mp-warn:   #E3B341;
+  --mp-danger: #E5484D;
+
+  --mp-r: 10px; --mp-r-sm: 6px; --mp-r-pill: 99px;
+  --mp-font:    'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --mp-display: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --mp-mono:    'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  --mp-case: none; --mp-track: -0.035em; --mp-track-2: 0.14em;
+  --mp-glow: none; --mp-text-glow: none;
+  --mp-card-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  font-size: 14px; letter-spacing: 0.01em;
+}
+
+/* The same overhead instrument light the rest of the minimal shell uses. */
+body.theme-minimal .mp { position: relative; }
+body.theme-minimal .mp::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 65% 34% at 50% 0%, rgba(77, 159, 255, 0.05), transparent 62%);
+}
+body.theme-minimal .mp > * { position: relative; }
+
+body.theme-minimal .mp h1 { font-weight: 650; }
+body.theme-minimal .mp-card:hover { border-color: var(--mp-accent-line); box-shadow: 0 2px 14px rgba(0, 0, 0, .45); }
+
+/* Artwork: muted washes plus a hairline accent rail so kinds stay scannable. */
+body.theme-minimal .mp-art { padding: 20px; }
+body.theme-minimal .mp-art::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  z-index: 1; background: var(--mp-art-ink); opacity: .55;
+}
+body.theme-minimal .mp-art-theme   { --mp-art-ink: #4D9FFF; --mp-art-a: #16202C; --mp-art-b: #0F1419; }
+body.theme-minimal .mp-art-skill   { --mp-art-ink: #A78BFA; --mp-art-a: #1C1A28; --mp-art-b: #121219; }
+body.theme-minimal .mp-art-tool    { --mp-art-ink: #45C4B0; --mp-art-a: #122320; --mp-art-b: #0E1715; }
+body.theme-minimal .mp-art-page    { --mp-art-ink: #E3B341; --mp-art-a: #231C12; --mp-art-b: #16120C; }
+body.theme-minimal .mp-art-upgrade { --mp-art-ink: #8FA8C7; --mp-art-a: #181D25; --mp-art-b: #0F1318; }
+body.theme-minimal .mp-art-label { color: var(--mp-muted); font-weight: 500; }
+
+/* Quiet badges: outline only, no fill. */
+body.theme-minimal .mp-badge { border-color: rgba(227, 179, 65, .45); }
+body.theme-minimal .mp-badge-reviewed { border-color: rgba(70, 167, 88, .5); }
+body.theme-minimal .mp-note-warning { color: #D9C08A; }
+body.theme-minimal .mp-dialog { box-shadow: 0 24px 64px rgba(0, 0, 0, .6); }
+body.theme-minimal .mp-dialog::backdrop { background: rgb(5 7 10 / .74); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   §5  CYBERPUNK THEME / body.theme-cyberpunk
+   HUD plating. Void-black ground, chamfered card corners cut from a cyan to
+   magenta rim, Orbitron for display type, JetBrains Mono for everything else,
+   scanline texture over the artwork, neon on anything interactive.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body.theme-cyberpunk .mp,
+body.theme-cyberpunk .mp-dialog,
+body.theme-cyberpunk .mp-extension {
+  --mp-bg:         #03020A;
+  --mp-surface:    #0A0712;
+  --mp-raised:     #0F0C1E;
+  --mp-raised-2:   #17112C;
+  --mp-sunken:     #07061A;
+
+  --mp-line:       rgba(0, 240, 255, 0.22);
+  --mp-line-2:     rgba(0, 240, 255, 0.55);
+
+  --mp-text:       #E6FBFF;
+  --mp-muted:      #7FA8B8;
+  --mp-dim:        #4B6A78;
+
+  --mp-accent:      #00F0FF;   /* electric cyan  */
+  --mp-accent-2:    #FF00AA;   /* hot magenta    */
+  --mp-accent-soft: rgba(0, 240, 255, 0.12);
+  --mp-accent-line: rgba(0, 240, 255, 0.6);
+  --mp-on-accent:   #03020A;
+
+  --mp-ok:     #B6FF00;        /* acid green     */
+  --mp-warn:   #FF00AA;        /* magenta alarm  */
+  --mp-danger: #FF2C5C;
+
+  --mp-r: 0px; --mp-r-sm: 2px; --mp-r-pill: 2px;
+  --mp-font:    'JetBrains Mono', 'Share Tech Mono', monospace;
+  --mp-display: 'Orbitron', 'Antonio', sans-serif;
+  --mp-mono:    'JetBrains Mono', 'Share Tech Mono', monospace;
+  --mp-case: uppercase; --mp-track: 0.03em; --mp-track-2: 0.18em;
+  --mp-glow: 0 0 14px rgba(0, 240, 255, 0.45);
+  --mp-text-glow: 0 0 10px rgba(0, 240, 255, 0.5), 0 0 24px rgba(0, 240, 255, 0.2);
+  --mp-card-shadow: none;
+  font-size: 13px; letter-spacing: 0.035em;
+}
+
+/* Ground: void plus a faint magenta/cyan horizon and a scanline wash. */
+body.theme-cyberpunk .mp { position: relative; }
+body.theme-cyberpunk .mp::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    repeating-linear-gradient(180deg, rgba(0, 240, 255, .035) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse 80% 45% at 50% 0%, rgba(255, 0, 170, .07), transparent 65%),
+    radial-gradient(ellipse 90% 60% at 50% 110%, rgba(0, 240, 255, .05), transparent 70%);
+}
+body.theme-cyberpunk .mp > * { position: relative; z-index: 1; }
+
+/* Display type */
+body.theme-cyberpunk .mp h1 { font-weight: 700; line-height: 1.22; }
+body.theme-cyberpunk .mp-eyebrow { text-shadow: 0 0 8px rgba(0, 240, 255, .5); }
+body.theme-cyberpunk .mp-head .mp-muted { max-width: 560px; }
+body.theme-cyberpunk .mp-card h3 { font-weight: 500; font-size: 14px; letter-spacing: .02em; }
+body.theme-cyberpunk .mp-dialog-head h2 { font-weight: 700; letter-spacing: .05em; text-shadow: var(--mp-text-glow); }
+body.theme-cyberpunk .mp-dialog h3,
+body.theme-cyberpunk .mp-extension h1 { text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
+
+/* Controls: sharp plates with a neon rim, magenta on hover. */
+body.theme-cyberpunk .mp-btn { background: var(--mp-raised); border-color: var(--mp-line); text-transform: uppercase; letter-spacing: .12em; font-size: 11px; }
+body.theme-cyberpunk .mp-btn:hover { background: var(--mp-raised-2); border-color: var(--mp-accent-2); color: #FFD9F1; box-shadow: 0 0 12px rgba(255, 0, 170, .35); }
+body.theme-cyberpunk .mp .mp-btn-primary,
+body.theme-cyberpunk .mp-dialog .mp-btn-primary {
+  background: linear-gradient(135deg, #00F0FF, #00B8D4);
+  color: var(--mp-on-accent); border-color: #7CFBFF; font-weight: 700;
+}
+body.theme-cyberpunk .mp .mp-btn-primary:hover,
+body.theme-cyberpunk .mp-dialog .mp-btn-primary:hover { background: linear-gradient(135deg, #7CFBFF, #00F0FF); box-shadow: 0 0 20px rgba(0, 240, 255, .6); }
+body.theme-cyberpunk .mp-btn-danger { color: var(--mp-danger); }
+body.theme-cyberpunk .mp-btn-danger:hover { border-color: var(--mp-danger); color: #FFB7C4; box-shadow: 0 0 12px rgba(255, 44, 92, .4); }
+body.theme-cyberpunk .mp-avatar { background: linear-gradient(135deg, #00F0FF, #FF00AA); color: #03020A; }
+
+/* Tabs read as a terminal rail. */
+body.theme-cyberpunk .mp-tabs { gap: 0; }
+body.theme-cyberpunk .mp-tab { padding: 12px 18px; text-transform: uppercase; letter-spacing: .16em; font-size: 11px; border-bottom-width: 2px; }
+body.theme-cyberpunk .mp-tab[aria-pressed="true"] { background: rgba(0, 240, 255, .07); color: var(--mp-accent); text-shadow: 0 0 8px rgba(0, 240, 255, .55); }
+
+body.theme-cyberpunk .mp-category { text-transform: uppercase; letter-spacing: .12em; font-size: 10px; }
+body.theme-cyberpunk .mp-category[aria-pressed="true"] { color: var(--mp-accent); border-color: var(--mp-accent-line); box-shadow: inset 0 0 12px rgba(0, 240, 255, .18); }
+body.theme-cyberpunk .mp .mp-result-count { text-transform: uppercase; letter-spacing: .14em; font-size: 11px; }
+
+body.theme-cyberpunk .mp input:focus, body.theme-cyberpunk .mp select:focus, body.theme-cyberpunk .mp textarea:focus,
+body.theme-cyberpunk .mp-dialog input:focus, body.theme-cyberpunk .mp-dialog select:focus,
+body.theme-cyberpunk .mp-dialog textarea:focus { box-shadow: 0 0 12px rgba(0, 240, 255, .5); }
+
+/* Cards: the rim is a cyan to magenta gradient; the chamfer is cut out of it,
+   and ::before paints the interior one pixel inside so the rim survives. */
+body.theme-cyberpunk .mp-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+body.theme-cyberpunk .mp-card {
+  border: 0; padding: 1px; overflow: visible;
+  background: linear-gradient(145deg, rgba(0, 240, 255, .55), rgba(255, 0, 170, .3) 58%, rgba(0, 240, 255, .18));
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  transition: background 180ms, filter 180ms;
+}
+body.theme-cyberpunk .mp-card::before {
+  content: ""; position: absolute; inset: 1px; z-index: 0; background: var(--mp-surface);
+  clip-path: polygon(13px 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%, 0 13px);
+}
+body.theme-cyberpunk .mp-card > * { position: relative; z-index: 1; }
+body.theme-cyberpunk .mp-card:hover {
+  background: linear-gradient(145deg, #00F0FF, rgba(255, 0, 170, .75) 58%, rgba(0, 240, 255, .45));
+  filter: brightness(1.06);
+}
+body.theme-cyberpunk .mp-card-open:focus-visible { outline-offset: -5px; }
+body.theme-cyberpunk .mp-card-footer { text-transform: uppercase; letter-spacing: .1em; font-size: 10px; }
+body.theme-cyberpunk .mp-card-manage .mp-btn { letter-spacing: .1em; }
+
+/* Artwork: neon gradients, scanlines, and a hard horizon fade into the body. */
+body.theme-cyberpunk .mp-art { height: 142px; }
+body.theme-cyberpunk .mp-art::after {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background:
+    repeating-linear-gradient(180deg, rgba(0, 0, 0, .28) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, transparent 55%, rgba(3, 2, 10, .75) 100%);
+}
+body.theme-cyberpunk .mp-art-theme   { --mp-art-ink: #00F0FF; --mp-art-a: #04142B; --mp-art-b: #030A18; }
+body.theme-cyberpunk .mp-art-skill   { --mp-art-ink: #FF6BD6; --mp-art-a: #22052A; --mp-art-b: #0C0318; }
+body.theme-cyberpunk .mp-art-tool    { --mp-art-ink: #00F5C8; --mp-art-a: #042420; --mp-art-b: #030F14; }
+body.theme-cyberpunk .mp-art-page    { --mp-art-ink: #B6FF00; --mp-art-a: #141F04; --mp-art-b: #070C03; }
+body.theme-cyberpunk .mp-art-upgrade { --mp-art-ink: #B967FF; --mp-art-a: #180536; --mp-art-b: #09031A; }
+body.theme-cyberpunk .mp-preview-window { box-shadow: 0 0 18px rgba(0, 240, 255, .25); background: rgba(3, 2, 10, .85); }
+body.theme-cyberpunk .mp-preview-rail i { opacity: 1; box-shadow: 0 0 6px var(--mp-art-ink); }
+body.theme-cyberpunk .mp-preview-symbol { text-shadow: 0 0 14px currentColor; }
+body.theme-cyberpunk .mp-art-label { color: var(--mp-art-ink); text-shadow: 0 0 8px currentColor; }
+
+/* Status chips glow instead of filling. */
+body.theme-cyberpunk .mp-badge { text-transform: uppercase; letter-spacing: .1em; border-radius: 0; box-shadow: inset 0 0 10px rgba(255, 0, 170, .2); }
+body.theme-cyberpunk .mp-badge-reviewed { box-shadow: inset 0 0 10px rgba(182, 255, 0, .2); }
+body.theme-cyberpunk .mp-status { text-shadow: 0 0 8px rgba(182, 255, 0, .45); }
+
+/* Callouts become bracketed terminal notices. */
+body.theme-cyberpunk .mp-note { border-left-width: 3px; background: rgba(0, 240, 255, .04); color: var(--mp-muted); }
+body.theme-cyberpunk .mp-note-warning { background: rgba(255, 0, 170, .05); border-color: rgba(255, 0, 170, .25); border-left-color: var(--mp-accent-2); color: #FFB3E2; }
+
+/* Dialogs keep square corners so the sticky header and scrolling stay sane. */
+body.theme-cyberpunk .mp-dialog {
+  box-shadow: 0 0 40px rgba(0, 240, 255, .22), inset 0 0 60px rgba(0, 240, 255, .05);
+}
+body.theme-cyberpunk .mp-dialog::backdrop { background: rgb(3 2 10 / .82); }
+body.theme-cyberpunk .mp-dialog-head { background: linear-gradient(180deg, #0F0C1E, var(--mp-surface)); }
+/* Field captions only. text-transform inherits, so this must not sit on the
+   wrapper or it would uppercase the user's own input and the hint copy. */
+body.theme-cyberpunk .mp-field > label { text-transform: uppercase; letter-spacing: .1em; font-size: 11px; }
+body.theme-cyberpunk .mp-empty { border-style: dashed; border-color: var(--mp-line); text-transform: uppercase; letter-spacing: .14em; font-size: 11px; }
+
+/* ── §6  Responsive + accessibility ──────────────────────────────────────── */
+@media (max-width: 760px) {
+  .mp-head { flex-direction: column; gap: 16px; }
+  .mp-toolbar { flex-wrap: wrap; }
+  .mp-toolbar select { max-width: none; flex: 1; }
+  .mp-search { flex-basis: 100%; }
+  .mp-field-row { grid-template-columns: 1fr; }
+  .mp-dialog-head, .mp-dialog-body { padding: 18px; }
+  body.theme-cyberpunk .mp-tabs { overflow-x: auto; }
+  body.theme-cyberpunk .mp-tab { padding: 12px 12px; }
+}
+/* Honour the same reduced-motion contract the cyberpunk shell uses: drop the
+   transitions, the scanline wash, and every glow. Geometry is unchanged. */
+@media (prefers-reduced-motion: reduce) {
+  .mp *, .mp-dialog *, .mp-extension * { transition: none !important; }
+  body.theme-cyberpunk .mp::before { background: none; }
+  body.theme-cyberpunk .mp-art::after { background: linear-gradient(180deg, transparent 55%, rgba(3, 2, 10, .75) 100%); }
+  body.theme-cyberpunk .mp *, body.theme-cyberpunk .mp-dialog * { box-shadow: none !important; text-shadow: none !important; }
+}

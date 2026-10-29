@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "content-repurposer",
+  "version": "1.0.0",
+  "name": "Content Repurposer",
+  "description": "Turn an article or supplied transcript into platform-specific social drafts, a carousel outline and an email while preserving the author's meaning.",
+  "kind": "skill",
+  "license": "MIT",
+  "permissions": [
+    "agent.instructions"
+  ],
+  "external_costs": "Installation is free. Using these instructions sends a request through your selected AI provider and may consume its allowance or incur charges. No paid service is required by this pack.",
+  "components": [
+    {
+      "kind": "skill",
+      "entry": "SKILL.md",
+      "label": "Content Repurposer"
+    }
+  ]
+}

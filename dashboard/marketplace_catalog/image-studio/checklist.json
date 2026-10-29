@@ -1,0 +1,36 @@
+{
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Image Studio setup"
+    },
+    {
+      "type": "paragraph",
+      "text": "This pack adds a workflow and checklist. Manage the separate application in Settings > Upgrades > Advanced tools. Checking a box records your progress; it does not install or run anything."
+    },
+    {
+      "type": "check",
+      "text": "Review the official application requirements, model terms and download sizes."
+    },
+    {
+      "type": "check",
+      "text": "Choose application, model-cache and output locations with enough disk space."
+    },
+    {
+      "type": "check",
+      "text": "Install the application and selected models from the official source after reviewing the download."
+    },
+    {
+      "type": "check",
+      "text": "Save locations in Advanced tools and check the local connection or files."
+    },
+    {
+      "type": "check",
+      "text": "Run a short test in the application and inspect the output."
+    },
+    {
+      "type": "check",
+      "text": "Save the input, model, settings and output together for repeatable work."
+    }
+  ]
+}
