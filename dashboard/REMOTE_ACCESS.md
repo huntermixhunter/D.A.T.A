@@ -72,9 +72,11 @@ disconnection. Voice notes and attachments are not supported by this transport.
 ## Background operation and storage
 
 Enabling either option also enables **Keep DATA running when I close the browser**.
-This preference survives restarts. Turning it off restores browser-coupled
-shutdown unless `DATA_LIFECYCLE_MODE=daemon` was set at startup. System Offline,
-sleep, power loss or loss of internet still interrupts remote access.
+This preference survives restarts. The bridge now stays up on its own when the
+browser closes, so turning the preference off no longer stops DATA; it restores
+browser-coupled shutdown only when the bridge was started with
+`DATA_LIFECYCLE_MODE=auto`. System Offline, sleep, power loss or loss of
+internet still interrupts remote access.
 
 Configuration and secrets are saved in `users/remote-access/config.json`, outside
 the static web directory and excluded from release archives by the existing

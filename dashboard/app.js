@@ -7803,10 +7803,12 @@ async function compactMemory() {
 }
 
 // ── Lifecycle heartbeat ───────────────────────────────────
-// Browser pulses /heartbeat every 25s. Bridge shuts itself down after 180s
-// without a beat (5s after a beforeunload "leaving" signal). Refresh
-// recovers within the grace window so it doesn't trip the watcher.
-// Set DATA_LIFECYCLE_MODE=daemon on the bridge to disable this entirely.
+// Browser pulses /heartbeat every 25s so the bridge knows a dashboard is
+// connected. By default a missing beat proves nothing and the bridge keeps
+// running; use System Offline to stop DATA on purpose. Only a bridge started
+// with DATA_LIFECYCLE_MODE=auto acts on the gap, shutting down after 180s
+// without a beat (5s after a beforeunload "leaving" signal), with a refresh
+// recovering inside the grace window.
 //
 // IMPORTANT: Uses a Web Worker for the timer so Chrome/Edge don't throttle
 // the interval when the tab is in the background (browsers reduce setInterval

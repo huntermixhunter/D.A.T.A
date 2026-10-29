@@ -118,16 +118,17 @@ log = logging.getLogger("bridge")
 log.info("Bridge server starting up")
 
 # ── Browser-coupled lifecycle ────────────────────────────────────
-# Dashboard sends POST /heartbeat every 25s (via a Web Worker immune to
-# background-tab throttling). If no heartbeat arrives within the grace window
-# (after at least one has been received), the bridge calls _do_shutdown() —
-# Data and all background tasks stop. Set DATA_LIFECYCLE_MODE=daemon
-# to disable (keeps bridge alive without a browser).
+# Keep the bridge alive independently of the dashboard by default. Concurrent
+# chat/status streams can occupy every browser HTTP connection, queueing the
+# heartbeat even while work is running. Browser suspension can also delay it.
+# Only DATA_LIFECYCLE_MODE=auto opts into the legacy browser-coupled shutdown.
+# The explicit System Offline action remains available in either mode.
 _last_heartbeat = None           # datetime of most recent /heartbeat (None = browser never connected)
 _lifecycle_leaving = False       # set by beforeunload sendBeacon — shrinks grace window for fast close
 _LIFECYCLE_GRACE_SECS = 180      # normal grace — generous to survive tab throttling, sleep, refresh
 _LIFECYCLE_LEAVING_GRACE_SECS = 5  # tighter grace after beforeunload
-_LIFECYCLE_MODE = os.environ.get("DATA_LIFECYCLE_MODE", "auto").strip().lower()  # auto | daemon
+_LIFECYCLE_MODE_ENV = os.environ.get("DATA_LIFECYCLE_MODE", "").strip().lower()  # "" when unset
+_LIFECYCLE_MODE = _LIFECYCLE_MODE_ENV or "daemon"  # auto | daemon
 
 def _do_shutdown(preserve_supervisor: bool = False):
     """Kill every DATA-related process then exit. Covers all launchers:
@@ -732,7 +733,9 @@ def _telegram_reply(message, profile, chat_id):
 
 REMOTE_ACCESS = remote_access.RemoteAccess(
     USERS_DIR / "remote-access", PORT, profile=lambda: _ACTIVE_USER,
-    reply=_telegram_reply, env_token=DATA_BRIDGE_TOKEN, daemon=_LIFECYCLE_MODE == "daemon")
+    reply=_telegram_reply, env_token=DATA_BRIDGE_TOKEN,
+    # Explicit headless launch only. The daemon default must not pin this on.
+    daemon=_LIFECYCLE_MODE_ENV == "daemon")
 # Alias auto-ride (locked 2026-08-07): pass the Claude CLI tier alias — NOT a
 # pinned version id — to `--model`, so the newest Opus/Sonnet/Haiku the
 # subscription can serve rides in automatically when Anthropic ships it, with
@@ -13541,8 +13544,8 @@ if __name__ == "__main__":
         print(f"Auth: token required (X-Data-Token header). Token length: {len(DATA_BRIDGE_TOKEN)}")
     else:
         print("Auth: local access; remote API requests require a configured access key.")
-    # Browser-coupled shutdown watcher (skip when run as a headless daemon).
-    if _LIFECYCLE_MODE != "daemon":
+    # Browser-coupled shutdown is opt-in; missing heartbeats do not prove exit.
+    if _LIFECYCLE_MODE == "auto":
         def _lifecycle_watcher():
             global _last_heartbeat, _lifecycle_leaving
             while True:

@@ -476,11 +476,16 @@ Most behavior is changed by conversation. A few base settings live in `.env` (co
 | Variable | Purpose |
 |----------|---------|
 | `DATA_BRIDGE_TOKEN` | Optional shared secret for the bridge API (leave empty for localhost) |
-| `DATA_LIFECYCLE_MODE` | `auto` (default — the bridge exits shortly after you close the tab) or `daemon` (keeps running so standing orders fire with no tab open) |
+| `DATA_LIFECYCLE_MODE` | `daemon` (default: the bridge keeps running with no tab open, so standing orders and remote access keep firing) or `auto` (legacy: the bridge exits shortly after you close the tab) |
 | `DATA_PORT` | Port for the bridge server (default `7777`) |
 
-Set `DATA_LIFECYCLE_MODE=daemon` if you want standing orders and remote access to keep
-working after you close the browser.
+Standing orders and remote access keep working after you close the browser. Use
+**System Offline** in the dashboard when you want to stop DATA on purpose.
+
+`auto` is the older browser-coupled behavior, kept only for people who want it.
+In that mode the bridge exits once the dashboard stops checking in, and a busy
+session can delay that check-in while work is still running, which ends the run
+early.
 
 ---
 

@@ -271,7 +271,7 @@ Copy `.env.example` to `.env` and edit as needed:
 | Variable | Purpose |
 |----------|---------|
 | `DATA_BRIDGE_TOKEN` | Optional shared secret for the bridge API (leave empty for localhost) |
-| `DATA_LIFECYCLE_MODE` | `auto` (default — bridge exits when the tab closes) or `daemon` |
+| `DATA_LIFECYCLE_MODE` | `daemon` (default: bridge keeps running when the tab closes) or `auto` (legacy: bridge exits with the tab) |
 | `DATA_PORT` | Port for the bridge server (default `7777`) |
 
 ## What's inside
