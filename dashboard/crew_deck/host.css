@@ -1,6 +1,6 @@
 .crew-deck-panel { padding: 0 !important; overflow: hidden; min-height: 0; }
 .crew-deck-panel.active { display: flex; flex-direction: column; }
-#crew-deck-frame { width: 100%; height: 100%; flex: 1 1 auto; min-height: 0; border: 0; background: #080d13; }
+#crew-deck-frame { width: 100%; height: 100%; flex: 1 1 auto; min-height: 0; border: 0; background: var(--data-bg); }
 #crew-deck-frame[hidden], .crew-deck-loading[hidden] { display: none !important; }
 .crew-deck-loading { margin: auto; padding: 32px; max-width: 580px; font: 15px/1.7 system-ui, sans-serif; color: inherit; }
 @media (max-width: 700px) { .crew-deck-panel { min-height: 560px; } }

@@ -1,6 +1,6 @@
 .arcade-panel { padding: 0 !important; min-height: 0; overflow: hidden; }
 .arcade-panel.active { display: flex; flex-direction: column; }
-#arcade-frame { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; border: 0; background: #000; }
+#arcade-frame { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; border: 0; background: var(--data-bg); }
 .arcade-loading { margin: auto; max-width: 550px; padding: 30px; font: 14px/1.7 system-ui, sans-serif; }
 #arcade-frame[hidden], .arcade-loading[hidden] { display: none !important; }
 @media (max-width: 700px) { .arcade-panel { min-height: 680px; } }

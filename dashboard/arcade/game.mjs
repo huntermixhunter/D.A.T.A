@@ -400,9 +400,9 @@ function showUpgrades() {
   $('clear-label').textContent = 'SECTOR ' + String(game.wave).padStart(2, '0') + ' CLEAR';
   const victory = game.clearedSector === REWARD_SECTOR;
   $('victory-reward').hidden = !victory;
-  $('upgrade-title').textContent = victory ? 'Patrol complete. Event Horizon unlocked.' : 'Choose one system upgrade';
+  $('upgrade-title').textContent = victory ? 'First sector cleared. Event Horizon unlocked.' : 'Choose one system upgrade';
   $('upgrade-detail').textContent = victory
-    ? 'Ten sectors cleared in one run. Choose an upgrade to continue into endless patrol, or return to the hangar.'
+    ? 'Sector 1 cleared. Choose an upgrade to continue your patrol, or return to the hangar.'
     : 'Hull repaired by 25. Shields restored. The next sector is waiting.';
   $('equip-reward').hidden = !embedded;
   $('reward-equip-status').textContent = embedded

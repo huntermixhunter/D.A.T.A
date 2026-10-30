@@ -2,7 +2,7 @@
 // World units are measured against the artwork: the player ship is 150 long,
 // a fortress is 480 across, and the sector wraps at WORLD on both axes.
 export const WORLD = 4800;
-export const REWARD_SECTOR = 10;
+export const REWARD_SECTOR = 1;
 export const TAU = Math.PI * 2;
 export const wrap = n => ((n % WORLD) + WORLD) % WORLD;
 export const delta = (a, b) => ((a - b + WORLD * 1.5) % WORLD) - WORLD / 2;
@@ -57,7 +57,7 @@ export function cleanProfile(value) {
   const raw = value && typeof value === 'object' ? value : {};
   return {
     version: 1, salvage: n(raw.salvage), best: n(raw.best), sector: n(raw.sector, 999),
-    // Older records tracked sectors reached. Reaching 11 proves that 10 was cleared.
+    // Older records tracked sectors reached. Reaching 2 proves that 1 was cleared.
     clearedSector: Math.max(n(raw.clearedSector, 999), n(raw.sector, 999) - 1),
     runs: n(raw.runs), sound: raw.sound !== false,
     hangar: Object.fromEntries(HANGAR.map(item => [item.id, n(raw.hangar?.[item.id], item.max)])),

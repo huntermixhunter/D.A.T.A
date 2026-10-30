@@ -37,32 +37,28 @@ def run_flow(page, base, out, checks):
     # Forged messages from the parent window or a different origin must be ignored.
     page.evaluate("""() => {
       dispatchEvent(new MessageEvent('message', {origin: location.origin, source: window,
-        data: {type: 'data-arcade-progress', profile: 'arcade-preview', clearedSector: 10}}));
+        data: {type: 'data-arcade-progress', profile: 'arcade-preview', clearedSector: 1}}));
       dispatchEvent(new MessageEvent('message', {origin: 'https://invalid.example', source: document.querySelector('#arcade-frame').contentWindow,
-        data: {type: 'data-arcade-progress', profile: 'arcade-preview', clearedSector: 10}}));
+        data: {type: 'data-arcade-progress', profile: 'arcade-preview', clearedSector: 1}}));
     }""")
     assert page.evaluate('RewardThemes.unlocked()') is False
     flight = page.frame(url=lambda url: '/arcade/index.html' in url)
     flight.evaluate(CAPTURE)
     frame.locator('#sound').click()
     frame.locator('#launch').click()
-    for sector in range(1, 11):
-        flight.evaluate(CLEAR)
-        expect(frame.locator('#upgrade-screen')).to_be_visible(timeout=6000)
-        assert flight.evaluate('testFlight.clearedSector') == sector
-        if sector < 10:
-            expect(frame.locator('#victory-reward')).to_be_hidden()
-            assert page.evaluate('RewardThemes.unlocked()') is False
-            frame.locator('.upgrade-card').first.click()
+    assert page.evaluate('RewardThemes.unlocked()') is False
+    flight.evaluate(CLEAR)
+    expect(frame.locator('#upgrade-screen')).to_be_visible(timeout=6000)
+    assert flight.evaluate('testFlight.clearedSector') == 1
     expect(frame.locator('#victory-reward')).to_be_visible()
     expect(page.locator('[data-theme="event-horizon"]')).to_be_enabled()
-    assert page.evaluate("JSON.parse(localStorage.getItem('data-void-patrol-v1:arcade-preview')).clearedSector") == 10
+    assert page.evaluate("JSON.parse(localStorage.getItem('data-void-patrol-v1:arcade-preview')).clearedSector") == 1
     page.screenshot(path=str(out / 'victory.png'))
     frame.locator('#equip-reward').click()
     page.wait_for_function("currentTheme() === 'event-horizon'")
     expect(frame.locator('#equip-reward')).to_have_text('EVENT HORIZON EQUIPPED')
     frame.locator('.upgrade-card').first.click()
-    assert flight.evaluate('testFlight.wave') == 11
+    assert flight.evaluate('testFlight.wave') == 2
     page.evaluate("showPanel('chat')")
     flight.wait_for_function("testFlight.mode === 'paused'")
     page.evaluate("matrixNodes = SEED_NODES.map(node => ({...node})); matrixLinks = SEED_LINKS.map(link => ({...link})); renderMiniMatrix();")
@@ -96,8 +92,8 @@ def run_flow(page, base, out, checks):
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         page.screenshot(path=str(out / f'dashboard-{width}.png'))
     assert page.locator('.orbit-motion').evaluate('node => getComputedStyle(node).animationName') == 'none'
-    checks.extend(['locked before victory; foreign messages ignored', 'ten-sector victory and immediate saving',
-                   'equip without leaving the run; continue to Sector 11; leaving pauses',
+    checks.extend(['locked before victory; foreign messages ignored', 'first-sector victory and immediate saving',
+                   'equip without leaving the run; continue to Sector 2; leaving pauses',
                    'pure-black artwork and scan backgrounds', 'all themes and rail controls',
                    'reload persistence and profile isolation', 'Appearance, 390px and 320px layouts, reduced motion'])
     return surfaces
@@ -106,7 +102,7 @@ def run_flow(page, base, out, checks):
 def run_edge_cases(browser, base, out, checks, allow):
     context = browser.new_context(viewport={'width': 1280, 'height': 900}, reduced_motion='reduce')
     context.route('**/*', allow)
-    context.add_init_script("""localStorage.setItem('data-void-patrol-v1:arcade-preview', JSON.stringify({sector: 11}));
+    context.add_init_script("""localStorage.setItem('data-void-patrol-v1:arcade-preview', JSON.stringify({sector: 2}));
       localStorage.setItem('data-theme:arcade-preview', 'event-horizon');""")
     page = context.new_page()
     ready(page, base)
@@ -135,8 +131,7 @@ def run_edge_cases(browser, base, out, checks, allow):
     flight.evaluate(CAPTURE)
     frame.locator('#sound').click()
     frame.locator('#launch').click()
-    # Boundary fixture: real combat and bank code handle the final sector.
-    flight.evaluate("testFlight.wave = 10")
+    # Real first-sector combat and banking must work even when storage is blocked.
     flight.evaluate(CLEAR)
     expect(frame.locator('#victory-reward')).to_be_visible(timeout=6000)
     frame.locator('#equip-reward').click()
@@ -148,7 +143,7 @@ def run_edge_cases(browser, base, out, checks, allow):
     expect(frame.locator('#hangar')).to_be_visible()
     assert not errors, errors
     context.close()
-    checks.extend(['legacy Sector 11 unlock migration', 'blocked storage still permits this-visit unlock and equip',
+    checks.extend(['legacy Sector 2 unlock migration', 'blocked storage still permits this-visit unlock and equip',
                    'mobile victory controls and finish-run action'])
 
 

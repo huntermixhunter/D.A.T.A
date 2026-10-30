@@ -515,6 +515,15 @@
   const ctx = canvas.getContext('2d');
   const V = { w: 0, h: 0, dpr: 1, s: 1, ox: 0, oy: 0 };
   let bg = null;
+  let theme = {};
+  function readTheme() {
+    const style = getComputedStyle(document.documentElement);
+    const token = name => style.getPropertyValue('--' + name).trim();
+    theme = { bg: token('bg'), panel: token('panel'), text: token('text'), font: token('font-main') };
+    if (bg) buildBackground();
+  }
+  readTheme();
+  window.addEventListener('dashboard-theme-change', readTheme);
   const STARS = Array.from({ length: 240 }, () => ({ x: Math.random(), y: Math.random(), z: Math.random() ** 2, tw: rand(0, 6) }));
 
   function resize() {
@@ -533,7 +542,7 @@
     bg.width = canvas.width; bg.height = canvas.height;
     const g = bg.getContext('2d'), W = bg.width, H = bg.height;
     const lin = g.createLinearGradient(0, 0, W, H);
-    lin.addColorStop(0, '#03040b'); lin.addColorStop(1, '#080b1a');
+    lin.addColorStop(0, theme.bg); lin.addColorStop(1, theme.panel);
     g.fillStyle = lin; g.fillRect(0, 0, W, H);
     const blob = (x, y, r, col) => { const rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, col); rg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = rg; g.fillRect(0, 0, W, H); };
     blob(W * 0.16, H * 0.84, Math.max(W, H) * 0.45, 'rgba(90,40,140,0.22)');
@@ -570,15 +579,15 @@
   function queueLabel(text, x, y, color, align = 'center') { labelQueue.push({ text, x, y, color, align }); }
   function flushLabels() {
     ctx.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
-    ctx.font = '600 12px Antonio, "Arial Narrow", sans-serif';
+    ctx.font = '600 12px ' + theme.font;
     ctx.textBaseline = 'middle';
     for (const l of labelQueue) {
       const sx = V.ox + l.x * V.s, sy = V.oy + l.y * V.s;
       const w = ctx.measureText(l.text).width + 10;
       const x0 = l.align === 'left' ? sx : sx - w / 2;
-      ctx.fillStyle = 'rgba(8,10,18,0.82)';
+      ctx.fillStyle = theme.panel;
       roundRect(ctx, x0, sy - 8, w, 16, 3); ctx.fill();
-      ctx.fillStyle = l.color || '#e9e2cf';
+      ctx.fillStyle = l.color || theme.text;
       ctx.textAlign = 'left';
       ctx.fillText(l.text, x0 + 5, sy + 0.5);
     }

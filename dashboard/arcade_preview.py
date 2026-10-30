@@ -14,7 +14,14 @@ def static_routes(root=ROOT):
     tree = ast.parse((root / "bridge_server.py").read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "STATIC_FILES" for t in node.targets):
-            return ast.literal_eval(node.value)
+            routes = ast.literal_eval(node.value)
+            crew = ast.parse((root / "crew_deck/service.py").read_text(encoding="utf-8"))
+            for item in crew.body:
+                if isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "PUBLIC" for t in item.targets):
+                    for name in ast.literal_eval(item.value):
+                        routes["/crew-deck/" + name] = ("crew_deck/" + name, mimetypes.guess_type(name)[0] or "application/octet-stream")
+            routes["/crew-deck/"] = ("crew_deck/index.html", "text/html; charset=utf-8")
+            return routes
     raise RuntimeError("Dashboard static routes are missing")
 
 
@@ -46,8 +53,10 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         route = self.routes.get(path)
-        target = (self.root / (route[0] if route else path.lstrip("/"))).resolve()
+        relative = path.lstrip("/").replace("crew-deck/assets/", "crew_deck/assets/", 1)
+        target = (self.root / (route[0] if route else relative)).resolve()
         asset = target.suffix.lower() in {".png", ".jpg", ".webp", ".svg", ".ico", ".woff2", ".mp3", ".wav"}
+        asset = asset or (relative.startswith("crew_deck/assets/") and target.suffix == ".json")
         if target.is_relative_to(self.root) and target.is_file() and (route or asset):
             data = target.read_bytes()
             mime = route[1] if route else mimetypes.guess_type(target.name)[0] or "application/octet-stream"
@@ -55,6 +64,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         fixtures = {
             "/user/list": {"active": "arcade-preview", "users": [{"id": "arcade-preview", "name": "Preview", "rank": "Player"}]},
+            "/user/active": {"active": "arcade-preview"},
+            "/api/crew/state": {"scope": "arcade-preview", "settings": {}, "roster": [], "runs": [], "templates": [], "capabilities": {"ready": False}},
             "/agent-profiles": {"owner": "arcade-preview", "agents": []},
             "/providers": {"providers": [], "active": "", "needs_auth": []},
             "/status": {"status": "online", "step": "idle", "detail": "Local arcade preview"},

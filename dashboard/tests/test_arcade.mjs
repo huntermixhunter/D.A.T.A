@@ -28,7 +28,8 @@ function advance(g, seconds, input = {}) { for (let n = 0; n < Math.round(second
 function clearBases(g) { for (const base of g.bases) { for (const pod of base.pods) g.hitBase(base, pod, 100); g.hitBase(base, null, 100); } g.step(.016); }
 const volleys = g => g.drainEvents().filter(event => event.type === 'shot').length;
 
-test('Event Horizon requires clearing ten sectors in one run and allows endless continuation', () => {
+test('Event Horizon unlocks on the first sector clear and allows endless continuation', () => {
+  assert.equal(REWARD_SECTOR, 1);
   const g = game();
   for (let sector = 1; sector <= REWARD_SECTOR; sector++) {
     assert.equal(g.wave, sector);
@@ -41,12 +42,15 @@ test('Event Horizon requires clearing ten sectors in one run and allows endless 
     assert.equal(g.salvage, salvage, 'a completed sector cannot grant duplicate salvage');
     assert.ok(g.chooseUpgrade(g.choices[0]));
   }
-  assert.equal(g.wave, 11);
+  assert.equal(g.wave, 2);
   assert.equal(g.mode, 'playing');
-  assert.equal(g.clearedSector, 10);
+  assert.equal(g.clearedSector, 1);
+  quiet(g); clearBases(g);
+  assert.equal(g.clearedSector, 2);
+  assert.equal(hasEventHorizon({ clearedSector: g.clearedSector }), true);
 });
 
-test('death in Sector 10 does not unlock Event Horizon and new runs reset completion', () => {
+test('death in Sector 1 does not unlock Event Horizon and new runs reset completion', () => {
   const g = game();
   for (let i = 1; i < REWARD_SECTOR; i++) {
     quiet(g); clearBases(g); g.chooseUpgrade(g.choices[0]);
@@ -60,11 +64,13 @@ test('death in Sector 10 does not unlock Event Horizon and new runs reset comple
 
 test('reward survives save and purchase; old records migrate only when clearance is provable', () => {
   assert.equal(hasEventHorizon(null), false);
-  assert.equal(hasEventHorizon({ sector: 10 }), false);
+  assert.equal(hasEventHorizon({ sector: 1 }), false);
+  assert.equal(hasEventHorizon({ sector: 2 }), true);
+  assert.equal(hasEventHorizon({ sector: 10 }), true);
   assert.equal(hasEventHorizon({ sector: 11 }), true);
-  assert.equal(hasEventHorizon({ clearedSector: '10' }), false);
+  assert.equal(hasEventHorizon({ clearedSector: '1' }), false);
   assert.equal(hasEventHorizon({ clearedSector: Infinity }), false);
-  const profile = cleanProfile({ clearedSector: 10, sector: 10, salvage: 1000 });
+  const profile = cleanProfile({ clearedSector: 1, sector: 1, salvage: 1000 });
   assert.ok(purchase(profile, 'armor'));
   assert.equal(hasEventHorizon(cleanProfile(JSON.parse(JSON.stringify(profile)))), true);
 });

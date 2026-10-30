@@ -10861,6 +10861,7 @@ class Handler(BaseHTTPRequestHandler):
             "/theme.css":    ("theme.css",  "text/css; charset=utf-8"),
             "/event_horizon.css": ("event_horizon.css", "text/css; charset=utf-8"),
             "/appearance.mjs": ("appearance.mjs", "application/javascript; charset=utf-8"),
+            "/embedded_theme.js": ("embedded_theme.js", "application/javascript; charset=utf-8"),
             "/skill_search.js": ("skill_search.js", "application/javascript; charset=utf-8"),
             "/skill_search.css": ("skill_search.css", "text/css; charset=utf-8"),
             "/advanced_tools.js": ("advanced_tools.js", "application/javascript; charset=utf-8"),
