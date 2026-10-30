@@ -174,6 +174,7 @@ const SidebarView = (() => {
     const next = String(id || 'default');
     if (next === profile) return;
     profile = next;
+    window.dispatchEvent(new Event('dashboard-profile-changed'));
     preferences = readPreferences();
     refresh();
     status('');
@@ -526,7 +527,10 @@ document.getElementById('init-timestamp').textContent =
   new Date().toLocaleTimeString('en-US', { hour12: false });
 
 // ── Panel navigation ──────────────────────────────────────
+window.getCrewDeckContext = () => ({ scope: _activeCaptain, token: _authToken, base: API_BASE });
+
 function showPanel(name) {
+  window.CrewDeckHost?.show(name);
   if (name === 'forum' && !SidebarView.visible('forum')) return;
   playDataSound('confirm');
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -906,6 +910,7 @@ async function bootCaptains() {
     _captains = Array.isArray(data.users) ? data.users : [];
     _activeCaptain = data.active || (_captains[0] && _captains[0].id) || '';
     SidebarView.setProfile(_activeCaptain);
+    window.CrewDeckHost?.reset();
     loadMatrixViewPreference();
     // With a single unnamed Captain there is nothing worth showing, so the
     // pill stays hidden. Once a nickname or picture is set in Settings →
@@ -1039,6 +1044,7 @@ async function switchCaptain(uid) {
   }
   const target = _captainById(uid);
   if (!target) return;
+  window.CrewDeckHost?.reset();
   try {
     const res = await fetch(`${API_BASE}/user/switch`, {
       method: 'POST',
@@ -1054,6 +1060,7 @@ async function switchCaptain(uid) {
     const data = await res.json();
     _activeCaptain = data.active || uid;
     SidebarView.setProfile(_activeCaptain);
+    window.CrewDeckHost?.reset();
     loadMatrixViewPreference();
     renderCaptainSwitcher();
     const menu = document.getElementById('captain-menu');

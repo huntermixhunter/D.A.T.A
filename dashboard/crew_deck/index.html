@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crew Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="deck.css">
+<link rel="stylesheet" href="controls.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-cap"></span>
+      <div class="brand-text">
+        <span class="brand-ship" id="ship-name">CREW DECK</span>
+        <span class="brand-sub">CREW DECK <em>LIVE WORKSPACE</em></span>
+      </div>
+    </div>
+
+    <div class="ftl-status">
+      <div class="hull" title="Hull integrity (bridge vitals)">
+        <span class="k">HULL</span><div class="hull-bar" id="hull-bar"></div>
+      </div>
+      <div class="shields" title="Shield strength (bridge vitals)">
+        <span class="k">SHIELDS</span><div class="shield-pips" id="shield-pips"></div>
+      </div>
+    </div>
+
+    <div class="readouts">
+      <div class="pill" id="condition">CONDITION</div>
+      <div class="ro" id="ro-tracking-box" title="How officer movement is decided"><span class="k">TRACKING</span><span class="v" id="ro-tracking">-</span></div>
+      <div class="ro" title="Chat turns in flight across every pane"><span class="k">CHANNELS</span><span class="v" id="ro-channels">-</span></div>
+      <div class="ro" title="Background jobs running"><span class="k">JOBS</span><span class="v" id="ro-jobs">-</span></div>
+      <div class="ro" title="Standing orders active / total"><span class="k">ORDERS</span><span class="v" id="ro-orders">-</span></div>
+      <div class="ro"><span class="k">TIME</span><span class="v" id="ro-clock">-</span></div>
+    </div>
+
+    <div class="controls">
+      <div class="seg">
+        <button id="mode-live" class="on" title="Drive the crew from the live bridge">LIVE</button>
+        <button id="mode-demo" title="Play a scripted mission so you can see every behavior (D)">DEMO</button>
+      </div>
+      <button id="toggle-labels" class="ghost" title="Show room names (L)">LABELS</button>
+      <button id="crew-missions-toggle" class="ghost crew-toolbar-action" aria-controls="crew-panel" aria-expanded="false" title="Mission orders, saved orders, and crew conversation">MISSIONS<span id="crew-active-count" class="crew-toolbar-count" hidden></span></button>
+      <button id="crew-settings-open" class="ghost crew-toolbar-action" title="Crew Deck settings" aria-haspopup="dialog">SETTINGS</button>
+      <span class="link" id="link-state">LINK</span>
+    </div>
+  </header>
+
+  <aside class="roster">
+    <div class="panel-title"><span>CREW</span><span class="panel-sub" id="roster-mode"></span></div>
+    <div id="roster-list"></div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <canvas id="deck"></canvas>
+    <div id="overlay"></div>
+    <div id="tooltip" class="tooltip"></div>
+    <div class="banner" id="banner"></div>
+  </main>
+
+  <aside class="inspector">
+    <section id="detail" class="detail"></section>
+    <nav class="tabs">
+      <button data-tab="log" class="on">SHIP'S LOG</button>
+      <button data-tab="duty">DUTY ROSTER</button>
+    </nav>
+    <section id="tab-log" class="tab on"><ol id="log-list"></ol></section>
+    <section id="tab-duty" class="tab"><div id="duty-list"></div></section>
+  </aside>
+
+  <footer class="systems" id="systems"></footer>
+</div>
+
+<script src="access.js"></script>
+<script src="data.js"></script>
+<script src="dialogue.js"></script>
+<script src="deck.js"></script>
+<script src="controls.js"></script>
+</body>
+</html>

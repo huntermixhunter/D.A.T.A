@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="marketplace.css?v=preview-divider-20261029" />
   <link rel="stylesheet" href="forum.css?v=1" />
   <link rel="stylesheet" href="offline_maps.css?v=1">
+  <link rel="stylesheet" href="crew-deck/host.css?v=1">
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -84,6 +85,9 @@
           </button>
           <button class="data-btn yellow" onclick="showPanel('matrix')">
             COMPUTER CORES
+          </button>
+          <button class="data-btn teal" data-nav-panel="crew-deck" data-sidebar-label="Crew Deck" onclick="showPanel('crew-deck')">
+            CREW DECK
           </button>
           <button class="data-btn blue" onclick="showPanel('orders')">
             STANDING ORDERS
@@ -478,6 +482,11 @@
         </div>
 
         <!-- PANEL: STANDING ORDERS -->
+        <section class="panel crew-deck-panel" id="panel-crew-deck" aria-label="Crew Deck">
+          <div class="crew-deck-loading" role="status">Open Crew Deck to connect.</div>
+          <iframe id="crew-deck-frame" title="Crew Deck missions and activity" referrerpolicy="same-origin" hidden></iframe>
+        </section>
+
         <div class="panel" id="panel-orders">
           <div class="panel-header">
             <div class="panel-title-bar">
@@ -1453,5 +1462,6 @@
   <script src="forum.js?v=1"></script>
   <script src="offline_maps.js?v=1"></script>
   <script src="offline_archive.js?v=1"></script>
+  <script src="crew-deck/host.js?v=1"></script>
 </body>
 </html>

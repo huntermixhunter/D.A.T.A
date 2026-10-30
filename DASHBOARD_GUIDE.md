@@ -38,6 +38,7 @@ views. You move between them from the left rail / view switcher.
 | **Project workspaces** | Parallel chat panes, each rooted in a folder, each with its own provider and role. Spin several up to work a problem from multiple angles at once. |
 | **Memory banks** | Persistent per-user memory plus a searchable archive of every conversation across every pane. |
 | **Standing orders** | Cron-scheduled AI tasks — briefings, checks, refreshes that fire on their own. |
+| **Crew Deck** | Live crew activity, collaborative missions, saved repeatable orders, and conversation settings. |
 | **AI Connectors** | Pick the "brains." Scans your hardware, recommends and installs local models, and connects cloud providers (Claude / Codex / Gemini). Whatever you connect here is what the model menu offers. |
 | **Neural / Positronic Matrix** | A live node-graph of the system: skills, memory nodes, crew. The Memory Banks are a hub inside it. |
 | **System vitals** | Available RAM, battery charge, free disk space, and dashboard response time. Hover, focus, or tap a reading for its meaning and warning thresholds. |
@@ -48,6 +49,18 @@ the time for your browser to get a reply from the dashboard server. BATTERY
 shows actual charge and is hidden when no battery sensor is present. Missing
 measurements show N/A; disconnected or outdated readings show STALE. A slow
 response check shows TIMEOUT and retries automatically.
+
+Open **Crew Deck > Missions > New order** to choose a team and describe a task.
+**Save order only** adds a reusable order without running it. **Start mission**
+begins real turns after the usage acknowledgement. Each mission keeps its own
+conversation and files, with Pause, Resume, Stop, and instructions for the next
+turn. Continuous mode repeats rounds while the application stays running.
+Settings controls ambient dialogue and optional personality evolution. Evolution
+starts off; learned notes stay separate from the source identities and can be
+restored from version history. Missions use subscription-authenticated Codex or
+an installed local Ollama model. Publishing, payments, and other external actions
+pause for a manual handoff. Orders, missions, and learned notes belong to the
+active profile. Ambient conversation uses local text rules and makes no model calls.
 
 Use **Graph** or **Grid** at the top of the file browser to choose how items
 appear. The selection applies to Documents, the system map, the computer browser

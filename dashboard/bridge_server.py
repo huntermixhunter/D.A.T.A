@@ -5380,6 +5380,19 @@ def _recompute_next_run(order: dict) -> None:
         order["next_run"] = 0
 
 def _fire_standing_order(order: dict) -> None:
+    """Run one standing order, bracketed for the Crew Deck activity feed so
+    the deck can show it running, LLM or not. The work itself lives in
+    _fire_standing_order_inner, unchanged."""
+    if _crew:
+        _crew.order_start(order, owner=_ACTIVE_USER)
+    try:
+        _fire_standing_order_inner(order)
+    finally:
+        if _crew:
+            _crew.order_end(order)
+
+
+def _fire_standing_order_inner(order: dict) -> None:
     """Execute one standing order: dispatch its prompt to its provider and
     push the response to the dashboard as a UI event.
 
@@ -7746,6 +7759,8 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
 
             etype = ev.get("type", "")
             log.debug(f"[CLI-STREAM] event type={etype!r}")
+            if _crew:
+                _crew.claude_event(ev)
 
             if etype == "assistant" and ev.get("error") == "authentication_failed":
                 # Synthetic "Not logged in" message — handled at the result event.
@@ -8018,6 +8033,8 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
 
         etype = ev.get("type", "")
         log.debug(f"[CODEX] event {etype!r}")
+        if _crew:
+            _crew.codex_event(ev)
 
         if etype == "thread.started":
             send_sse('thinking', f"Session: {ev.get('thread_id','')[:8]}")
@@ -8540,14 +8557,21 @@ def _dispatch_with_provider(provider_id: str, message: str, project_path: str = 
     filtered_sse = _marker_filter_sse(_sse)
     prev_id = getattr(_provider_override, "id", None)
     _provider_override.id = provider_id
+    # Crew Deck: sync chat and standing-order turns are tracked too.
+    _crew_tid = _crew.begin_turn("sync", pane=getattr(_history_state, "key", ""), project=project_path,
+                                 provider=provider_id, officer=MAIN_CHAT_CREW, owner=_ACTIVE_USER) if _crew else None
+    _crew_ok = False
     try:
-        runner(message, project_path, filtered_sse)
+        runner(message, project_path, _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
+        _crew_ok = True
     except Exception as e:
         log.exception(f"[dispatch-provider:{provider_id}] failed: {e}")
         return f"Provider '{provider_id}' failed: {e}"
     finally:
         filtered_sse.finalize()
         _provider_override.id = prev_id
+        if _crew_tid:
+            _crew.end_turn(_crew_tid, _crew_ok)
     return "".join(parts).strip()
 
 
@@ -8822,8 +8846,13 @@ def _voice_llm_stream(message: str, project_path: str = "", on_token=None,
     VOICE_CONVERSATION_MODE = True
     VOICE_ACTIVE_CREW = _normalize_voice(voice)
     _provider_override.id = provider
+    # Crew Deck: a voice call is answered by the officer the user picked.
+    _crew_tid = _crew.begin_turn("voice", pane="", project=project_path, provider=provider,
+                                 officer=VOICE_ACTIVE_CREW, owner=_ACTIVE_USER) if _crew else None
+    _crew_ok = False
     try:
-        runner(message, project_path, filtered_sse)
+        runner(message, project_path, _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
+        _crew_ok = True
     except Exception as e:
         log.exception(f"[voice-stream] {provider} failed: {e}")
         return f"I am unable to respond, Captain. ({e})"
@@ -8832,6 +8861,8 @@ def _voice_llm_stream(message: str, project_path: str = "", on_token=None,
         VOICE_CONVERSATION_MODE = prev_mode
         VOICE_ACTIVE_CREW = prev_crew
         _provider_override.id = None
+        if _crew_tid:
+            _crew.end_turn(_crew_tid, _crew_ok)
     dt = time.time() - t0
     log.info(f"[voice-stream] {provider} produced {len(''.join(parts))} chars in {dt:.2f}s")
     return "".join(parts).strip()
@@ -9332,6 +9363,19 @@ _TOOL_LABELS = {
     "calendar_delete_event":   "Deleting event",
     "calendar_free_busy":      "Checking availability",
 }
+
+# Crew activity tracker (Crew Deck): which officer is doing what, served
+# read-only at GET /crew_activity. Fail-safe: if the module is missing or
+# broken, the bridge runs exactly as before and the endpoint reports
+# available=false.
+try:
+    import crew_activity as _crew_mod
+    _crew = _crew_mod.TRACKER
+    _crew._log = log
+except Exception as _crew_err:
+    _crew = None
+    log.warning(f"[crew] activity tracker unavailable: {_crew_err}")
+
 
 def build_vitals() -> dict:
     """Return real system vitals for the dashboard."""
@@ -10771,6 +10815,9 @@ class Handler(BaseHTTPRequestHandler):
                 break
 
     def do_GET(self):
+        import crew_deck
+        if crew_deck.handle_http(self, globals()):
+            return
         if remote_access.handle_http(self, REMOTE_ACCESS):
             return
         if advanced_tools.handle_http(self, _user_dir() / "advanced-tools", _detect_hardware):
@@ -11216,6 +11263,11 @@ class Handler(BaseHTTPRequestHandler):
                     "panes": list(_last_pane_roster.get("panes") or []),
                     "ts":    _last_pane_roster.get("ts", 0.0),
                 })
+
+        elif path == "/crew_activity":
+            # Crew Deck: read-only picture of which officer is doing what.
+            # Drains and mutates nothing, so it is safe to poll.
+            self._json(_crew.snapshot(owner=_ACTIVE_USER) if _crew else {"version": 1, "available": False})
 
         elif path == "/standing_orders":
             with _orders_lock:
@@ -11763,6 +11815,9 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        import crew_deck
+        if crew_deck.handle_http(self, globals()):
+            return
         if remote_access.handle_http(self, REMOTE_ACCESS):
             return
         if advanced_tools.handle_http(self, _user_dir() / "advanced-tools", _detect_hardware):
@@ -13126,9 +13181,13 @@ class Handler(BaseHTTPRequestHandler):
                     except (BrokenPipeError, ConnectionResetError, OSError):
                         pass
 
+            crew_owner = _ACTIVE_USER
+            crew_officer = req_crew or MAIN_CHAT_CREW
+
             def _run_stream():
                 llm_stream_start()   # bumps System Health LLM in-flight counter
                 ok = False           # flipped to True only on clean runner return; drives Shields
+                _crew_tid = None     # Crew Deck: this turn in the activity tracker
                 try:
                     # Route conversation_history to the per-(project, pane)
                     # bucket for this thread. Without the pane_id, two panes
@@ -13137,6 +13196,9 @@ class Handler(BaseHTTPRequestHandler):
                     _bind_history(project_path, pane_id)
                     pid = req_provider or ACTIVE_PROVIDER
                     log.info(f"[DISPATCH-STREAM] provider={pid} history_key={_history_state.key!r}")
+                    if _crew:
+                        _crew_tid = _crew.begin_turn("chat", pane=_history_state.key, project=project_path,
+                                                     provider=pid, officer=crew_officer, owner=crew_owner)
                     runner = _provider_runner(pid)
                     # Wrap send_sse to intercept spawn_workspaces marker blocks
                     # — lets CLI providers (claude-cli, codex, gemini) trigger
@@ -13166,7 +13228,8 @@ class Handler(BaseHTTPRequestHandler):
                     _request_attachments.list = attachments
                     try:
                         try:
-                            runner(message, project_path, filtered_sse)
+                            runner(message, project_path,
+                                   _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
                             ok = True
                         except Exception as runner_err:
                             # The runner exited via an uncaught exception
@@ -13204,6 +13267,8 @@ class Handler(BaseHTTPRequestHandler):
                             pass
                     _record_llm_result(ok)
                     llm_stream_end()
+                    if _crew_tid:
+                        _crew.end_turn(_crew_tid, ok)
                     _stream_done.set()
 
             threading.Thread(target=_run_stream, daemon=True).start()
@@ -13461,6 +13526,8 @@ if __name__ == "__main__":
     # X-Data-Token auth gate is configured.
     BIND_HOST = os.environ.get("LCARS_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
     server = ThreadingHTTPServer((BIND_HOST, PORT), Handler)
+    import crew_deck
+    crew_deck.initialize(globals())
     # A fresh bridge process means DATA is deliberately online — drop any stale
     # offline marker so the supervisor's crash-watcher treats future deaths as
     # crashes to heal (not as an intended shutdown).
