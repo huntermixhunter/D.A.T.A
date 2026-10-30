@@ -8,10 +8,45 @@ Cloudflare Pages serves the static website. Supabase stores community profiles,
 topics, replies, likes, follows, reports, and moderation records. The laptop and
 the local Python bridge are not needed to keep the website online.
 
-## Current launch state: 2026-10-29
+## Magimatix styling update: 2026-10-30, published
+
+The forum now uses the main site's logo, Geist and Geist Mono typography, black
+glass surfaces, cyan/blue/purple accents, gradient buttons, header/footer links,
+and the same ambient background video. The navigation matches the published
+main-site destinations; the separate, unpublished Dashboards service is not linked.
+
+The original logo and `bg-video-0605.mp4` were copied from `Magimatix/site/public`.
+The Latin font subsets were copied from the main site's current Next build.
+Both fonts use the identical SIL Open Font License included as `public/geist-OFL.txt`,
+obtained from the Google Fonts Geist distribution. Assets are included explicitly
+by the existing build allowlist. CSP permits same-origin video and retains the
+existing restrictions on scripts, styles, connections, frames, and forms.
+
+`src/shell.js` handles the mobile menu, Escape/resize behavior, copyright year,
+and background playback controls. Reduced-motion and data-saving preferences
+prevent the video request; a static background remains. Forum data, account,
+registration, moderation, and email configuration are unchanged.
+
+`npm run build:release` and `python tests/browser.py` passed. The browser suite
+uses temporary local SQL, Auth/CAPTCHA stubs, and blocked external requests.
+It covers posting, replies, login, draft preservation/retry, likes, signout,
+reserved names, search, sort, categories, mobile menu keyboard/resize behavior,
+responsive dialogs, reduced motion, and video pause/play at 320, 390, 768, 1024,
+and 1440px. No page errors or horizontal overflow were observed. It sends no
+real email and writes no hosted records. Evidence: `test-results/brand-verification.json`
+and `test-results/brand-*.png`.
+
+Published with the owner's approval on 2026-10-30. Production deployment
+`b44e6183-84cd-464f-814b-1fe6702ba0be` serves the custom domain. All 11 public
+files match the release build, allowing for Cloudflare's existing analytics
+script injection in HTML. Public metadata and discussion reads return HTTP 200.
+Registration remains open. Evidence: `test-results/brand-live-verification.json`.
+Previous production for rollback: `a195cd49-9a9a-473c-849f-d4821a3900a3`.
+
+## Current launch state: 2026-10-30
 
 - Pages project: `magimatix-community`, production branch `main`.
-- Production deployment: `a195cd49.magimatix-community.pages.dev`.
+- Production deployment: `b44e6183.magimatix-community.pages.dev`.
 - Custom domain: `forum.magimatix.com`, active with HTTPS.
 - Supabase project: `hrkwubdlunpuqcwswmqd`, `us-west-2`, in the Free
   `Magimatix Community` organization. The initial migration is applied.
@@ -30,9 +65,12 @@ the local Python bridge are not needed to keep the website online.
   The test account and its temporary credentials were removed afterward.
 - The DATA dashboard's optional Forum entry opens this website. Local dashboard
   and Marketplace accounts are separate; no private accounts, history, or posts
-  were migrated. This dashboard change has not been included in a retail release.
-- Magimatix's navigation links and `/forum` redirect are prepared in the
-  `Magimatix/site` checkout. They have not been deployed to the main website.
+  were migrated. The entry is included in published retail release v1.0.58.
+  Enable it under Settings > View > Navigation > Community Forum, then click
+  Forum in the sidebar. The local dashboard integration test passed again on
+  2026-10-30, including persistence, the external destination, and opener isolation.
+- Magimatix's navigation links and `/forum` redirect are live. Both were verified
+  against the public main website on 2026-10-30.
 
 Free services have quotas and availability limits. Supabase Free projects may
 pause after inactivity. Do not upgrade a plan or enable billable features without

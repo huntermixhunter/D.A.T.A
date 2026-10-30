@@ -46,6 +46,8 @@ def main():
             errors = []
             auth_calls = []
             fail_reply = False
+            screenshots = ROOT / 'test-results'
+            screenshots.mkdir(exist_ok=True)
             config = json.loads((ROOT / 'dist/config.json').read_text())
             config.update(registrationEnabled=True, turnstileSiteKey='1x00000000000000000000AA')
             if not config['supabaseUrl']:
@@ -93,14 +95,19 @@ def main():
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(origin)
             expect(page.get_by_role('heading', name='All discussions')).to_be_visible()
+            page.evaluate('document.fonts.ready')
+            assert page.locator('.wordmark img').evaluate('(img) => img.complete && img.naturalWidth > 0')
+            expect(page.get_by_role('navigation', name='Main navigation').get_by_role('link', name='Forum', exact=True)).to_have_attribute('aria-current', 'page')
+            page.screenshot(path=str(screenshots / 'brand-desktop.png'), full_page=True)
             page.get_by_role('button', name='Sign in', exact=True).click()
             dialog = page.get_by_role('dialog')
+            page.screenshot(path=str(screenshots / 'brand-signin.png'), full_page=True)
             dialog.get_by_label('Email', exact=True).fill('alice@test.invalid')
             dialog.get_by_label('Password', exact=True).fill('Local-test-password-123')
             dialog.get_by_role('button', name='Sign in', exact=True).click()
             expect(dialog.get_by_role('alert')).to_contain_text('Complete the security check')
             assert not auth_calls
-            page.wait_for_function('window.testChallenge')
+            expect(dialog.locator('.auth-captcha')).to_contain_text('Test security check')
             page.evaluate("window.testChallenge.callback('test-token')")
             dialog.get_by_role('button', name='Sign in', exact=True).click()
             expect(page.get_by_role('button', name='alice', exact=True)).to_be_visible()
@@ -120,6 +127,7 @@ def main():
             page.get_by_role('button', name='Post reply', exact=True).click()
             expect(page.locator('.forum-post')).to_have_count(2)
             expect(page.get_by_label('Your reply', exact=True)).to_have_value('')
+            page.screenshot(path=str(screenshots / 'brand-discussion.png'), full_page=True)
             page.get_by_role('button', name='Like', exact=True).last.click()
             expect(page.get_by_role('button', name='Liked 1', exact=True)).to_be_visible()
             page.get_by_label('Your reply', exact=True).fill('Private draft before signing out')
@@ -138,13 +146,67 @@ def main():
             expect(dialog.get_by_role('alert')).to_contain_text('taken or reserved')
             assert not any('/signup' in url for url in auth_calls)
             dialog.get_by_role('button', name='Close dialog').click()
-            for width in (320, 390, 768, 1440):
+            for width in (320, 390, 768, 1024, 1440):
                 page.set_viewport_size({'width': width, 'height': 1000})
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'Overflow at {width}px'
                 expect(page.get_by_role('heading', name='All discussions')).to_be_visible()
+                if width < 1024:
+                    menu = page.get_by_role('button', name='Toggle menu')
+                    menu.click()
+                    expect(menu).to_have_attribute('aria-expanded', 'true')
+                    expect(page.get_by_role('navigation', name='Main navigation')).to_be_visible()
+                    page.keyboard.press('Escape')
+                    expect(menu).to_have_attribute('aria-expanded', 'false')
+                    expect(menu).to_be_focused()
+                page.get_by_role('button', name='Sign in', exact=True).click()
+                dialog = page.get_by_role('dialog')
+                assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth'), f'Dialog overflow at {width}px'
+                dialog.get_by_role('button', name='Close dialog').click()
+                page.evaluate('scrollTo(0, 0)')
+                page.screenshot(path=str(screenshots / f'brand-{width}.png'), full_page=True)
+            page.get_by_role('searchbox', name='Search discussions').fill('No matching local discussion')
+            page.get_by_role('button', name='Search', exact=True).click()
+            expect(page.get_by_role('heading', name='No matching conversations yet.')).to_be_visible()
+            page.get_by_role('button', name='Clear search', exact=True).click()
+            expect(page.get_by_role('button', name='Browser integration discussion')).to_be_visible()
+            page.get_by_label('Sort discussions').select_option('newest')
+            expect(page.get_by_role('button', name='Browser integration discussion')).to_be_visible()
+            page.locator('.forum-category').nth(1).click()
+            expect(page.locator('.forum-category').nth(1)).to_have_attribute('aria-pressed', 'true')
+            page.locator('.forum-category').first.click()
+            expect(page.get_by_role('heading', name='All discussions')).to_be_visible()
+            # The mobile menu also resets when crossing the desktop breakpoint.
+            page.set_viewport_size({'width': 390, 'height': 844})
+            page.get_by_role('button', name='Toggle menu').click()
+            page.set_viewport_size({'width': 1440, 'height': 1000})
+            page.set_viewport_size({'width': 390, 'height': 844})
+            expect(page.get_by_role('button', name='Toggle menu')).to_have_attribute('aria-expanded', 'false')
+            # A static backdrop must be used without fetching the video when motion is reduced.
+            page.emulate_media(reduced_motion='reduce')
+            video_requests = []
+            page.on('request', lambda request: video_requests.append(request.url) if request.url.endswith('.mp4') else None)
+            page.reload()
+            expect(page.get_by_role('heading', name='All discussions')).to_be_visible()
+            expect(page.locator('.ambient-toggle')).to_be_hidden()
+            assert not page.locator('.site-video').get_attribute('src')
+            assert not video_requests, video_requests
+            page.emulate_media(reduced_motion='no-preference')
+            expect(page.get_by_role('button', name='Pause background', exact=True)).to_be_visible()
+            page.get_by_role('button', name='Pause background', exact=True).click()
+            expect(page.get_by_role('button', name='Play background', exact=True)).to_be_visible()
+            page.get_by_role('button', name='Play background', exact=True).click()
+            expect(page.get_by_role('button', name='Pause background', exact=True)).to_be_visible()
             assert not errors, errors
+            (screenshots / 'brand-verification.json').write_text(json.dumps({
+                'passed': True, 'widths': [320, 390, 768, 1024, 1440], 'page_errors': errors,
+                'checks': ['local SQL integration', 'login and CAPTCHA gating', 'create and reply',
+                           'literal text rendering', 'draft preservation and retry', 'likes and signout',
+                           'reserved usernames', 'search and clear', 'category and sort', 'navigation keyboard and resize',
+                           'responsive dialogs', 'reduced motion avoids video request', 'pause and play background'],
+                'hosted_writes': False, 'email_sent': False,
+            }, indent=2), encoding='utf-8')
             browser.close()
-        print('PASS: real forum SQL through browser; CAPTCHA gating; login; create/reply; literal text; retry and draft preservation; likes; signout; reserved usernames; 4 responsive widths.')
+        print('PASS: real forum SQL; CAPTCHA; login; create/reply; literal text; retry/drafts; likes; signout; reserved usernames; search, sort and categories; mobile navigation; dialogs; 5 widths; reduced motion; video pause/play. No hosted writes or email.')
     finally:
         server.shutdown()
         fixture.terminate()

@@ -3,29 +3,57 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0b0d10">
+  <meta name="theme-color" content="#000000">
   <meta name="description" content="The DATA community at Magimatix. Ask questions, share your workflows, and meet the people behind the dashboards.">
   <title>DATA Community | Magimatix</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/base.css">
   <link rel="stylesheet" href="/forum.css">
   <script type="module" src="/forum-app.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#forum-root">Skip to discussions</a>
+  <div class="site-atmosphere" aria-hidden="true">
+    <video class="site-video" muted loop playsinline preload="none" tabindex="-1"></video>
+    <div class="site-overlay"></div>
+  </div>
   <header class="site-header">
-    <a class="wordmark" href="https://magimatix.com" aria-label="Magimatix home">MAGIMATIX<span> / COMMUNITY</span></a>
-    <nav aria-label="Main navigation">
-      <a href="https://magimatix.com/data-daemon">Get DATA</a>
-      <a href="https://magimatix.com">Magimatix <span aria-hidden="true">↗</span></a>
-    </nav>
+    <div class="site-header-inner">
+      <a class="wordmark" href="https://magimatix.com" aria-label="Magimatix home">
+        <img src="/logo.png" alt="Magimatix" width="140" height="40">
+      </a>
+      <button class="menu-toggle" type="button" aria-label="Toggle menu" aria-expanded="false" aria-controls="site-navigation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <nav id="site-navigation" aria-label="Main navigation">
+        <a href="https://magimatix.com/services">AI Services</a>
+        <a href="https://magimatix.com/websites">Websites</a>
+        <a href="https://magimatix.com/data-daemon">DATA DAEMON</a>
+        <a href="/" aria-current="page">Forum</a>
+        <a href="https://magimatix.com/blog">Blog</a>
+        <a class="site-contact" href="https://magimatix.com/contact">Get in Touch</a>
+      </nav>
+    </div>
   </header>
   <main id="panel-forum" class="active">
     <div id="forum-root" class="mp forum" tabindex="-1"><p role="status">Loading conversations...</p></div>
   </main>
   <footer class="site-footer">
-    <span>DATA Community by Magimatix</span>
-    <a href="https://magimatix.com/contact">Contact the community team</a>
+    <div class="site-footer-inner">
+      <a class="footer-logo" href="https://magimatix.com" aria-label="Magimatix home"><img src="/logo.png" alt="Magimatix" width="98" height="28" loading="lazy"></a>
+      <nav aria-label="Footer navigation">
+        <a href="https://magimatix.com/services">AI Services</a>
+        <a href="https://magimatix.com/websites">Websites</a>
+        <a href="https://magimatix.com/data-daemon">DATA DAEMON</a>
+        <a href="/" aria-current="page">Forum</a>
+        <a href="https://magimatix.com/blog">Blog</a>
+        <a href="https://magimatix.com/faq">FAQ</a>
+        <a href="https://magimatix.com/contact">Contact</a>
+      </nav>
+      <span>&copy; <span id="copyright-year">2026</span> Magimatix LLC.</span>
+    </div>
+    <button class="ambient-toggle" type="button" hidden aria-pressed="false">Pause background</button>
   </footer>
   <noscript><p class="noscript">JavaScript is required to read and participate in the community.</p></noscript>
 </body>

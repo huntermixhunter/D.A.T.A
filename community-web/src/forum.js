@@ -1,4 +1,5 @@
 /* Public DATA community. Member content is rendered only as text. */
+import './shell.js';
 import { node, button, note, modal, field, busy } from './ui.js';
 import { api, initialize, client, configured, config } from './client.js';
 import { accountDialog as showAccountDialog } from './auth.js';
@@ -97,7 +98,7 @@ import { accountDialog as showAccountDialog } from './auth.js';
     accountButton.disabled = !configured || !state.meta;
     newButton.disabled = !configured || !state.meta || state.meta.restricted;
     root.append(node('header', { class: 'mp-head forum-header' }, [
-      node('div', {}, [node('div', { class: 'mp-eyebrow' }, 'DATA COMMUNITY'), node('h1', {}, 'People behind the dashboards.'),
+      node('div', {}, [node('div', { class: 'mp-eyebrow' }, 'DATA COMMUNITY'), node('h1', {}, ['People behind ', node('span', { class: 'gradient-text' }, 'the dashboards.')]),
         node('p', { class: 'mp-muted' }, 'Ask a question. Share an idea. Find your people.')]),
       node('div', { class: 'mp-actions' }, [accountButton, newButton]),
     ]));
@@ -168,13 +169,27 @@ import { accountDialog as showAccountDialog } from './auth.js';
           node('time', { datetime: new Date(thread.updated).toISOString() }, date(thread.updated))]) ]));
     }
     if (!state.result.threads.length) list.append(node('div', { class: 'forum-empty' }, [
-      node('span', { class: 'forum-empty-symbol', 'aria-hidden': 'true' }, '[ ... ]'),
+      node('span', { class: 'forum-empty-symbol', 'aria-hidden': 'true' }, discussionIcon()),
       node('h3', {}, state.query ? 'No matching conversations yet.' : state.view === 'following' ? 'Keep good conversations close.' : 'Start the conversation.'),
       node('p', { class: 'mp-muted' }, state.query ? 'Try another search or choose a different category.' : state.view === 'following' ? 'Follow a discussion to find it here. Unread activity is marked when you return.' : 'A question, a discovery, or an idea is all it takes.'),
       button(state.query ? 'Clear search' : '+ New discussion', () => state.query ? choose({ query: '' }) : state.account ? composer() : accountDialog('login'), 'mp-btn-primary'),
     ]));
     main.append(list, pager(state.result, page => { state.page = page; refresh(); }));
     root.append(node('div', { class: 'forum-layout' }, [rail, main]));
+  }
+
+  function discussionIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    const path = document.createElementNS(svg.namespaceURI, 'path');
+    path.setAttribute('d', 'M7 9h10M7 13h6M5 3h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H9l-6 3V5a2 2 0 0 1 2-2Z');
+    svg.append(path);
+    return svg;
   }
 
   function pager(result, move) {

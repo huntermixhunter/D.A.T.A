@@ -37,7 +37,8 @@ if (release && (!config.turnstileSiteKey || /^[123]x0+/.test(config.turnstileSit
 
 await mkdir(dist, { recursive: true });
 if ((await lstat(dist)).isSymbolicLink()) throw new Error('Refusing to write through a symlink for dist.');
-const staticFiles = ['index.html', 'base.css', 'forum.css', 'favicon.svg'];
+const staticFiles = ['index.html', 'base.css', 'forum.css', 'favicon.svg', 'logo.png',
+  'bg-video-0605.mp4', 'geist-latin.woff2', 'geist-mono-latin.woff2', 'geist-OFL.txt'];
 const outputFiles = new Set([...staticFiles, 'forum-app.js', 'forum-app.js.LEGAL.txt', 'config.json', '_headers', '_redirects']);
 for (const item of await readdir(dist)) {
   if (!outputFiles.has(item)) throw new Error(`Unexpected output artifact: ${item}. Review it before building.`);
@@ -46,7 +47,7 @@ for (const file of staticFiles) await copyFile(path.join(root, 'public', file), 
 await build({ entryPoints: [path.join(root, 'src', 'forum.js')], outfile: path.join(dist, 'forum-app.js'), bundle: true, minify: true, format: 'esm', target: 'es2022', sourcemap: false, legalComments: 'external' });
 await writeFile(path.join(dist, 'config.json'), JSON.stringify(config, null, 2) + '\n');
 const challengeOrigin = config.turnstileSiteKey ? ' https://challenges.cloudflare.com' : '';
-const csp = `default-src 'none'; script-src 'self'${challengeOrigin}; frame-src ${challengeOrigin.trim() || "'none'"}; style-src 'self'; connect-src ${connect}${challengeOrigin}; img-src 'self'; font-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'`;
+const csp = `default-src 'none'; script-src 'self'${challengeOrigin}; frame-src ${challengeOrigin.trim() || "'none'"}; style-src 'self'; connect-src ${connect}${challengeOrigin}; img-src 'self'; font-src 'self'; media-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'`;
 await writeFile(path.join(dist, '_headers'), `/*\n  Content-Security-Policy: ${csp}\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  X-Frame-Options: DENY\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n  Cache-Control: public, max-age=0, must-revalidate\n/config.json\n  Cache-Control: no-store\n`);
 await writeFile(path.join(dist, '_redirects'), '/forum / 302\n');
 console.log(`${release ? 'Release' : 'Preview'} built: ${dist}`);
