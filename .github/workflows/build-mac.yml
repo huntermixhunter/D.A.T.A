@@ -71,7 +71,7 @@ jobs:
           pattern: DATA-mac-*
           path: dist
           merge-multiple: true
-      - name: Verify and attach to a draft release
+      - name: Verify and attach to the release for this tag
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -84,10 +84,34 @@ jobs:
           test -f "DATA-$TAG-x86_64.dmg"
           cat *.sha256 > SHA256SUMS-mac.txt
           sha256sum -c SHA256SUMS-mac.txt
-          if gh release view "$TAG" --json isDraft > release.json 2>/dev/null; then
-            python3 -c 'import json; assert json.load(open("release.json"))["isDraft"], "Existing release is public; attach files only after explicit review"'
-          else
+          # Find any release carrying this tag, draft or published. `gh release
+          # view` must not be used here: the tags API hides draft releases, so
+          # it reported "no release" while the Windows draft existed, the else
+          # branch created a second untagged draft, and the Mac downloads were
+          # attached to that orphan instead of the real release (v1.0.58).
+          gh api "repos/$GH_REPO/releases?per_page=100" --paginate > all.json
+          jq --arg t "$TAG" '[.[] | select(.tag_name == $t)]' all.json > existing.json
+          count="$(jq length existing.json)"
+
+          if [ "$count" -gt 1 ]; then
+            echo "More than one release carries $TAG. Resolve by hand before attaching." >&2
+            jq -r '.[] | "id=\(.id) draft=\(.draft)"' existing.json >&2
+            exit 1
+          fi
+
+          if [ "$count" -eq 0 ]; then
             printf '%s\n' 'Mac downloads for Apple Silicon and Intel.' 'Includes Python and system vitals. Unsigned and not notarized.' 'Optional voice and desktop-control dependencies are not bundled.' > notes.txt
             gh release create "$TAG" --verify-tag --draft --title "DATA $TAG" --notes-file notes.txt
+          else
+            # Additive only. Never replace an asset that is already attached,
+            # published or not; corrections ship as a new version.
+            jq -r '.[0].assets[].name' existing.json > attached.txt
+            for asset in *.dmg *.build.json SHA256SUMS-mac.txt; do
+              if grep -qxF "$asset" attached.txt; then
+                echo "Asset $asset is already attached to $TAG. Use a new version for corrections." >&2
+                exit 1
+              fi
+            done
           fi
+
           gh release upload "$TAG" *.dmg *.build.json SHA256SUMS-mac.txt

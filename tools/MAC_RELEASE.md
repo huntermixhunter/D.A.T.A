@@ -72,8 +72,12 @@ every older macOS.
 1. Review and commit only the source intended for customers. Never include an
    unfinished feature merely to clean the working tree. Use a separate worktree.
 2. Create a new vX.Y.Z tag at that exact commit, then push the tag. The workflow
-   builds both DMGs, verifies both checksums, and attaches them to a draft release.
-   It stops if that release is already public or any asset would be overwritten.
+   builds both DMGs, verifies both checksums, and attaches them to the single
+   release that carries that tag, creating it as a draft when none exists yet.
+   It resolves that release by listing releases and filtering on tag_name, because
+   the tags API that `gh release view` uses cannot see drafts. It stops if two
+   releases carry the tag or if any asset would be overwritten. Attaching is
+   additive only, so a Mac build can join a release the Windows cut already made.
 3. Download and inspect both DMGs, their build manifests, and SHA256SUMS-mac.txt.
    Confirm both manifests contain the tagged commit. The workflow does not publish.
 4. When publication is authorized, publish the reviewed draft. Do not replace
