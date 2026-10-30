@@ -101,9 +101,6 @@
           <button class="data-btn teal" onclick="showPanel('widgets')">
             CONNECTIONS
           </button>
-          <button class="data-btn purple" data-nav-panel="marketplace" onclick="showPanel('marketplace')">
-            MARKETPLACE
-          </button>
           <button class="data-btn blue sidebar-view-hidden" data-nav-panel="forum" data-sidebar-label="Community Forum" data-default-visible="false" onclick="showPanel('forum')">
             FORUM
           </button>
@@ -567,9 +564,6 @@
           </div>
         </div>
 
-        <section class="panel" id="panel-marketplace" aria-label="Extension marketplace">
-          <div class="mp" id="marketplace-root"></div>
-        </section>
         <section class="panel" id="panel-forum" aria-label="Community forum">
           <div class="mp forum" id="forum-root"></div>
         </section>
@@ -766,7 +760,7 @@
               <p class="settings-sub">Choose what appears in the left sidebar. Changes apply immediately and are saved for this profile in this browser.</p>
               <fieldset class="settings-view-group">
                 <legend class="settings-h">Navigation</legend>
-                <p class="settings-sub">Your two core pages stay available. Enable Community Forum to browse discussions and join with your account. Optional pages can be hidden again at any time.</p>
+                <p class="settings-sub">Your two core pages stay available. Enable Community Forum to browse discussions and join with your account. Maps and Offline Library start hidden; enable them here when needed. Optional pages can be hidden again at any time.</p>
                 <div id="settings-view-navigation"></div>
               </fieldset>
               <fieldset class="settings-view-group">
@@ -803,7 +797,7 @@
                   <ol class="remote-steps">
                     <li><div><strong>Install and sign in to Tailscale</strong><p>Use the desktop app on this computer and the Tailscale app on your iPhone or Android phone. Keep Tailscale connected on both.</p><div class="remote-actions"><a class="remote-btn" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer">Get Tailscale</a><a class="remote-text-link" href="https://tailscale.com/pricing" target="_blank" rel="noopener noreferrer">Plans and eligibility</a></div></div></li>
                     <li><div><strong>Enable the dashboard connection</strong><p id="remote-mobile-message">Check the connection after signing in. DATA will create a private HTTPS link with an access key.</p><p class="remote-copy">This grants full dashboard access to anyone with the link who can reach this computer through Tailscale.</p><div class="remote-actions"><button type="button" class="remote-btn primary" id="remote-mobile-enable">Enable full mobile access</button><button type="button" class="remote-btn" id="remote-mobile-disable" hidden>Disable mobile access</button><a class="remote-btn" id="remote-https-approval" target="_blank" rel="noopener noreferrer" hidden>Approve HTTPS in Tailscale</a></div></div></li>
-                    <li><div><strong>Open DATA on your phone</strong><p>Copy your private phone link and transfer it to your phone. Open it in Safari or Chrome, then use Add to Home Screen for a shortcut.</p><div class="remote-link-row" id="remote-phone-row" hidden><input id="remote-phone-link" aria-label="Private phone link" readonly spellcheck="false" autocomplete="off" placeholder="Copy phone link to reveal"/><button type="button" class="remote-btn" id="remote-phone-copy">Copy phone link</button></div><p class="remote-note">Keep this link private. Changing remote access, installing tools and managing marketplace accounts stays on the computer.</p></div></li>
+                    <li><div><strong>Open DATA on your phone</strong><p>Copy your private phone link and transfer it to your phone. Open it in Safari or Chrome, then use Add to Home Screen for a shortcut.</p><div class="remote-link-row" id="remote-phone-row" hidden><input id="remote-phone-link" aria-label="Private phone link" readonly spellcheck="false" autocomplete="off" placeholder="Copy phone link to reveal"/><button type="button" class="remote-btn" id="remote-phone-copy">Copy phone link</button></div><p class="remote-note">Keep this link private. Changing remote access, installing tools and managing accounts stays on the computer.</p></div></li>
                   </ol>
                 </div>
                 <div id="remote-telegram-panel" class="remote-panel" hidden>
@@ -871,9 +865,8 @@
                 <section class="conn-section advanced-tools" id="advanced-tools" aria-labelledby="advanced-tools-heading">
                   <div class="advanced-tools-heading">
                     <div><h4 id="advanced-tools-heading">Advanced tools</h4><p>Manage optional video, image and transcription apps on this computer.</p></div>
-                    <button class="data-btn-sm" type="button" id="advanced-tools-library">Browse marketplace</button>
                   </div>
-                  <p class="advanced-tools-note">Get workflow packs in Marketplace, then set up their apps here. Applications and model downloads are separate.</p>
+                  <p class="advanced-tools-note">Set up optional applications here. Applications and model downloads are separate.</p>
                   <p id="advanced-tools-status" role="status" aria-live="polite"></p>
                   <div id="advanced-tools-list" aria-busy="false"></div>
                 </section>
@@ -1418,14 +1411,13 @@
       toggleRail(e.key === 'ArrowLeft' ? 'left' : 'right');
     });
   </script>
-  <script src="app.js?v=agent-profiles-20261030"></script>
-  <script src="advanced_tools.js?v=1"></script>
+  <script src="app.js?v=sidebar-defaults-20261030"></script>
+  <script src="advanced_tools.js?v=sidebar-defaults-20261030"></script>
   <script src="skill_search.js?v=1"></script>
   <script src="remote_access.js?v=1"></script>
-  <script src="marketplace.js?v=1"></script>
-  <script src="forum.js?v=1"></script>
-  <script src="offline_maps.js?v=1"></script>
-  <script src="offline_archive.js?v=1"></script>
+  <script src="forum.js?v=sidebar-defaults-20261030"></script>
+  <script src="offline_maps.js?v=sidebar-defaults-20261030"></script>
+  <script src="offline_archive.js?v=sidebar-defaults-20261030"></script>
   <script src="crew-deck/host.js?v=1"></script>
   <script src="arcade/host.js?v=event-horizon-1"></script>
 </body>

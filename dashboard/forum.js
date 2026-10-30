@@ -4,11 +4,17 @@
   // Public forum deployment. Local accounts and private chats remain on this device.
   const HOSTED_FORUM_URL = 'https://forum.magimatix.com/';
   const root = document.getElementById('forum-root');
-  if (!root || !window.MarketplaceUI) return;
-  const { node, button, note, modal, field, busy } = window.MarketplaceUI.elements;
+  if (!root) return;
   if (HOSTED_FORUM_URL) {
     const url = new URL(HOSTED_FORUM_URL);
     if (url.protocol !== 'https:' || url.username || url.password) return;
+    // The hosted community remains available while the extension store is paused.
+    const node = (tag, attrs, children) => {
+      const element = document.createElement(tag);
+      for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+      for (const child of [children].flat()) element.append(child instanceof Node ? child : document.createTextNode(child));
+      return element;
+    };
     const refresh = () => root.replaceChildren(
       node('header', { class: 'mp-head forum-header' }, node('div', {}, [
         node('div', { class: 'mp-eyebrow' }, 'DATA COMMUNITY'),
@@ -25,6 +31,8 @@
     }
     return;
   }
+  if (!window.MarketplaceUI) return;
+  const { node, button, note, modal, field, busy } = window.MarketplaceUI.elements;
   const state = { meta: null, account: null, category: 'all', view: 'all', sort: 'active', query: '',
     page: 1, threadId: null, postPage: 1, result: null, message: '', error: '', drafts: new Map() };
   let sequence = 0;

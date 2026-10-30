@@ -15,8 +15,9 @@
     document.querySelector('main')?.append(panel);
   }
   if (!navigation?.querySelector('[data-nav-panel="maps"], [onclick*="\'maps\'"]')) {
-    const btn = node('button', 'MAPS', (navigation.querySelector('button')?.className.split(' ').filter(c => c.endsWith('-btn')).join(' ') || 'data-btn') + ' green');
+    const btn = node('button', 'MAPS', (navigation.querySelector('button')?.className.split(' ').filter(c => c.endsWith('-btn')).join(' ') || 'data-btn') + ' green sidebar-view-hidden');
     btn.type = 'button'; btn.dataset.navPanel = 'maps';
+    btn.dataset.sidebarLabel = 'Maps'; btn.dataset.defaultVisible = 'false';
     btn.addEventListener('click', () => window.showPanel('maps'));
     navigation?.append(btn);
   }
@@ -161,5 +162,9 @@
   // Support old cached markup until the next full page refresh.
   window.loadMaps = refresh;
   window.toggleMapRegions = () => { find('om-downloads').open = !find('om-downloads').open; };
-  if (location.hash === '#maps') window.showPanel('maps');
+  if (typeof SidebarView !== 'undefined') SidebarView.refresh();
+  if (location.hash === '#maps') {
+    if (typeof SidebarView === 'undefined' || SidebarView.visible('maps')) window.showPanel('maps');
+    else window.openSettingsTab('view');
+  }
 })();

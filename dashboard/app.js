@@ -710,13 +710,14 @@ window.getCrewDeckContext = () => ({ scope: _activeCaptain, token: _authToken, b
 window.getArcadeProfile = () => _activeCaptain;
 
 function showPanel(name) {
+  const panel = document.getElementById(`panel-${name}`);
+  if (!panel || (['forum', 'maps', 'offline'].includes(name) && !SidebarView.visible(name))) return;
   window.CrewDeckHost?.show(name);
   window.ArcadeHost?.show(name);
-  if (name === 'forum' && !SidebarView.visible('forum')) return;
   playDataSound('confirm');
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
 
-  document.getElementById(`panel-${name}`).classList.add('active');
+  panel.classList.add('active');
 
   document.querySelectorAll('#sidebar-navigation [data-nav-panel]').forEach(button => {
     const selected = button.dataset.navPanel === name;
@@ -729,7 +730,6 @@ function showPanel(name) {
   if (name === 'matrix' && !matrixInitialized) initMatrix();
   if (name === 'orders') refreshStandingOrders();
   if (name === 'widgets') renderWidgetsGrid();
-  if (name === 'marketplace' && window.MarketplaceUI) window.MarketplaceUI.refresh();
   if (name === 'forum' && window.ForumUI) {
     window.ForumUI.refresh();
     window.ForumUI.openHosted?.();

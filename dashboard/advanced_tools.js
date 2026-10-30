@@ -162,8 +162,5 @@
       if (!toolId) scrollSettingsTo(document.getElementById('advanced-tools'));
     });
   }
-  document.getElementById('advanced-tools-library').addEventListener('click', () => {
-    closeSettings(); showPanel('marketplace');
-  });
   window.AdvancedToolsUI = { load, open, toolForListing: id => Object.hasOwn(listingTools, id) ? listingTools[id] : null };
 })();

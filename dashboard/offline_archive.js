@@ -12,8 +12,9 @@
   document.querySelector('main')?.append(panel);
   const button = document.createElement('button');
   const navigation = document.getElementById('sidebar-navigation');
-  button.className = (navigation?.querySelector('button')?.className.split(' ').filter(c => c.endsWith('-btn')).join(' ') || 'data-btn') + ' teal'; button.type = 'button';
+  button.className = (navigation?.querySelector('button')?.className.split(' ').filter(c => c.endsWith('-btn')).join(' ') || 'data-btn') + ' teal sidebar-view-hidden'; button.type = 'button';
   button.textContent = 'OFFLINE LIBRARY'; button.dataset.navPanel = 'offline';
+  button.dataset.sidebarLabel = 'Offline Library'; button.dataset.defaultVisible = 'false';
   button.addEventListener('click', () => window.showPanel('offline'));
   document.getElementById('sidebar-navigation')?.append(button);
   const find = id => panel.querySelector('#' + id);
