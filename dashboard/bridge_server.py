@@ -5540,7 +5540,10 @@ def _scheduler_loop() -> None:
 def _handle_spawn_workspaces_marker(payload):
     workspaces = payload.get("workspaces") if isinstance(payload, dict) else None
     if isinstance(workspaces, list) and workspaces:
-        _push_ui_event("spawn_workspaces", {"workspaces": workspaces})
+        _push_ui_event("spawn_workspaces", {
+            "workspaces": workspaces,
+            "pane": getattr(_history_state, "key", "") or "",
+        })
         log.info(f"[marker] spawn_workspaces queued ({len(workspaces)} window(s))")
     else:
         log.warning(f"[marker] spawn_workspaces JSON missing 'workspaces' list")
@@ -5933,7 +5936,10 @@ def tool_spawn_workspaces(workspaces: list) -> str:
     if not cleaned:
         return "No valid workspaces to spawn."
 
-    _push_ui_event("spawn_workspaces", {"workspaces": cleaned})
+    _push_ui_event("spawn_workspaces", {
+        "workspaces": cleaned,
+        "pane": getattr(_history_state, "key", "") or "",
+    })
     summary = ", ".join(f"{w['provider']} → {w['role']}" for w in cleaned)
     return f"Queued {len(cleaned)} window(s): {summary}"
 
@@ -8857,7 +8863,7 @@ def _voice_llm_stream(message: str, project_path: str = "", on_token=None,
         _crew_ok = True
     except Exception as e:
         log.exception(f"[voice-stream] {provider} failed: {e}")
-        return f"I am unable to respond, Captain. ({e})"
+        return f"I am unable to respond. ({e})"
     finally:
         filtered_sse.finalize()
         VOICE_CONVERSATION_MODE = prev_mode

@@ -1,6 +1,15 @@
 /* Community layouts inherit the dashboard's marketplace theme tokens. */
 #panel-forum { min-height: 0; overflow: auto; }
 .forum { min-width: 0; }
+.forum.forum-hosted { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0; }
+.forum-embed-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; padding: 12px 16px; border-bottom: 1px solid var(--mp-line); }
+.forum .forum-embed-toolbar h1 { margin: 0; font-size: 18px; line-height: 1.3; }
+.forum-embed-toolbar .mp-actions { gap: 8px; }
+.forum-embed-toolbar .mp-btn { min-height: 40px; font-size: 12px; text-decoration: none; }
+.forum .forum-embed-status { padding: 10px 16px; color: var(--mp-muted); font-size: 12px; }
+.forum-embed-status[hidden] { display: none; }
+.forum-embed-stage { display: flex; flex: 1; min-height: 240px; }
+.forum-embed { display: block; flex: 1; width: 100%; height: 100%; min-height: 240px; border: 0; background: #000; }
 .forum .forum-header { margin-bottom: 22px; }
 .forum .forum-header h1 { max-width: 650px; font-size: clamp(27px, 3vw, 42px); }
 .forum-connection { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--mp-line); border-bottom: 1px solid var(--mp-line); color: var(--mp-muted); font-size: 12px; }

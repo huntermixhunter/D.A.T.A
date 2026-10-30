@@ -93,6 +93,11 @@ input::placeholder, textarea::placeholder { color: var(--mp-dim); }
 .auth-captcha { min-height: 140px; display: flex; justify-content: center; }
 .auth-links .mp-btn { padding: 6px 0; background: none; border: 0; border-radius: 0; text-align: left; color: var(--mp-accent); }
 .noscript { margin: 40px; }
+/* The dashboard supplies navigation around the embedded discussions. */
+.forum-embedded body { min-width: 0; }
+.forum-embedded .site-header, .forum-embedded .site-footer { display: none; }
+.forum-embedded main { margin-top: 0; padding-top: 0; }
+.forum-embedded .mp { padding-top: 24px; }
 @media (max-width: 1023px) {
   .site-header-inner { padding: 4px 20px; flex-wrap: wrap; gap: 0; }
   .wordmark img { width: 112px; height: 32px; }

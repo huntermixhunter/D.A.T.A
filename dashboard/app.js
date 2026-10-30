@@ -234,6 +234,7 @@ const SidebarView = (() => {
     entries.forEach(entry => {
       entry.element.classList.toggle(hiddenClass, !isVisible(entry));
     });
+    if (entries.some(entry => entry.panel === 'forum' && !isVisible(entry))) window.ForumUI?.close?.();
     // Collapse empty widget groups and their separators.
     sidebar.querySelectorAll(':scope > .sidebar-section').forEach(section => {
       if (section === navigation) return;
@@ -732,7 +733,6 @@ function showPanel(name) {
   if (name === 'widgets') renderWidgetsGrid();
   if (name === 'forum' && window.ForumUI) {
     window.ForumUI.refresh();
-    window.ForumUI.openHosted?.();
   }
 }
 
@@ -8821,6 +8821,122 @@ function _computeGridDims(count) {
 
 function _fracsToTemplate(fracs) { return fracs.map(f => `${f}fr`).join(' '); }
 
+// Move the existing pane so its inputs, stream handlers and identity stay intact.
+function _moveChatPane(pane, target) {
+  const wrapper = document.getElementById('chats-wrapper');
+  const panes = [...wrapper.querySelectorAll('.chat-pane:not([hidden])')];
+  const from = panes.indexOf(pane), to = panes.indexOf(target);
+  if (from < 0 || to < 0 || from === to) return;
+  const focused = document.activeElement;
+  const scroll = [...wrapper.querySelectorAll('.chat-window, textarea')]
+    .map(el => ({ el, top: el.scrollTop, left: el.scrollLeft,
+      bottom: el.classList.contains('chat-window') && _isPinnedToBottom(el) }));
+  const before = from < to ? target.nextSibling : target;
+  // Modern browsers preserve focus, embedded media and iframe state on a move.
+  if (wrapper.moveBefore) wrapper.moveBefore(pane, before);
+  else wrapper.insertBefore(pane, before);
+  _updateChatGrid();
+  if (pane.contains(focused)) focused.focus({ preventScroll: true });
+  scroll.forEach(({ el, top, left, bottom }) =>
+    el.scrollTo({ top: bottom ? el.scrollHeight : top, left, behavior: 'instant' }));
+  const status = document.getElementById('pane-move-status');
+  const name = pane.querySelector('.pane-name')?.textContent || 'Chat';
+  if (status) status.textContent = `${name} moved to position ${to + 1} of ${panes.length}.`;
+}
+
+function _initPaneReorder() {
+  const wrapper = document.getElementById('chats-wrapper');
+  if (!wrapper || wrapper.dataset.reorderReady) return;
+  wrapper.dataset.reorderReady = 'true';
+  let drag = null;
+
+  const clearTarget = () => {
+    drag?.target?.classList.remove('pane-drop-target');
+    if (drag) drag.target = null;
+  };
+  const finish = (commit = false) => {
+    if (!drag) return;
+    const { pane, target, header, pointerId, active } = drag;
+    clearTarget();
+    drag = null;
+    pane.classList.remove('pane-moving');
+    document.body.classList.remove('chat-pane-moving');
+    try { header.releasePointerCapture(pointerId); } catch (_) {}
+    if (commit && active && target) _moveChatPane(pane, target);
+  };
+  const updateTarget = (event) => {
+    clearTarget();
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.chat-pane');
+    if (target && target !== drag.pane && !target.hidden && target.parentElement === wrapper) {
+      drag.target = target;
+      target.classList.add('pane-drop-target');
+    }
+  };
+
+  wrapper.addEventListener('pointerdown', event => {
+    if (drag || !event.isPrimary || event.button !== 0) return;
+    const header = event.target.closest('.chat-pane-header');
+    if (!header || !wrapper.classList.contains('chats-reorderable')) return;
+    // Keep selectors, response controls, links and close buttons fully usable.
+    if (!event.target.closest('.pane-move-handle') &&
+        event.target.closest('button, select, input, textarea, a, [contenteditable], .pane-detail')) return;
+    const pane = header.closest('.chat-pane');
+    event.preventDefault();
+    header.querySelector('.pane-move-handle')?.focus({ preventScroll: true });
+    drag = { pane, header, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+      active: false, target: null };
+    header.setPointerCapture(event.pointerId);
+  });
+  wrapper.addEventListener('pointermove', event => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag.active) {
+      if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+      drag.active = true;
+      drag.pane.classList.add('pane-moving');
+      document.body.classList.add('chat-pane-moving');
+    }
+    event.preventDefault();
+    updateTarget(event);
+  });
+  wrapper.addEventListener('pointerup', event => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (drag.active) updateTarget(event);
+    finish(true);
+  });
+  const cancelPointer = event => {
+    if (drag && event.pointerId === drag.pointerId) finish();
+  };
+  document.addEventListener('pointercancel', cancelPointer, true);
+  document.addEventListener('lostpointercapture', cancelPointer, true);
+  // Capture Escape before the chat shortcut can cancel an in-flight response.
+  document.addEventListener('keydown', event => {
+    if (!drag || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    finish();
+  }, true);
+  window.addEventListener('blur', () => finish());
+  window.addEventListener('resize', () => finish());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) finish(); });
+  wrapper.addEventListener('keydown', event => {
+    if (drag || !event.target.closest('.pane-move-handle')) return;
+    const panes = [...wrapper.querySelectorAll('.chat-pane:not([hidden])')];
+    const pane = event.target.closest('.chat-pane');
+    const from = panes.indexOf(pane);
+    const offsets = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -_paneGridCols, ArrowDown: _paneGridCols };
+    let to;
+    if (event.key in offsets) to = from + offsets[event.key];
+    else if (event.key === 'Home') to = 0;
+    else if (event.key === 'End') to = panes.length - 1;
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+    _moveChatPane(pane, panes[Math.max(0, Math.min(panes.length - 1, to))]);
+  });
+  _updateChatGrid();
+}
+document.addEventListener('DOMContentLoaded', _initPaneReorder);
+
 function _updateChatGrid() {
   const wrapper = document.getElementById('chats-wrapper');
   // Hidden panes (e.g. pane-main after the Captain closes it while project
@@ -8828,6 +8944,22 @@ function _updateChatGrid() {
   // visible panes so the leftmost project pane truly becomes "the first".
   const panes   = wrapper.querySelectorAll('.chat-pane:not([hidden])');
   const count   = panes.length;
+  wrapper.classList.toggle('chats-reorderable', count > 1);
+  panes.forEach(pane => {
+    const header = pane.querySelector('.chat-pane-header');
+    if (!header) return;
+    let handle = header.querySelector('.pane-move-handle');
+    if (!handle) {
+      handle = document.createElement('button');
+      handle.type = 'button';
+      handle.className = 'pane-move-handle';
+      handle.title = 'Drag to rearrange. Use arrow keys when focused.';
+      handle.setAttribute('aria-label', 'Move chat window. Drag or use arrow keys.');
+      handle.innerHTML = '<svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="9" cy="8" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="9" cy="13" r="1.5"/></svg>';
+      header.prepend(handle);
+    }
+    handle.disabled = count < 2;
+  });
   // The pristine main pane's CLOSE button only makes sense when there is
   // another window to promote in its place — hide it when main stands alone.
   const mainCloseEmpty = document.getElementById('main-close-empty');
@@ -9024,6 +9156,7 @@ async function openProjectWorkspace(path, opts = {}) {
     const mainPane = document.getElementById('pane-main');
     if (mainPane && mainPane.hidden) mainPane.hidden = false;
     _setMainPaneProject(wsId, name, path);
+    _updateChatGrid();
   } else {
     addChatPane(wsId, name, path);
     _showPaneHeaders(true);
@@ -9539,43 +9672,42 @@ async function _pollUiEvents() {
 }
 setInterval(_pollUiEvents, 1500);
 
+// Scoped events belong to one exact conversation. A folder or stale pane key
+// cannot identify an owner, even when only one chat currently uses that folder.
+function _resolvePaneTarget(paneKey) {
+  if (paneKey != null && typeof paneKey !== 'string') return null;
+  const key = (paneKey || '').trim().toLowerCase();
+  let hasMain = false;
+  for (const [id, ws] of _workspaces.entries()) {
+    if (ws.isMain) hasMain = true;
+    if (key ? key !== _paneCompositeKey(id, ws) : !ws.isMain) continue;
+    const isMain = !!ws.isMain;
+    const container = document.getElementById(isMain ? 'pane-main' : `pane-ws${id}`);
+    const winEl = document.getElementById(isMain ? 'chat-window' : `chat-win-ws${id}`);
+    if (!winEl || container?.hidden) return null;
+    return { wsId: id, ws, isMain, winEl };
+  }
+  // The initial main chat has a pane ID before it has a project workspace.
+  if (!hasMain && (!key || key === `::${_paneId('main').toLowerCase()}`)) {
+    const winEl = document.getElementById('chat-window');
+    if (winEl && !document.getElementById('pane-main')?.hidden) {
+      return { wsId: null, ws: null, isMain: true, winEl };
+    }
+  }
+  return null;
+}
+
 function _handleUiEvent(evt) {
   if (evt.type === 'spawn_workspaces') {
+    if (!_resolvePaneTarget(evt.payload?.pane)) return;
     _spawnWorkspacesFromEvent(evt.payload?.workspaces || []);
   } else if (evt.type === 'project_rooted') {
     const p = evt.payload || {};
     const newPath = p.path || '';
     const newName = p.name || (newPath.split(/[/\\]/).pop()) || '(unknown)';
-    // Originating pane key (lowercased pre-root path of the workspace that
-    // asked). When present, target THAT workspace; fall back to the main
-    // workspace only for events with no pane (POST /project, standing orders).
-    const paneKey = (p.pane || '').toLowerCase();
-
-    // Pick the workspace to re-root: pane-match first, then main as fallback.
-    let targetWsId = null;
-    let targetWs   = null;
-    if (paneKey) {
-      for (const [id, w] of _workspaces.entries()) {
-        // The bridge tags the event with the originating pane's FULL history
-        // key — `path::<pane_id>` (see _history_key on the backend). Rebuild
-        // the same composite key here so the re-root lands on the exact pane
-        // that asked, even when two windows share a folder. The base segment
-        // mirrors what each pane sends as pane_id: 'main' for the main pane,
-        // 'ws<id>' for secondaries.
-        const wsPath = (w.path || '').toLowerCase();
-        const base   = w.isMain ? 'main' : `ws${id}`;
-        const wsKey  = `${wsPath}::${_paneId(base).toLowerCase()}`;
-        // Match the composite key first; fall back to a plain path match so
-        // legacy/no-pane_id callers (POST /project, standing orders) still work.
-        if (paneKey === wsKey || paneKey === wsPath) { targetWsId = id; targetWs = w; break; }
-      }
-    }
-    if (!targetWs) {
-      for (const [id, w] of _workspaces.entries()) {
-        if (w.isMain) { targetWsId = id; targetWs = w; break; }
-      }
-    }
-    const targetIsMain = !!targetWs?.isMain;
+    const target = _resolvePaneTarget(p.pane);
+    if (!target) return;
+    const { wsId: targetWsId, ws: targetWs, isMain: targetIsMain } = target;
 
     addLog(`Rooted ${targetIsMain ? 'main pane' : `pane ${targetWs?.name || targetWsId}`} → ${newName}`);
     playDataSound('engage');
@@ -9584,17 +9716,11 @@ function _handleUiEvent(evt) {
     // kill (or never streams at all if the model jumped into another tool
     // call), so this guarantees the Captain sees what happened — and in the
     // window they were typing in, not always the main one.
-    const targetWin = targetWsId != null ? document.getElementById(`chat-win-ws${targetWsId}`) : null;
-    if (targetWin) {
-      appendMessageToPane(targetWin, 'data', `Rooted in **${newName}**, Captain. \`${newPath}\``, targetWs?.crew);
-    } else {
-      appendMessage('data', `Rooted in **${newName}**, Captain. \`${newPath}\``);
-    }
+    const confirmation = `Folder changed to **${newName}**. \`${newPath}\``;
+    if (targetIsMain) appendMessage('data', confirmation);
+    else appendMessageToPane(target.winEl, 'data', confirmation, targetWs?.crew);
 
-    // No workspace at all (main hasn't opened yet, no pane match) — fall back
-    // to the same flow Data uses for "spawn a new project window", which
-    // builds the pane header, matrix tab, file tree, etc. The bridge already
-    // set _project_path via the marker, so openProjectWorkspace just re-confirms it.
+    // The initial main chat needs a workspace when its first project opens.
     if (!targetWs && newPath) {
       openProjectWorkspace(newPath);
       return;
@@ -9662,26 +9788,9 @@ function _renderAskOptions(payload) {
   const options  = Array.isArray(payload.options) ? payload.options : [];
   if (!question || !options.length) return;
 
-  // Resolve which chat window asked — mirror the project_rooted pane matching
-  // so the card lands in the right pane, falling back to the main window.
-  const paneKey = (payload.pane || '').toLowerCase();
-  let targetWsId = null, targetWs = null;
-  if (paneKey) {
-    for (const [id, w] of _workspaces.entries()) {
-      const wsPath = (w.path || '').toLowerCase();
-      const base   = w.isMain ? 'main' : `ws${id}`;
-      const wsKey  = `${wsPath}::${_paneId(base).toLowerCase()}`;
-      if (paneKey === wsKey || paneKey === wsPath) { targetWsId = id; targetWs = w; break; }
-    }
-  }
-  if (!targetWs) {
-    for (const [id, w] of _workspaces.entries()) { if (w.isMain) { targetWsId = id; targetWs = w; break; } }
-  }
-  const targetIsMain = !!targetWs?.isMain;
-  const paneWin = (targetWsId != null && !targetIsMain)
-    ? document.getElementById(`chat-win-ws${targetWsId}`) : null;
-  const chatWin = paneWin || document.getElementById('chat-window');
-  if (!chatWin) return;
+  const target = _resolvePaneTarget(payload.pane);
+  if (!target) return;
+  const { wsId: targetWsId, ws: targetWs, isMain: targetIsMain, winEl: chatWin } = target;
 
   playDataSound('doorbell');
 
@@ -9785,19 +9894,21 @@ function _paneBase(id, w) { return w.isMain ? 'main' : `ws${id}`; }
 // Composite history key path::pane_id (lowercased) — mirrors _history_key on
 // the backend so the same pane resolves identically on both sides.
 function _paneCompositeKey(id, w) {
-  const wsPath = (w.path || '').toLowerCase();
+  const wsPath = (w.path || '').trim().toLowerCase();
   return `${wsPath}::${_paneId(_paneBase(id, w)).toLowerCase()}`;
 }
 
-// Canonical pane ordering: main first, then the rest by ascending wsId. Both
-// the roster we send the backend AND the resolver here use this, so the
-// "window N" the model sees matches the window we deliver to.
+// Window numbers follow the visible grid, including a main chat with no project.
+// Stable pane IDs still identify the same conversation after a rearrangement.
 function _orderedPanes() {
-  const entries = [..._workspaces.entries()];
-  entries.sort((a, b) => {
-    const am = a[1].isMain ? 0 : 1, bm = b[1].isMain ? 0 : 1;
-    return am !== bm ? am - bm : a[0] - b[0];
-  });
+  const wrapper = document.getElementById('chats-wrapper');
+  if (!wrapper) return [];
+  const byPane = new Map([..._workspaces.entries()].map(([id, w]) =>
+    [w.isMain ? 'pane-main' : `pane-ws${id}`, [id, w]]));
+  const entries = [...wrapper.querySelectorAll('.chat-pane:not([hidden])')]
+    .map(pane => byPane.get(pane.id) || (pane.id === 'pane-main'
+      ? [null, { isMain: true, name: 'Main Channel', provider: _lastKnownActiveProvider }]
+      : null)).filter(Boolean);
   return entries.map(([id, w], i) => ({
     wsId: id, w, index: i + 1,
     paneId: _paneId(_paneBase(id, w)),
@@ -9832,27 +9943,29 @@ function _resolveTargetPane(toStr, fromKey) {
   const from = (fromKey || '').toLowerCase();
   // 1. exact pane_id or composite-key echo
   for (const p of ordered) if (q === p.paneId.toLowerCase() || q === p.key) return p;
+  // An unavailable exact identity must never become a name or window number.
+  if (q.includes('::') || /^s\S*-(?:main|ws\d+)$/.test(q)) return null;
   // 2. main channel
   if (/^(the\s+)?(main|main channel|main pane|computer|the computer)$/.test(q)) {
     const m = ordered.find(p => p.isMain); if (m) return m;
   }
   // 3. window / pane number
-  const num = q.match(/(?:window|win|ws|pane|#|number|no\.?)?\s*(\d{1,3})\b/);
+  const num = q.match(/^(?:(?:window|win|ws|pane|#|number|no\.?)\s*)?(\d{1,3})$/);
   if (num) { const byIdx = ordered.find(p => p.index === parseInt(num[1], 10)); if (byIdx) return byIdx; }
   // 4. "the other window" — unambiguous only with exactly two panes
   if (/^(the\s+)?other(\s+(window|pane|one))?$/.test(q) && ordered.length === 2) {
     const other = ordered.find(p => p.key !== from); if (other) return other;
   }
   // 5. exact name or folder basename
-  for (const p of ordered) {
+  const exact = ordered.filter(p => {
     const base = (p.path.split(/[/\\]/).pop() || '').toLowerCase();
-    if (q === p.name.toLowerCase() || q === base) return p;
-  }
+    return q === p.name.toLowerCase() || q === base;
+  });
+  if (exact.length) return exact.length === 1 ? exact[0] : null;
   // 6. substring fallback on name / path
-  for (const p of ordered) {
-    if (p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)) return p;
-  }
-  return null;
+  const partial = ordered.filter(p =>
+    p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q));
+  return partial.length === 1 ? partial[0] : null;
 }
 
 function _senderFromKey(fromKey) {
@@ -9864,16 +9977,19 @@ function _senderFromKey(fromKey) {
 }
 
 function _renderInPane(target, text) {
-  if (target.isMain) { appendMessage('data', text); return; }
-  const win = document.getElementById(`chat-win-ws${target.wsId}`);
-  if (win) appendMessageToPane(win, 'data', text, target.w.crew);
-  else appendMessage('data', text);
+  const live = _resolvePaneTarget(target.key);
+  if (!live) return false;
+  if (live.isMain) appendMessage('data', text);
+  else appendMessageToPane(live.winEl, 'data', text, live.ws?.crew);
+  return true;
 }
 
 // Push text into a pane's input and fire its send. Main queues internally when
 // busy (no drop); project panes bail while thinking, so we retry briefly.
 function _submitToPane(target, text, attempt) {
   attempt = attempt || 0;
+  // A busy pane can close or change projects before a queued retry runs.
+  if (!_resolvePaneTarget(target.key)) return;
   if (target.isMain) {
     const input = document.getElementById('chat-input');
     if (input) input.value = text;
@@ -9916,7 +10032,7 @@ function _deliverPaneMessage(payload) {
       .map(p => `• "${p.name}" (window ${p.index}${p.isMain ? ', main' : ''})`).join('\n');
     const why = (target && target.key === fromKey.toLowerCase())
       ? `A pane cannot message itself.`
-      : `I could not find an open pane matching "${to}".`;
+      : `I could not identify one open pane matching "${to}". Use its exact pane ID or window number.`;
     const senderPane = _orderedPanes().find(p => p.key === fromKey.toLowerCase());
     const note = `📨 **Undeliverable** — ${why}\n\nOpen panes right now:\n${openList}`;
     if (senderPane) _renderInPane(senderPane, note); else appendMessage('data', note);
@@ -9927,9 +10043,9 @@ function _deliverPaneMessage(payload) {
 
   const fromName = sender.isMain ? 'the main channel' : `the "${sender.name}" pane`;
   const idxTag = sender.index ? ` (window ${sender.index})` : '';
-  _renderInPane(target, `📨 Incoming from ${fromName}${idxTag} — relaying to this pane…`);
+  if (!_renderInPane(target, `Incoming from ${fromName}${idxTag}. Relaying to this chat.`)) return;
 
-  const replyName = sender.isMain ? 'main' : sender.name;
+  const replyName = fromKey || (sender.isMain ? 'main' : sender.name);
   const submitText =
     `[📨 Inter-pane message from ${fromName}${idxTag}. Treat this as a request from a teammate officer. `
     + `If you need to reply, emit a <<send_to_pane>> marker addressed to "${replyName}".]\n\n${message}`;
@@ -10938,7 +11054,7 @@ function _settingsRenderAccount() {
   // is not the place to change those. Only shown when one is actually wired up.
   if (window.ForumUI?.hosted?.()) {
     root.append(_acctEl('p', { class: 'settings-sub', text:
-      'Your forum account is managed on the community website. The account below is for this dashboard and its Marketplace.' }));
+      'Sign in to your community account from the Forum page. The account below is separate and belongs to this dashboard.' }));
   } else if (_acct.scope?.identity_scope === 'shared') {
     root.append(_acctEl('p', { class: 'settings-sub', text:
       'One shared account for Marketplace and Forum. Account changes are saved online. Your private chats, memory, files and installed extensions stay on this device.' }),

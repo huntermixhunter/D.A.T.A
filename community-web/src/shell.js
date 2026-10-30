@@ -1,4 +1,15 @@
 /* Shared Magimatix navigation and optional ambient video. No account state. */
+const embedded = window.parent !== window && new URLSearchParams(location.search).get('embed') === '1';
+if (embedded) {
+  document.documentElement.classList.add('forum-embedded');
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || event.data?.type !== 'data:forum:connect') return;
+    let origin;
+    try { origin = new URL(event.origin); } catch { return; }
+    if (!['http:', 'https:'].includes(origin.protocol) || !['localhost', '127.0.0.1'].includes(origin.hostname)) return;
+    event.source.postMessage({ type: 'data:forum:ready' }, event.origin);
+  });
+}
 const toggle = document.querySelector('.menu-toggle');
 const nav = document.getElementById('site-navigation');
 if (toggle && nav) {
@@ -34,7 +45,7 @@ if (video && motionToggle) {
     motionToggle.setAttribute('aria-pressed', String(!video.paused));
   };
   const syncPreference = () => {
-    if (reducedMotion.matches || connection?.saveData) {
+    if (embedded || reducedMotion.matches || connection?.saveData) {
       video.pause();
       video.removeAttribute('src');
       video.load();

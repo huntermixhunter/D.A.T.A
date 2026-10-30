@@ -8,6 +8,37 @@ Cloudflare Pages serves the static website. Supabase stores community profiles,
 topics, replies, likes, follows, reports, and moderation records. The laptop and
 the local Python bridge are not needed to keep the website online.
 
+## Dashboard embedding: 2026-10-30, published
+
+The published build supports the dashboard's embedded Forum page at `/?embed=1`.
+Inside a frame it hides the website navigation/footer and skips the background
+video. The normal standalone website keeps its existing layout and controls.
+
+The CSP replaces `frame-ancestors 'none'` with an allowlist of localhost and
+127.0.0.1 on configurable ports. The conflicting `X-Frame-Options: DENY` header
+is removed. All other script, connection, form and permissions policies stay in
+place. Remote dashboard origins are not allowed; they can use Open in browser.
+The sandboxed frame exchanges only an origin-checked readiness message with its
+parent. Community credentials and sessions remain within the community website.
+Browser storage restrictions can require a separate sign-in inside the frame;
+Open in browser remains available.
+
+The release build, standalone browser suite and dashboard embedding suite pass.
+The latter covers real local SQL with stubbed Auth/CAPTCHA, sign-in, posting,
+replies, draft retention across dashboard pages, opt-in/persistence/disable,
+rejected foreign framing and forged messages, failure/retry, and four viewport
+widths. Evidence: `../build/forum-embed-checks/`. No hosted records or email were
+used. The owner approved publication on 2026-10-30. Deployment
+`1df31608-21af-46cc-a182-32b7e7d386ca` now serves the custom domain. All 11 public
+assets match the frozen release build, and the live headers allow local parents.
+Live browser checks passed for embedded discussions, readiness, page-switch
+retention, reload, standalone access, and 1440/390/320px layouts, with zero page
+errors. These checks performed public reads only. Evidence:
+`../build/forum-embed-checks/live-assets.json` and `live-browser.json`.
+Previous production for rollback: `b44e6183-84cd-464f-814b-1fe6702ba0be`.
+DATA v1.0.63 includes the matching desktop integration. Earlier desktop
+downloads retain their previous Forum behavior.
+
 ## Magimatix styling update: 2026-10-30, published
 
 The forum now uses the main site's logo, Geist and Geist Mono typography, black
@@ -46,7 +77,7 @@ Previous production for rollback: `a195cd49-9a9a-473c-849f-d4821a3900a3`.
 ## Current launch state: 2026-10-30
 
 - Pages project: `magimatix-community`, production branch `main`.
-- Production deployment: `b44e6183.magimatix-community.pages.dev`.
+- Production deployment: `1df31608.magimatix-community.pages.dev`.
 - Custom domain: `forum.magimatix.com`, active with HTTPS.
 - Supabase project: `hrkwubdlunpuqcwswmqd`, `us-west-2`, in the Free
   `Magimatix Community` organization. The initial migration is applied.
@@ -63,7 +94,8 @@ Previous production for rollback: `a195cd49-9a9a-473c-849f-d4821a3900a3`.
   using a temporary test address. Both links, password login, signout, password
   update, and login with the new password passed against the live website.
   The test account and its temporary credentials were removed afterward.
-- The DATA dashboard's optional Forum entry opens this website. Local dashboard
+- DATA v1.0.63 and later embed this website in the optional Forum entry.
+  Earlier desktop downloads retain their previous Forum behavior. Local dashboard
   and Marketplace accounts are separate; no private accounts, history, or posts
   were migrated. The entry is included in published retail release v1.0.58.
   Enable it under Settings > View > Navigation > Community Forum, then click
@@ -115,8 +147,9 @@ Browser integration uses that same SQL behind a local fixture. Auth sessions and
 CAPTCHA are stubbed in this test, and all other external requests are blocked.
 It tests forms, public text rendering, posting, draft preservation, retry,
 signout, reserved names, and 320/390/768/1440px layouts. It does not prove hosted
-email delivery. The dashboard test checks the optional setting, external link,
-opener isolation, account explanation, and absence of local forum requests.
+email delivery. The dashboard test checks the embedded page, opt-in setting,
+sign-in, posting, draft retention, browser fallback, isolation, and absence of
+local forum requests.
 
 Live checks passed for HTTPS, public metadata, anonymous write rejection, the
 initial signup closure, and the production Turnstile widget. Public signup and

@@ -8,14 +8,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=agent-profiles-20261030" />
+  <link rel="stylesheet" href="theme.css?v=pane-reorder-20261030" />
   <link rel="stylesheet" href="event_horizon.css?v=1" />
   <script type="module" src="appearance.mjs?v=1"></script>
   <link rel="stylesheet" href="skill_search.css?v=1" />
   <link rel="stylesheet" href="advanced_tools.css?v=1" />
   <link rel="stylesheet" href="remote_access.css?v=1" />
   <link rel="stylesheet" href="marketplace.css?v=preview-divider-20261029" />
-  <link rel="stylesheet" href="forum.css?v=1" />
+  <link rel="stylesheet" href="forum.css?v=embedded-20261030" />
   <link rel="stylesheet" href="offline_maps.css?v=1">
   <link rel="stylesheet" href="crew-deck/host.css?v=1">
   <link rel="stylesheet" href="arcade/host.css?v=1">
@@ -294,6 +294,7 @@
           </div>
 
 
+          <div id="pane-move-status" class="pane-move-status" role="status" aria-live="polite" aria-atomic="true"></div>
           <div class="chats-wrapper" id="chats-wrapper">
             <!-- MAIN PANE -->
             <div class="chat-pane" id="pane-main">
@@ -1411,11 +1412,11 @@
       toggleRail(e.key === 'ArrowLeft' ? 'left' : 'right');
     });
   </script>
-  <script src="app.js?v=sidebar-defaults-20261030"></script>
+  <script src="app.js?v=release-1.0.63"></script>
   <script src="advanced_tools.js?v=sidebar-defaults-20261030"></script>
   <script src="skill_search.js?v=1"></script>
   <script src="remote_access.js?v=1"></script>
-  <script src="forum.js?v=sidebar-defaults-20261030"></script>
+  <script src="forum.js?v=embedded-20261030"></script>
   <script src="offline_maps.js?v=sidebar-defaults-20261030"></script>
   <script src="offline_archive.js?v=sidebar-defaults-20261030"></script>
   <script src="crew-deck/host.js?v=1"></script>

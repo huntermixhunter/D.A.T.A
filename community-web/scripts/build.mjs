@@ -47,8 +47,11 @@ for (const file of staticFiles) await copyFile(path.join(root, 'public', file), 
 await build({ entryPoints: [path.join(root, 'src', 'forum.js')], outfile: path.join(dist, 'forum-app.js'), bundle: true, minify: true, format: 'esm', target: 'es2022', sourcemap: false, legalComments: 'external' });
 await writeFile(path.join(dist, 'config.json'), JSON.stringify(config, null, 2) + '\n');
 const challengeOrigin = config.turnstileSiteKey ? ' https://challenges.cloudflare.com' : '';
-const csp = `default-src 'none'; script-src 'self'${challengeOrigin}; frame-src ${challengeOrigin.trim() || "'none'"}; style-src 'self'; connect-src ${connect}${challengeOrigin}; img-src 'self'; font-src 'self'; media-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'`;
-await writeFile(path.join(dist, '_headers'), `/*\n  Content-Security-Policy: ${csp}\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  X-Frame-Options: DENY\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n  Cache-Control: public, max-age=0, must-revalidate\n/config.json\n  Cache-Control: no-store\n`);
+// Only local DATA dashboards may embed the community, on their configured port.
+// Keep this in sync with the handshake origin check in src/shell.js.
+const frameAncestors = 'http://localhost:* http://127.0.0.1:*';
+const csp = `default-src 'none'; script-src 'self'${challengeOrigin}; frame-src ${challengeOrigin.trim() || "'none'"}; style-src 'self'; connect-src ${connect}${challengeOrigin}; img-src 'self'; font-src 'self'; media-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors ${frameAncestors}; form-action 'self'`;
+await writeFile(path.join(dist, '_headers'), `/*\n  Content-Security-Policy: ${csp}\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n  Cache-Control: public, max-age=0, must-revalidate\n/config.json\n  Cache-Control: no-store\n`);
 await writeFile(path.join(dist, '_redirects'), '/forum / 302\n');
 console.log(`${release ? 'Release' : 'Preview'} built: ${dist}`);
 console.log(`Supabase: ${config.supabaseUrl ? 'configured' : 'not connected'}; registration: ${config.registrationEnabled ? 'open' : 'closed'}`);

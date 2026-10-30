@@ -8,23 +8,67 @@
   if (HOSTED_FORUM_URL) {
     const url = new URL(HOSTED_FORUM_URL);
     if (url.protocol !== 'https:' || url.username || url.password) return;
-    // The hosted community remains available while the extension store is paused.
+    // Keep the remote site isolated from dashboard accounts and bridge credentials.
     const node = (tag, attrs, children) => {
       const element = document.createElement(tag);
       for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
       for (const child of [children].flat()) element.append(child instanceof Node ? child : document.createTextNode(child));
       return element;
     };
-    const refresh = () => root.replaceChildren(
-      node('header', { class: 'mp-head forum-header' }, node('div', {}, [
-        node('div', { class: 'mp-eyebrow' }, 'DATA COMMUNITY'),
-        node('h1', {}, 'People behind the dashboards.'),
-        node('p', { class: 'mp-muted' }, 'The community opens in your browser. Your online account and discussions are available across devices.'),
-      ])),
-      node('a', { class: 'mp-btn mp-btn-primary', href: url.href, target: '_blank', rel: 'noopener noreferrer' }, 'Open the community forum'),
-    );
-    window.ForumUI = { refresh, shared: () => true, hosted: () => true,
-      openHosted: () => window.open(url.href, '_blank', 'noopener,noreferrer') };
+    const embedUrl = new URL(url);
+    embedUrl.searchParams.set('embed', '1');
+    let frame, status, timer;
+    const close = () => {
+      clearTimeout(timer);
+      root.replaceChildren();
+      frame = status = null;
+      root.removeAttribute('aria-busy');
+    };
+    window.addEventListener('message', event => {
+      if (!frame || event.origin !== url.origin || event.source !== frame.contentWindow ||
+          event.data?.type !== 'data:forum:ready') return;
+      clearTimeout(timer);
+      status.hidden = true;
+      root.setAttribute('aria-busy', 'false');
+    });
+    const load = () => {
+      clearTimeout(timer);
+      status.hidden = false;
+      status.textContent = 'Loading community...';
+      root.setAttribute('aria-busy', 'true');
+      timer = setTimeout(() => {
+        status.textContent = 'The forum has not connected. Try Reload, or choose Open in browser.';
+        root.setAttribute('aria-busy', 'false');
+      }, 15000);
+      frame.src = embedUrl.href;
+    };
+    const refresh = () => {
+      if (!document.getElementById('panel-forum').classList.contains('active') ||
+          !SidebarView.visible('forum') || frame?.isConnected) return;
+      root.classList.add('forum-hosted');
+      const reload = node('button', { class: 'mp-btn', type: 'button', 'aria-label': 'Reload forum' }, 'Reload');
+      reload.addEventListener('click', load);
+      status = node('p', { class: 'forum-embed-status', role: 'status', 'aria-live': 'polite' }, 'Loading community...');
+      frame = node('iframe', {
+        class: 'forum-embed', title: 'DATA community forum', referrerpolicy: 'no-referrer',
+        sandbox: 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox',
+      }, []);
+      // An iframe load event also fires on blocked pages. Only the site's reply
+      // confirms that it loaded; no private state is sent across this boundary.
+      frame.addEventListener('load', () => frame?.contentWindow?.postMessage({ type: 'data:forum:connect' }, url.origin));
+      root.replaceChildren(
+        node('header', { class: 'forum-embed-toolbar' }, [
+          node('h1', {}, 'Community Forum'),
+          node('div', { class: 'mp-actions' }, [reload,
+            node('a', { class: 'mp-btn', href: url.href, target: '_blank', rel: 'noopener noreferrer' }, 'Open in browser'),
+          ]),
+        ]),
+        status,
+        node('div', { class: 'forum-embed-stage' }, frame),
+      );
+      load();
+    };
+    window.ForumUI = { refresh, close, shared: () => true, hosted: () => true };
     if (location.hash === '#forum') {
       if (SidebarView.visible('forum')) showPanel('forum');
       else openSettingsTab('view');

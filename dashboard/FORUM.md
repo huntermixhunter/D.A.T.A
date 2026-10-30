@@ -1,8 +1,39 @@
 # DATA Community Forum
 
-## Hosted website: 2026-10-29
+## Embedded dashboard view: 2026-10-30, website published
 
-The optional Forum navigation entry now opens the public community in the
+The Forum page now embeds the hosted community instead of opening a new tab.
+It loads only after the enabled page is opened. Switching dashboard pages keeps
+the same frame, discussion, sign-in, and unfinished reply. Disabling Community
+Forum in Settings removes the frame. Reload is explicit, and Open in browser
+remains available if the connection or the browser's embedded sign-in fails.
+
+The hosted build recognizes `?embed=1` inside a frame, removes the website header
+and footer, and skips the background video. Its CSP permits embedding only by
+localhost and 127.0.0.1 dashboards, on their configured HTTP or HTTPS port.
+Other website origins remain blocked. The sandbox prevents top-level navigation;
+the dashboard shares no private state, credentials, or referrer with the forum.
+A source- and origin-checked readiness message distinguishes a working page from
+a blocked frame. Missing replies produce a timeout notice and a retry action.
+
+The owner approved publication on 2026-10-30. The public website now permits
+local dashboard frames, served by deployment
+`1df31608-21af-46cc-a182-32b7e7d386ca`. Live checks passed for embedded discussions,
+readiness, retention across page switches, reload, standalone access, and
+1440/390/320px layouts, with no page errors or hosted writes. All 11 public assets
+match the frozen build. Evidence: `build/forum-embed-checks/live-assets.json` and
+`live-browser.json`. DATA v1.0.63 includes the desktop integration.
+
+`python dashboard/tests/hosted_forum_browser.py` passed against the release build
+with local SQL and stubbed Auth/CAPTCHA. Coverage includes embedded sign-in,
+posting, replies, draft retention, settings persistence, disabled-page cleanup,
+foreign-origin blocking, forged readiness messages, failed loads and retry,
+and 320/390/768/1440px layouts. No hosted writes or emails were made. Screenshots
+and verification output are in `build/forum-embed-checks/`.
+
+## Hosted website launch: 2026-10-29
+
+The original optional Forum navigation entry opened the public community in the
 browser at:
 
 https://forum.magimatix.com
@@ -10,8 +41,8 @@ https://forum.magimatix.com
 The website uses Cloudflare Pages and Supabase. Public browsing and registration
 are live following the owner's explicit activation approval on 2026-10-29.
 The email provider's free plan, public signup, confirmation delivery, password
-login, and password recovery are verified. The dashboard keeps an explicit link
-available if a browser blocks automatic opening. Community accounts are managed on that website,
+login, and password recovery are verified. That version kept an explicit link
+available if a browser blocked automatic opening. Community accounts are managed on that website,
 separately from local dashboard and Marketplace accounts. Nothing private was
 uploaded. These dashboard changes ship in DATA v1.0.58.
 

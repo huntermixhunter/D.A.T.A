@@ -2439,6 +2439,65 @@ button.matrix-file-card:hover,
    one-cell grid with no splitter. Honor the hidden attribute explicitly. */
 .chat-pane[hidden] { display: none; }
 
+.pane-move-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-5);
+  cursor: grab;
+  touch-action: none;
+}
+.pane-move-handle:disabled { display: none; }
+.pane-move-handle:hover,
+.pane-move-handle:focus-visible {
+  color: var(--data-orange);
+  border-color: var(--data-orange);
+  background: var(--surf-ctl-hi);
+}
+.pane-move-handle:focus-visible { outline: 2px solid var(--data-orange); outline-offset: 2px; }
+.chats-reorderable .chat-pane-header { cursor: grab; touch-action: none; }
+.chats-reorderable .pane-name,
+.chats-reorderable .pane-path { user-select: none; }
+body.chat-pane-moving,
+body.chat-pane-moving * { cursor: grabbing !important; user-select: none !important; }
+body.chat-pane-moving .chat-splitter { pointer-events: none; }
+.chat-pane.pane-moving { opacity: 0.55; }
+.chat-pane.pane-drop-target { position: relative; }
+.chat-pane.pane-drop-target::after {
+  content: 'MOVE HERE';
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--data-orange);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--data-orange);
+  font: 700 12px var(--font-mono);
+  letter-spacing: 0.12em;
+  pointer-events: none;
+}
+.pane-move-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  .pane-move-handle { width: 44px; height: 44px; flex-basis: 44px; }
+}
+
 /* Pane header — hidden when only one pane */
 .chat-pane-header {
   display: flex;
