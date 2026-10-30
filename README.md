@@ -308,8 +308,8 @@ completely blank memory.
 - **AI Connectors** — hardware scan, one-click local-model install (via Ollama), and
   cloud-provider connect; populates the main-channel model menu live
 - **Neural Matrix** — a live node-graph of the system: skills, memory, crew
-- **System vitals** — engine gauge and subsystem bars driven by real CPU/RAM/GPU
-  metrics, with a Master Systems Display
+- **System vitals**: available RAM, battery charge, free disk space, and dashboard
+  response time, with hover explanations and a detailed systems display
 
 ## License
 

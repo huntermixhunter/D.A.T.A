@@ -37,7 +37,14 @@ views. You move between them from the left rail / view switcher.
 | **Standing orders** | Cron-scheduled AI tasks — briefings, checks, refreshes that fire on their own. |
 | **AI Connectors** | Pick the "brains." Scans your hardware, recommends and installs local models, and connects cloud providers (Claude / Codex / Gemini). Whatever you connect here is what the model menu offers. |
 | **Neural / Positronic Matrix** | A live node-graph of the system: skills, memory nodes, crew. The Memory Banks are a hub inside it. |
-| **System vitals** | Engine gauge and subsystem bars driven by real CPU / RAM / GPU metrics. |
+| **System vitals** | Available RAM, battery charge, free disk space, and dashboard response time. Hover, focus, or tap a reading for its meaning and warning thresholds. |
+
+The readings describe the computer running DATA. RAM FREE is working memory
+available for apps, DISK FREE is storage available for files, and RESPONSE is
+the time for your browser to get a reply from the dashboard server. BATTERY
+shows actual charge and is hidden when no battery sensor is present. Missing
+measurements show N/A; disconnected or outdated readings show STALE. A slow
+response check shows TIMEOUT and retries automatically.
 
 **Panel header controls** (top of the main channel):
 - **Agent dropdown** — pick which crew member answers on the main channel.

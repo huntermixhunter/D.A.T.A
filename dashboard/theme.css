@@ -6849,3 +6849,63 @@ body.theme-minimal .settings-toggle-cap:hover {
 .chat-header-restore:focus-visible { background: var(--surf-ctl-hi, #141428); }
 .chat-header-restore:focus-visible { outline: 2px solid var(--data-orange); outline-offset: 1px; }
 .chat-header-restore[hidden] { display: none; }
+
+
+/* Useful hardware readings with hover, focus and touch explanations. */
+body[data-marketplace-preview].vitals-preview #rail-left > .sidebar-section:has([data-health-readouts]) {
+  display: block !important;
+}
+body[data-marketplace-preview].vitals-preview #ships-health-widget,
+body[data-marketplace-preview].vitals-preview [data-sidebar-item="uptime"],
+body[data-marketplace-preview].vitals-preview [data-sidebar-item="remote-access"] { display: none !important; }
+.health-readouts { gap: 4px; }
+.health-readout {
+  --health-color: var(--ink-5);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-height: 36px;
+  padding: 5px 3px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: left;
+  cursor: help;
+}
+.health-readout:hover, .health-readout:focus-visible { background: var(--surf-ctl-hi); }
+.health-readout:focus-visible { outline: 2px solid var(--data-blue); outline-offset: 2px; }
+.health-readout-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.health-readout-label { font-size: 10px; letter-spacing: 0.04em; }
+.health-readout-value { color: var(--health-color); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.health-readout-track { height: 4px; width: 100%; background: var(--surf-track); border-radius: 2px; overflow: hidden; }
+.health-readout-fill { display: block; width: 0; height: 100%; background: var(--health-color); border-radius: inherit; transition: width 350ms ease; }
+.health-readout[data-severity="good"] { --health-color: var(--data-green); }
+.health-readout[data-severity="warning"] { --health-color: var(--data-yellow); }
+.health-readout[data-severity="critical"] { --health-color: var(--data-red); }
+.health-readout-tooltip {
+  position: fixed;
+  z-index: 30000;
+  width: 300px;
+  max-width: calc(100vw - 20px);
+  padding: 12px 14px;
+  border: 1px solid var(--edge-5);
+  border-radius: 6px;
+  background: var(--surf-card);
+  color: var(--ink-1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  font: 13px/1.5 var(--font-mono);
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+.health-readout-tooltip[hidden] { display: none; }
+.health-readout[hidden] { display: none; }
+@media (pointer: coarse) {
+  .health-readout { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .health-readout-fill { transition: none; }
+}

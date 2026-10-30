@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=dark-themes-20261029" />
+  <link rel="stylesheet" href="theme.css?v=health-readouts-20261029c" />
   <link rel="stylesheet" href="skill_search.css?v=1" />
   <link rel="stylesheet" href="advanced_tools.css?v=1" />
   <link rel="stylesheet" href="remote_access.css?v=1" />
@@ -103,7 +103,7 @@
         <div class="sidebar-section">
           <div class="sidebar-widget" data-sidebar-item="vitals" data-sidebar-label="System vitals">
             <div class="section-label ships-health-header">
-              <span>SHIP'S VITALS</span>
+              <span>SYSTEM VITALS</span>
               <span class="alert-dot green" id="alert-dot" title="Alert status — click ship to expand"></span>
             </div>
             <div class="ships-health" id="ships-health-widget" onclick="openShipModal()" title="Click for full Master Systems Display">
@@ -143,19 +143,23 @@
               </div>
             </div>
           </div>
-          <div class="neural-bars ships-bars" data-sidebar-item="hull-shields" data-sidebar-label="Hull &amp; Shields">
-            <div class="neural-bar-row"><span>HULL</span>
-              <div class="bar-track"><div class="bar-fill green" id="hull-bar" style="width:100%"></div></div>
-            </div>
-            <div class="neural-bar-row"><span>SHIELDS</span>
-              <div class="bar-track"><div class="bar-fill blue" id="shield-bar" style="width:100%"></div></div>
-            </div>
-            <div class="neural-bar-row"><span>SIF</span>
-              <div class="bar-track"><div class="bar-fill yellow" id="sif-bar" style="width:100%"></div></div>
-            </div>
-            <div class="neural-bar-row"><span>DAMP</span>
-              <div class="bar-track"><div class="bar-fill orange" id="damp-bar" style="width:100%"></div></div>
-            </div>
+          <div class="neural-bars ships-bars health-readouts" data-health-readouts data-battery-full="100" data-sidebar-item="hull-shields" data-sidebar-label="System health readings">
+            <button type="button" class="health-readout" data-health-metric="memory" data-severity="unknown" aria-label="RAM FREE: waiting for live data. Show explanation.">
+              <span class="health-readout-head"><span class="health-readout-label">RAM FREE</span><span class="health-readout-value">WAIT</span></span>
+              <span class="health-readout-track" aria-hidden="true"><span class="health-readout-fill"></span></span>
+            </button>
+            <button type="button" class="health-readout" data-health-metric="battery" data-severity="unknown" aria-label="BATTERY: waiting for live data. Show explanation.">
+              <span class="health-readout-head"><span class="health-readout-label">BATTERY</span><span class="health-readout-value">WAIT</span></span>
+              <span class="health-readout-track" aria-hidden="true"><span class="health-readout-fill"></span></span>
+            </button>
+            <button type="button" class="health-readout" data-health-metric="disk" data-severity="unknown" aria-label="DISK FREE: waiting for live data. Show explanation.">
+              <span class="health-readout-head"><span class="health-readout-label">DISK FREE</span><span class="health-readout-value">WAIT</span></span>
+              <span class="health-readout-track" aria-hidden="true"><span class="health-readout-fill"></span></span>
+            </button>
+            <button type="button" class="health-readout" data-health-metric="response" data-severity="unknown" aria-label="RESPONSE: waiting for live data. Show explanation.">
+              <span class="health-readout-head"><span class="health-readout-label">RESPONSE</span><span class="health-readout-value">WAIT</span></span>
+              <span class="health-readout-track" aria-hidden="true"><span class="health-readout-fill"></span></span>
+            </button>
           </div>
           <div class="status-row" data-sidebar-item="uptime" data-sidebar-label="Uptime" style="margin-top:6px;">
             <span class="status-label">UPTIME</span>
@@ -1427,7 +1431,7 @@
       toggleRail(e.key === 'ArrowLeft' ? 'left' : 'right');
     });
   </script>
-  <script src="app.js?v=ui-sounds-20261029"></script>
+  <script src="app.js?v=health-readouts-20261029c"></script>
   <script src="advanced_tools.js?v=1"></script>
   <script src="skill_search.js?v=1"></script>
   <script src="remote_access.js?v=1"></script>

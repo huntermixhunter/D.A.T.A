@@ -7239,40 +7239,191 @@ let _alertReasonStore = [];
 function _composeAlertReasons(h) {
   const reasons = [];
   if (h.shields_down) reasons.push('Shields down, system memory (RAM) at full capacity.');
-  if (typeof h.hull === 'number' && h.hull < 60) reasons.push(`Hull integrity critical (${Math.round(h.hull)}%), CPU load sustained.`);
-  if (typeof h.sif  === 'number' && h.sif  < 60) reasons.push(`SIF critical (${Math.round(h.sif)}%), disk near full.`);
-  if (typeof h.damp === 'number' && h.damp < 60) reasons.push(`Dampers critical (${Math.round(h.damp)}%), event loop lagging.`);
+  if (typeof h.hull === 'number' && h.hull < 60) reasons.push(`Recent tools: only ${Math.round(h.hull)}% succeeded.`);
+  if (typeof h.sif  === 'number' && h.sif  < 60) reasons.push(`Storage low (${h.disk_free_gb} GB free).`);
+  if (typeof h.damp === 'number' && h.damp < 60) reasons.push('System sampling is delayed under load.');
   for (const r of _alertReasonStore) if (!reasons.includes(r)) reasons.push(r);
   return reasons;
 }
 
-function _setBar(id, pct) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
-}
-function _alertClass(pct) {
-  if (pct < 60) return 'red';
-  if (pct < 90) return 'yellow';
-  return 'green';
-}
-function _setBarColor(id, pct) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.remove('orange', 'yellow', 'blue', 'green', 'red');
-  // Map subsystem severity to existing bar-fill color tokens.
-  const sev = _alertClass(pct);
-  if      (sev === 'red')    el.classList.add('orange'); // we use 'orange' slot but recolor below
-  else if (sev === 'yellow') el.classList.add('yellow');
-  else                       el.classList.add('green');
-  if (sev === 'red') {
-    el.style.background = 'var(--data-red)';
-    el.style.boxShadow  = '0 0 6px var(--data-red)';
-  } else {
-    el.style.background = '';
-    el.style.boxShadow  = '';
+/* Hardware readouts. Kept identical in both dashboard distributions. */
+// Opt-in local preview: only hardware telemetry uses the running local server.
+const _vitalsPreview = document.body.hasAttribute('data-marketplace-preview') &&
+  ['localhost', '127.0.0.1'].includes(location.hostname) &&
+  new URLSearchParams(location.search).get('vitals') === '1';
+document.body.classList.toggle('vitals-preview', _vitalsPreview);
+const HEALTH_API_BASE = _vitalsPreview ? 'http://127.0.0.1:7777' : API_BASE;
+
+function describeHealthReadouts(h = {}, response = { state: 'waiting' }, batteryFull = 100) {
+  const number = value => typeof value === 'number' && Number.isFinite(value);
+  const percent = value => number(value) && value >= 0 && value <= 100;
+  const missing = help => ({ value: 'N/A', percent: null, severity: 'unknown', help });
+  const metrics = {
+    memory: missing('RAM is the working memory available for apps on the computer running the dashboard. No memory reading is available.'),
+    battery: missing('Battery charge on the computer running the dashboard. No battery sensor is available; this is normal on a desktop.'),
+    disk: missing('Free storage on the drive containing the dashboard. No storage reading is available.'),
+    response: missing('Time for this browser to get a reply from the dashboard server. Waiting for the first response check.'),
+  };
+  if (percent(h.ram) && number(h.ram_total_gb) && h.ram_total_gb > 0) {
+    const freePct = 100 - h.ram;
+    const free = h.ram_total_gb * freePct / 100;
+    metrics.memory = {
+      value: `${free.toFixed(1)} GB`, percent: freePct,
+      severity: freePct < 3 ? 'critical' : freePct < 10 ? 'warning' : 'good',
+      help: `${free.toFixed(1)} GB of ${h.ram_total_gb.toFixed(1)} GB of RAM available for apps on the computer running the dashboard. The bar shows available working memory. Below 10% free warns; below 3% is critical. Close unused apps if low.`,
+    };
   }
+  if (percent(h.disk_used_pct) && number(h.disk_total_gb) && h.disk_total_gb > 0 &&
+      number(h.disk_free_gb) && h.disk_free_gb >= 0 && h.disk_free_gb <= h.disk_total_gb) {
+    const freePct = 100 - h.disk_used_pct;
+    metrics.disk = {
+      value: `${h.disk_free_gb.toFixed(1)} GB`, percent: freePct,
+      severity: freePct < 8 ? 'critical' : freePct < 20 ? 'warning' : 'good',
+      help: `${h.disk_free_gb.toFixed(1)} GB free of ${h.disk_total_gb.toFixed(1)} GB on the drive containing the dashboard. The bar shows actual free space. Below 20% free warns; below 8% is critical. Free space before large downloads or installs.`,
+    };
+  }
+  if (percent(h.battery_pct)) {
+    const reserve = Math.min(100, h.battery_pct / batteryFull * 100);
+    const power = h.battery_plugged === true ? 'Connected to power.'
+      : h.battery_plugged === false ? 'Running on battery.' : 'Power connection unknown.';
+    metrics.battery = {
+      value: `${Math.round(reserve)}%`, percent: reserve,
+      severity: h.battery_plugged !== false ? 'good'
+        : h.battery_pct <= 7 ? 'critical' : h.battery_pct <= 20 ? 'warning' : 'good',
+      help: `${Math.round(h.battery_pct)}% actual battery charge on the computer running the dashboard. ${power} ` +
+        (batteryFull < 100 ? `The reserve bar reaches 100% at ${batteryFull}% charge to match the charging limit. ` : 'The bar shows actual charge. ') +
+        'Low-charge warnings apply when unplugged. No battery time estimate is assumed.',
+    };
+  }
+  if (response.state === 'ready' && number(response.ms) && response.ms >= 0) {
+    metrics.response = {
+      value: response.ms < 1 ? '<1 ms' : `${Math.round(response.ms)} ms`,
+      percent: Math.min(100, response.ms / 10),
+      severity: response.ms >= 1000 ? 'critical' : response.ms >= 250 ? 'warning' : 'good',
+      help: `Time to get a reply from the dashboard server, checked about every 5 seconds. Includes network delay on remote connections. Lower is better; the bar fills at 1,000 ms. Amber starts at 250 ms, red at 1,000 ms. This measures dashboard connectivity.`,
+    };
+  } else if (response.state === 'offline') {
+    metrics.response = {
+      value: 'NO REPLY', percent: null, severity: 'critical',
+      help: 'The dashboard server did not return a successful health check. Check that it is running and your connection is available. Retrying automatically.',
+    };
+  } else if (response.state === 'timeout') {
+    metrics.response = {
+      value: 'TIMEOUT', percent: null, severity: 'warning',
+      help: 'The response check took more than 4 seconds. A busy browser or slow connection can delay this check even while live readings are arriving. Retrying automatically.',
+    };
+  } else if (response.state === 'waiting') {
+    metrics.response.value = 'WAIT';
+  }
+  return metrics;
 }
+
+const HealthReadouts = (() => {
+  const group = document.querySelector('[data-health-readouts]');
+  if (!group) return { update() {}, disconnect() {}, start() {} };
+  const rows = Array.from(group.querySelectorAll('[data-health-metric]'));
+  const batteryFull = Number(group.dataset.batteryFull) || 100;
+  let snapshot = null, receivedAt = 0, disconnected = false, started = false;
+  let response = { state: 'waiting' }, metrics = {}, activeRow = null, closeTimer;
+  const tip = document.createElement('div');
+  tip.id = 'health-readout-tooltip';
+  tip.className = 'health-readout-tooltip';
+  tip.setAttribute('role', 'tooltip');
+  tip.hidden = true;
+  document.body.appendChild(tip);
+
+  function hideTip() {
+    clearTimeout(closeTimer);
+    if (activeRow) activeRow.removeAttribute('aria-describedby');
+    activeRow = null;
+    tip.hidden = true;
+  }
+  function showTip(row, refresh = false) {
+    if (!refresh) clearTimeout(closeTimer);
+    if (activeRow && activeRow !== row) activeRow.removeAttribute('aria-describedby');
+    activeRow = row;
+    row.setAttribute('aria-describedby', tip.id);
+    tip.textContent = metrics[row.dataset.healthMetric]?.help || '';
+    tip.hidden = false;
+    const rect = row.getBoundingClientRect();
+    const width = tip.offsetWidth, height = tip.offsetHeight;
+    let left = rect.right + 12;
+    if (left + width > innerWidth - 10) left = rect.left - width - 12;
+    tip.style.left = `${Math.max(10, Math.min(left, innerWidth - width - 10))}px`;
+    tip.style.top = `${Math.max(10, Math.min(rect.top, innerHeight - height - 10))}px`;
+  }
+  function scheduleHide() {
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => {
+      if (document.activeElement !== activeRow) hideTip();
+    }, 150);
+  }
+  for (const row of rows) {
+    row.addEventListener('mouseenter', () => showTip(row));
+    row.addEventListener('mouseleave', scheduleHide);
+    row.addEventListener('focus', () => showTip(row));
+    row.addEventListener('blur', hideTip);
+    row.addEventListener('click', () => showTip(row));
+  }
+  tip.addEventListener('mouseenter', () => clearTimeout(closeTimer));
+  tip.addEventListener('mouseleave', scheduleHide);
+  document.addEventListener('pointerdown', event => {
+    if (!group.contains(event.target) && !tip.contains(event.target)) hideTip();
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') hideTip(); });
+  document.addEventListener('scroll', hideTip, true);
+  window.addEventListener('resize', hideTip);
+
+  function render() {
+    metrics = describeHealthReadouts(snapshot || {}, response, batteryFull);
+    const stale = disconnected || (snapshot && performance.now() - receivedAt > 8000);
+    for (const row of rows) {
+      const key = row.dataset.healthMetric;
+      let metric = metrics[key];
+      if (key !== 'response' && (!snapshot || stale)) {
+        metric = { ...metric, value: stale ? 'STALE' : 'WAIT', percent: null, severity: 'unknown',
+          help: `${stale ? 'Live readings are disconnected or more than 8 seconds old. Reconnecting automatically. Last reading details: ' : 'Waiting for live readings from the dashboard server. '}${metric.help}` };
+        metrics[key] = metric;
+      }
+      row.hidden = key === 'battery' && snapshot?.battery_pct === null;
+      if (row.hidden && activeRow === row) hideTip();
+      row.dataset.severity = metric.severity;
+      row.querySelector('.health-readout-value').textContent = metric.value;
+      row.querySelector('.health-readout-fill').style.width = `${metric.percent ?? 0}%`;
+      row.setAttribute('aria-label', `${row.querySelector('.health-readout-label').textContent}: ${metric.value}. Show explanation.`);
+    }
+    if (activeRow) showTip(activeRow, true);
+  }
+  async function probe() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const began = performance.now();
+    try {
+      const result = await fetch(`${HEALTH_API_BASE}/health`, { cache: 'no-store', signal: controller.signal });
+      if (!result.ok || (await result.json()).status !== 'online') throw new Error('Unavailable');
+      response = { state: 'ready', ms: performance.now() - began };
+    } catch (_) {
+      response = { state: controller.signal.aborted ? 'timeout' : 'offline' };
+    } finally {
+      clearTimeout(timeout);
+      render();
+      setTimeout(probe, 5000);
+    }
+  }
+  render();
+  return {
+    update(h) { snapshot = h; receivedAt = performance.now(); disconnected = false; render(); },
+    disconnect() { disconnected = true; render(); },
+    start() {
+      if (started) return;
+      started = true;
+      probe();
+      setInterval(render, 1000);
+    },
+  };
+})();
+
+// End hardware readouts.
 
 // ── Sparkline ring buffers ─────────────────────────────────────
 // Each metric keeps the last SPARK_LEN samples. Buffers fill regardless
@@ -7329,36 +7480,22 @@ function _setValSev(el, pct, warn, crit) {
   else if (pct >= warn) el.classList.add('warn');
 }
 
-// Battery -> shield strength. The Captain's laptop tops out at 80% charge,
-// so an 80% cell reads as 100% shields; anything above clamps to full.
-// Returns null on desktops with no battery sensor.
-const BATTERY_FULL_PCT = 80;
+// Actual battery charge; unavailable on computers without a battery sensor.
+const BATTERY_FULL_PCT = 100;
 function _batteryShield(batteryPct) {
   if (typeof batteryPct !== 'number') return null;
   return Math.min(100, Math.max(0, Math.round(batteryPct / BATTERY_FULL_PCT * 100)));
 }
 
-function _applyShipsHealth(h) {
+function _applyShipsHealth(h, live = true) {
   _lastShipsHealth = h;
+  if (live) HealthReadouts.update(h);
 
-  // ── Sidebar widget (impulse + engine values, Hull/Shield/SIF/Damp bars, alert dot) ──
+  // ── Sidebar widget (impulse + engine values, hardware readouts, alert dot) ──
   const engineEl = document.getElementById('engine-value');
   if (engineEl) engineEl.textContent = Math.round(h.engine ?? 0);
   const impEl = document.getElementById('impulse-value');
   if (impEl) impEl.textContent = `${Math.round(h.impulse ?? 0)}%`;
-
-  // SHIELDS tracks the laptop battery (scaled so a full 80% cell = 100%), matching
-  // the MSD "SHIELD STRENGTH · main battery" reading. Falls back to the bridge's
-  // RAM-derived h.shield on desktops with no battery sensor so the bar still moves.
-  const _shieldBar = _batteryShield(h.battery_pct) ?? h.shield;
-  _setBar('hull-bar',   h.hull);
-  _setBar('shield-bar', _shieldBar);
-  _setBar('sif-bar',    h.sif);
-  _setBar('damp-bar',   h.damp);
-  _setBarColor('hull-bar',   h.hull);
-  _setBarColor('shield-bar', _shieldBar);
-  _setBarColor('sif-bar',    h.sif);
-  _setBarColor('damp-bar',   h.damp);
 
   const dot    = document.getElementById('alert-dot');
   const widget = document.getElementById('ships-health-widget');
@@ -7410,7 +7547,7 @@ function _applyShipsHealth(h) {
   _pushSpark('gpu', (typeof h.engine_load === 'number') ? h.engine_load : 0);
   _pushSpark('net', Math.max(h.net_in_bps || 0, h.net_out_bps || 0));
   _pushSpark('tps', h.tps);
-  // Shield strength — laptop battery scaled so a full (80%) cell = 100%.
+  // Battery charge as reported by the system.
   const _shieldPct = _batteryShield(h.battery_pct);
   _pushSpark('battery', _shieldPct == null ? 0 : _shieldPct);
 
@@ -7454,7 +7591,7 @@ function _applyShipsHealth(h) {
       else if (_shieldPct != null && _shieldPct <= 50) shieldEl.classList.add('warn');
     }
     set('msd-batt-state', h.battery_pct == null
-      ? 'NO POWER CELL'
+      ? 'NO BATTERY SENSOR'
       : `${Math.round(h.battery_pct)}% CELL · ${h.battery_plugged ? 'CHARGING' : 'ON BATTERY'}`);
 
     // Disk
@@ -7704,12 +7841,13 @@ function _arrangeMsdCards() {
 _arrangeMsdCards();   // place cards for the theme active at load
 
 async function subscribeShipsHealth() {
+  HealthReadouts.start();
   if (_shipsHealthSSE) { try { _shipsHealthSSE.close(); } catch (_) {} }
   const controller = new AbortController();
   _shipsHealthSSE = { close: () => controller.abort() };
   try {
     // Fetch carries the access-key header. Native EventSource cannot set it.
-    const response = await fetch(`${API_BASE}/vitals_fast`, { signal: controller.signal });
+    const response = await fetch(`${HEALTH_API_BASE}/vitals_fast`, { signal: controller.signal });
     if (!response.ok || !response.body) throw new Error('Status stream unavailable');
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -7728,7 +7866,10 @@ async function subscribeShipsHealth() {
     }
   } catch (_) { /* Offline connections retry below. */ }
   finally {
-    if (!controller.signal.aborted) setTimeout(subscribeShipsHealth, 3000);
+    if (!controller.signal.aborted) {
+      HealthReadouts.disconnect();
+      setTimeout(subscribeShipsHealth, 3000);
+    }
   }
 }
 
@@ -7738,7 +7879,7 @@ function openShipModal() {
   m.classList.add('open');
   m.setAttribute('aria-hidden', 'false');
   _shipsModalOpen = true;
-  if (_lastShipsHealth) _applyShipsHealth(_lastShipsHealth); // immediate paint of live values
+  if (_lastShipsHealth) _applyShipsHealth(_lastShipsHealth, false); // Repaint without refreshing the telemetry timestamp.
   _startMsdPoll();                                            // begin /msd polling for heavy data
 
   // Leader lines: defer one frame so the grid lays out before we measure.
@@ -10212,7 +10353,7 @@ addLog('DATA interface online');
 fetchMode();
 fetchVitals();
 setInterval(fetchVitals, 30000);
-subscribeShipsHealth();   // /vitals_fast SSE → engine gauge + Hull/Shield/SIF/Damp bars + alert dot
+subscribeShipsHealth();   // /vitals_fast SSE → engine gauge + hardware readouts + alert dot
 // Quietly load the upgrades briefing on startup so the badge is correct
 loadBriefing();
 // Populate provider dropdown
