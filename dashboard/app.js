@@ -906,6 +906,7 @@ async function bootCaptains() {
     _captains = Array.isArray(data.users) ? data.users : [];
     _activeCaptain = data.active || (_captains[0] && _captains[0].id) || '';
     SidebarView.setProfile(_activeCaptain);
+    loadMatrixViewPreference();
     // With a single unnamed Captain there is nothing worth showing, so the
     // pill stays hidden. Once a nickname or picture is set in Settings →
     // Account it becomes the identity chip, and clicking it goes back there.
@@ -1053,6 +1054,7 @@ async function switchCaptain(uid) {
     const data = await res.json();
     _activeCaptain = data.active || uid;
     SidebarView.setProfile(_activeCaptain);
+    loadMatrixViewPreference();
     renderCaptainSwitcher();
     const menu = document.getElementById('captain-menu');
     if (menu) menu.hidden = true;
@@ -2330,6 +2332,15 @@ async function scanDir() {
 
 function renderMainMatrix() {
   const container = document.getElementById('matrix-graph');
+  if (simulation) simulation.stop();
+  if (_matrixPulseTimer) clearInterval(_matrixPulseTimer);
+  container.classList.toggle('matrix-card-grid', getMatrixView('graph') === 'grid');
+  if (getMatrixView('graph') === 'grid') {
+    renderMatrixCards(container, matrixNodes, node => {
+      if (node.path) openPath(node.path);
+    });
+    return;
+  }
   container.innerHTML = '';
   const w = container.clientWidth || 900;
   const h = container.clientHeight || 520;
@@ -2486,7 +2497,7 @@ function renderMainMatrix() {
   });
 
   // Pulse core node
-  setInterval(() => {
+  _matrixPulseTimer = setInterval(() => {
     nodeSel.filter(d => d.id === 'neural-core')
       .select('circle:last-of-type')
       .transition().duration(900)
@@ -2808,11 +2819,20 @@ function resetMatrix() {
 }
 
 function zoomMatrix(factor) {
+  const state = activeFileGraph();
+  if (state?.svg && state.zoom) {
+    state.svg.transition().duration(300).call(state.zoom.scaleBy, factor);
+    return;
+  }
+  if (currentMatrixTab !== 'graph') return;
   if (!matrixSvg || !matrixZoom) return;
   matrixSvg.transition().duration(300).call(matrixZoom.scaleBy, factor);
 }
 
 function fitMatrix() {
+  const state = activeFileGraph();
+  if (state?.fit) { state.fit(); return; }
+  if (currentMatrixTab !== 'graph') return;
   if (!matrixSvg || !matrixZoom) return;
   const container = document.getElementById('matrix-graph');
   const w = container.clientWidth;
@@ -2836,6 +2856,14 @@ function addMemoryNode() {
 let forceEnabled = true;
 function toggleForce() {
   playDataSound('confirm');
+  const state = activeFileGraph();
+  if (state?.simulation) {
+    state.frozen = !state.frozen;
+    if (state.frozen) state.simulation.stop();
+    else state.simulation.alpha(0.3).restart();
+    return;
+  }
+  if (currentMatrixTab !== 'graph') return;
   forceEnabled = !forceEnabled;
   if (simulation) {
     if (forceEnabled) simulation.alpha(0.3).restart();
@@ -3297,7 +3325,121 @@ function initMemory() {
 let currentMatrixTab = 'docs';
 let computerInitialized = false;
 let computerStack = [];  // directory history for "UP" navigation
-let computerSvg = null, computerZoom = null, computerSimulation = null;
+let _computerLoadId = 0;
+let _matrixPulseTimer = null;
+let _matrixViewPreference = null;
+const _fileGraphStates = new WeakMap();
+
+function getMatrixView(tab = currentMatrixTab) {
+  return _matrixViewPreference || (tab === 'docs' ? 'grid' : 'graph');
+}
+
+function matrixViewStorageKey() {
+  return 'data.matrixView.v1:' + (_activeCaptain || 'default');
+}
+
+function loadMatrixViewPreference() {
+  try {
+    const saved = localStorage.getItem(matrixViewStorageKey());
+    _matrixViewPreference = ['grid', 'graph'].includes(saved) ? saved : null;
+  } catch (_) { _matrixViewPreference = null; }
+  applyMatrixView();
+}
+
+function setMatrixView(view) {
+  if (!['grid', 'graph'].includes(view)) return;
+  _matrixViewPreference = view;
+  try { localStorage.setItem(matrixViewStorageKey(), view); } catch (_) {}
+  playDataSound('confirm');
+  applyMatrixView();
+}
+
+function activeFileGraph() {
+  const container = document.querySelector(`#msub-${currentMatrixTab} [data-file-graph]`);
+  return container && _fileGraphStates.get(container);
+}
+
+function stopFileGraph(container) {
+  const state = _fileGraphStates.get(container);
+  if (state?.simulation) state.simulation.stop();
+  if (state?.timer) clearTimeout(state.timer);
+  if (state?.svg) state.svg.interrupt();
+}
+
+function applyMatrixView() {
+  const tab = currentMatrixTab;
+  const view = getMatrixView(tab);
+  const panel = document.getElementById(`msub-${tab}`);
+  if (!panel) return;
+  panel.dataset.matrixView = view;
+  document.querySelectorAll('button[data-matrix-view]').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.matrixView === view));
+  });
+  if (tab === 'docs') {
+    document.getElementById('docs-project-grid').style.display = view === 'grid' ? '' : 'none';
+    document.getElementById('docs-graph').style.display = view === 'graph' ? '' : 'none';
+    if (docsSimulation) docsSimulation.stop();
+    if (view === 'graph' && docsLoaded) renderDocsGraph();
+  } else if (tab === 'graph') {
+    if (matrixInitialized && matrixNodes.length) renderMainMatrix();
+  } else {
+    const container = panel.querySelector('[data-file-graph]');
+    const state = container && _fileGraphStates.get(container);
+    if (state) renderComputerGraph(state.nodes, state.links, state.path, container, state.highlightName);
+  }
+}
+
+function renderMatrixCards(container, nodes, onOpen, highlightName = null) {
+  container.replaceChildren();
+  const entries = [...nodes].sort((a, b) => Number(!!b.hub) - Number(!!a.hub) ||
+    String(a.label).localeCompare(String(b.label), undefined, { numeric: true, sensitivity: 'base' }));
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'matrix-grid-empty';
+    empty.textContent = 'No items to display.';
+    container.appendChild(empty);
+    return;
+  }
+  entries.forEach(node => {
+    const card = document.createElement(node.path ? 'button' : 'div');
+    card.className = 'matrix-file-card';
+    card.dataset.nodeId = node.id;
+    if (node.path) {
+      card.type = 'button';
+      card.title = node.path;
+      card.addEventListener('click', () => onOpen(node));
+    }
+    const kind = document.createElement('span');
+    kind.className = 'matrix-file-kind';
+    kind.textContent = node.hub
+      ? (String(node.id).startsWith('drive-') ? 'DRIVE' : node.type === 'core' ? 'ROOT' : 'FOLDER')
+      : (node.ext || node.type || 'FILE').toUpperCase();
+    const name = document.createElement('span');
+    name.className = 'matrix-file-name';
+    name.textContent = node.label;
+    const detail = document.createElement('span');
+    detail.className = 'matrix-file-path';
+    detail.textContent = node.extra || node.path || '';
+    card.append(kind, name, detail);
+    if (highlightName && (node.label === highlightName || node.path?.split(/[/\\]/).pop() === highlightName)) {
+      card.classList.add('is-highlighted');
+      requestAnimationFrame(() => card.scrollIntoView({ block: 'nearest' }));
+    }
+    container.appendChild(card);
+  });
+}
+
+function openMatrixFileNode(node) {
+  if (!node.path) return;
+  if (node.hub) {
+    computerInitialized = true;
+    if (currentMatrixTab !== 'computer') switchMatrixTab('computer');
+    loadComputerDir(node.path);
+  } else {
+    openPath(node.path);
+    addLog(`Opening: ${node.label}`);
+  }
+}
 
 function switchMatrixTab(tab) {
   playDataSound('confirm');
@@ -3327,8 +3469,8 @@ function switchMatrixTab(tab) {
   // redraw on entry so the nodes visibly fan out, like the other graphs.
   if (tab === 'graph' && matrixNodes.length) {
     matrixNodes.forEach(n => { delete n.fx; delete n.fy; delete n.x; delete n.y; delete n.vx; delete n.vy; });
-    renderMainMatrix();
   }
+  applyMatrixView();
 }
 
 
@@ -3339,6 +3481,7 @@ function switchMatrixTab(tab) {
 // Empty = let the bridge fall back to its project dir (the DATA install folder).
 const DOCS_ROOT = '';
 let docsLoaded = false;
+let docsFolders = [];
 
 async function loadDocsProjects(force = false) {
   if (docsLoaded && !force) return;
@@ -3355,8 +3498,11 @@ async function loadDocsProjects(force = false) {
     const folders = (data.nodes || [])
       .filter(n => n.type === 'folder' && n.depth === 1)
       .sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
+    docsFolders = folders;
+    docsLoaded = true;
     if (!folders.length) {
       grid.innerHTML = '<div class="docs-empty">No project folders found.</div>';
+      if (getMatrixView('docs') === 'graph') renderDocsGraph();
       return;
     }
     grid.innerHTML = '';
@@ -3371,9 +3517,12 @@ async function loadDocsProjects(force = false) {
       grid.appendChild(card);
     });
     docsLoaded = true;
+    if (getMatrixView('docs') === 'graph') renderDocsGraph();
     addLog(`Documents: ${folders.length} projects available`);
   } catch (e) {
     grid.innerHTML = '<div class="docs-empty">Could not scan Documents — bridge offline?</div>';
+    document.getElementById('docs-graph').innerHTML = grid.innerHTML;
+    docsLoaded = false;
     addLog('Documents scan failed: ' + e.message);
   }
 }
@@ -3383,44 +3532,17 @@ async function loadDocsProjects(force = false) {
 // The card grid stays the default. The graph is the same force-directed
 // style as the Neural Matrix / Ship's Computer graphs: a central
 // DOCUMENTS hub with every project folder fanned out around it.
-let docsView = 'grid';
 let docsSvg = null, docsZoom = null, docsSimulation = null;
 
 function toggleDocsView() {
-  docsView = (docsView === 'grid') ? 'graph' : 'grid';
-  playDataSound('confirm');
-  const grid  = document.getElementById('docs-project-grid');
-  const graph = document.getElementById('docs-graph');
-  const btn   = document.getElementById('docs-view-toggle');
-  if (docsView === 'graph') {
-    if (grid)  grid.style.display  = 'none';
-    if (graph) graph.style.display = '';
-    if (btn)   btn.textContent = 'VIEW: GRAPH';
-    renderDocsGraph();
-  } else {
-    if (graph) graph.style.display = 'none';
-    if (grid)  grid.style.display  = '';
-    if (btn)   btn.textContent = 'VIEW: GRID';
-  }
+  setMatrixView(getMatrixView('docs') === 'grid' ? 'graph' : 'grid');
 }
 
-async function renderDocsGraph() {
+function renderDocsGraph() {
   const container = document.getElementById('docs-graph');
   if (!container) return;
-  container.innerHTML = '<div class="docs-empty">MAPPING DOCUMENTS…</div>';
-
-  let folders = [];
-  try {
-    const res = await fetch(`${API_BASE}/files?dir=${encodeURIComponent(DOCS_ROOT)}&depth=1`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    folders = (data.nodes || [])
-      .filter(n => n.type === 'folder' && n.depth === 1)
-      .sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
-  } catch (e) {
-    container.innerHTML = '<div class="docs-empty">Could not scan Documents — bridge offline?</div>';
-    return;
-  }
+  if (docsSimulation) docsSimulation.stop();
+  const folders = docsFolders;
   if (!folders.length) {
     container.innerHTML = '<div class="docs-empty">No project folders found.</div>';
     return;
@@ -3582,13 +3704,15 @@ async function initShipsComputer() {
 
 async function loadComputerDir(dirPath, highlightName = null) {
   const graphEl = document.getElementById('computer-graph');
+  const loadId = ++_computerLoadId;
+  stopFileGraph(graphEl);
+  _fileGraphStates.delete(graphEl);
+  graphEl.classList.remove('matrix-card-grid');
   const label = dirPath === COMPUTER_HOME ? 'THIS PC' : dirPath;
   graphEl.innerHTML = `<div class="matrix-loading">
     <div class="loading-spinner"></div>
     <div>SCANNING ${escapeHtml(label)}...</div>
   </div>`;
-
-  updateComputerBreadcrumb(dirPath);
 
   try {
     let data;
@@ -3596,15 +3720,21 @@ async function loadComputerDir(dirPath, highlightName = null) {
       const res = await fetch(`${API_BASE}/drives`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = await res.json();
-      addLog(`Ship's Computer: This PC — ${data.nodes.length - 1} drives`);
     } else {
       const res = await fetch(`${API_BASE}/files?dir=${encodeURIComponent(dirPath)}&depth=1`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = await res.json();
-      addLog(`Ship's Computer: ${data.nodes.length} nodes in ${dirPath.split('\\').pop() || dirPath}`);
     }
+    if (loadId !== _computerLoadId) return;
+    if (!Array.isArray(data.nodes) || !Array.isArray(data.links)) throw new Error(data.error || 'Invalid file listing');
+    const previousIndex = computerStack.lastIndexOf(dirPath);
+    if (previousIndex >= 0) computerStack = computerStack.slice(0, previousIndex + 1);
+    else computerStack.push(dirPath);
+    updateComputerBreadcrumb(dirPath);
     renderComputerGraph(data.nodes, data.links, dirPath, graphEl, highlightName);
+    addLog(`File browser: ${label}`);
   } catch (e) {
+    if (loadId !== _computerLoadId) return;
     graphEl.innerHTML = `<div class="matrix-loading">SCAN ERROR: ${escapeHtml(e.message)}</div>`;
   }
 }
@@ -3631,8 +3761,21 @@ function computerUp() {
 }
 
 function renderComputerGraph(nodes, links, currentDir, container, highlightName = null) {
-  if (!computerStack.includes(currentDir)) computerStack.push(currentDir);
-
+  stopFileGraph(container);
+  container.dataset.fileGraph = '';
+  const state = { nodes, links, path: currentDir, highlightName };
+  _fileGraphStates.set(container, state);
+  const tab = container.id === 'computer-graph' ? 'computer' : `ws${container.id.split('-').pop()}`;
+  const grid = getMatrixView(tab) === 'grid';
+  container.closest('.matrix-subpanel').dataset.matrixView = grid ? 'grid' : 'graph';
+  container.classList.toggle('matrix-card-grid', grid);
+  if (grid) {
+    const entries = currentDir === COMPUTER_HOME
+      ? nodes.filter(n => n.type === 'core' && n.path && n.path !== COMPUTER_HOME)
+      : nodes.filter(n => n.path !== currentDir);
+    renderMatrixCards(container, entries, openMatrixFileNode, highlightName);
+    return;
+  }
   container.innerHTML = '';
   const W = container.clientWidth || 900;
   const H = container.clientHeight || 500;
@@ -3643,20 +3786,20 @@ function renderComputerGraph(nodes, links, currentDir, container, highlightName 
     audio:   '#FF88AA', archive:'#FF4444', knowledge:'#99CCFF',
   };
 
-  computerSvg = d3.select(container).append('svg')
+  const computerSvg = state.svg = d3.select(container).append('svg')
     .attr('width', '100%').attr('height', '100%')
     .style('background', '#050505');
 
   const defs = computerSvg.append('defs');
-  defs.append('filter').attr('id', 'comp-glow')
+  defs.append('filter').attr('id', `comp-glow-${container.id}`)
     .append('feGaussianBlur').attr('stdDeviation', '2.5').attr('result', 'blur');
 
   const g = computerSvg.append('g');
-  computerZoom = d3.zoom().scaleExtent([0.1, 8])
+  const computerZoom = state.zoom = d3.zoom().scaleExtent([0.1, 8])
     .on('zoom', e => g.attr('transform', e.transform));
   computerSvg.call(computerZoom);
 
-  computerSimulation = d3.forceSimulation(nodes)
+  const computerSimulation = state.simulation = d3.forceSimulation(nodes)
     .force('link',   d3.forceLink(links).id(d => d.id).distance(d => d.source.hub ? 160 : 100))
     .force('charge', d3.forceManyBody().strength(d => d.hub ? -800 : -300).distanceMax(600))
     .force('center', d3.forceCenter(W / 2, H / 2))
@@ -3673,14 +3816,7 @@ function renderComputerGraph(nodes, links, currentDir, container, highlightName 
       .on('end',   (e, d) => { if (!e.active) computerSimulation.alphaTarget(0); d.fx = null; d.fy = null; }))
     .on('click', (e, d) => {
       e.stopPropagation();
-      if (d.hub && d.path) {
-        loadComputerDir(d.path);
-      } else if (!d.hub && d.path) {
-        // File node — open the FILE itself in its default app, not its
-        // parent folder. openPath() hits /open → os.startfile(path).
-        openPath(d.path);
-        addLog(`Opening: ${d.label}`);
-      }
+      openMatrixFileNode(d);
     });
 
   node.append('circle')
@@ -3703,8 +3839,8 @@ function renderComputerGraph(nodes, links, currentDir, container, highlightName 
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // Fit after settling, then highlight target node if requested
-  setTimeout(() => {
+  state.fit = () => {
+    if (!container.isConnected || _fileGraphStates.get(container) !== state) return;
     const bounds = g.node().getBBox();
     if (bounds.width && bounds.height) {
       const scale = Math.min(0.85, Math.min(W / bounds.width, H / bounds.height));
@@ -3713,7 +3849,12 @@ function renderComputerGraph(nodes, links, currentDir, container, highlightName 
       computerSvg.transition().duration(600)
         .call(computerZoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
     }
+  };
 
+  // Fit only this graph after settling, then highlight the requested item.
+  state.timer = setTimeout(() => {
+    if (!container.isConnected || _fileGraphStates.get(container) !== state) return;
+    state.fit();
     if (!highlightName) return;
     const targetNode = nodes.find(n =>
       n.label === highlightName ||
@@ -8704,7 +8845,7 @@ function addMatrixProjectTab(wsId, name, path, projectNodes) {
   const tab = document.createElement('button');
   tab.className = 'matrix-tab matrix-tab-project';
   tab.id = `mtab-ws${wsId}`;
-  tab.innerHTML = `${name} <button class="tab-close-x" title="Close workspace">✕</button>`;
+  tab.innerHTML = `${escapeHtml(name)} <button class="tab-close-x" title="Close workspace">✕</button>`;
   tab.querySelector('.tab-close-x').addEventListener('click', e => {
     e.stopPropagation();
     closeProjectWorkspace(wsId);
@@ -8721,25 +8862,24 @@ function addMatrixProjectTab(wsId, name, path, projectNodes) {
   controls.className = 'matrix-controls';
   controls.innerHTML = `
     <span style="font-family:var(--font-mono);font-size:10px;color:var(--data-teal);flex:1;
-      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${path}</span>
-    <button class="data-btn-sm blue" onclick="fitMatrix()">FIT</button>
-    <button class="data-btn-sm orange" onclick="zoomMatrix(1.4)">+</button>
-    <button class="data-btn-sm orange" onclick="zoomMatrix(0.7)">−</button>
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(path)}</span>
+    <button class="data-btn-sm blue" data-matrix-graph-only onclick="fitMatrix()">FIT</button>
+    <button class="data-btn-sm orange" data-matrix-graph-only onclick="zoomMatrix(1.4)">+</button>
+    <button class="data-btn-sm orange" data-matrix-graph-only onclick="zoomMatrix(0.7)">−</button>
   `;
   sub.appendChild(controls);
 
   const graphDiv = document.createElement('div');
   graphDiv.id = `ws-graph-${wsId}`;
-  graphDiv.style.cssText = 'flex:1;overflow:hidden;background:#020208;';
+  graphDiv.className = 'matrix-file-content';
+  graphDiv.dataset.fileGraph = '';
   sub.appendChild(graphDiv);
 
   // Insert subpanel into the matrix panel area
   const msub_computer = document.getElementById('msub-computer');
   msub_computer.parentElement.appendChild(sub);
 
-  if (projectNodes && projectNodes.length) {
-    setTimeout(() => loadProjectGraph(wsId, path, projectNodes), 50);
-  }
+  loadProjectGraph(wsId, path, projectNodes || []);
 }
 
 function loadProjectGraph(wsId, path, nodes) {
@@ -8920,6 +9060,8 @@ function closeProjectWorkspace(wsId) {
   }
   _workspaces.delete(wsId);
 
+  const graph = document.getElementById(`ws-graph-${wsId}`);
+  if (graph) { stopFileGraph(graph); _fileGraphStates.delete(graph); }
   document.getElementById(`mtab-ws${wsId}`)?.remove();
   document.getElementById(`msub-ws${wsId}`)?.remove();
 
@@ -12602,27 +12744,72 @@ async function openSystemVitalsWidget() {
 const _UPDATE_DISMISS_KEY = 'data.updateDismissedSig';
 let _pendingUpdate = null;
 let _updateApplying = false;
+let _settingsUpdateChecking = false;
+let _updateCheckId = 0;
+
+async function settingsCheckForDashboardUpdates() {
+  if (_settingsUpdateChecking || _updateApplying) return;
+  const button = document.getElementById('settings-update-check');
+  const status = document.getElementById('settings-update-status');
+  if (!button || !status) return;
+  _settingsUpdateChecking = true;
+  button.disabled = true;
+  button.textContent = 'CHECKING...';
+  status.classList.remove('ok', 'err');
+  status.textContent = 'Checking for dashboard updates...';
+  try {
+    const info = await checkForDashboardUpdate(true);
+    if (!info || !['ok', 'skipped'].includes(info.status)) {
+      status.classList.add('err');
+      status.textContent = info?.message || 'Could not check for updates. Check your connection and make sure DATA is running, then try again.';
+    } else if (info.status === 'skipped') {
+      status.textContent = info.message || 'Automatic updates are unavailable for this installation.';
+    } else if (info.available) {
+      status.classList.add('ok');
+      status.textContent = 'Dashboard updates are available. Choose Update Now in the update notice to download and apply them.';
+    } else {
+      status.classList.add('ok');
+      status.textContent = 'Your DATA dashboard is up to date. No new updates were found.';
+    }
+  } finally {
+    _settingsUpdateChecking = false;
+    button.disabled = _updateApplying;
+    button.textContent = 'CHECK FOR UPDATES';
+  }
+}
 
 async function checkForDashboardUpdate(force = false) {
+  if (_updateApplying || (!force && _settingsUpdateChecking)) return null;
+  const checkId = ++_updateCheckId;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
   try {
-    const res = await fetch(`${API_BASE}/update/check${force ? '?force=1' : ''}`, { cache: 'no-store' });
+    const res = await fetch(`${API_BASE}/update/check${force ? '?force=1' : ''}`, {
+      cache: 'no-store', signal: controller.signal,
+    });
     if (!res.ok) return null;
     const info = await res.json();
-    if (!info || !info.available) return info;
-    if (!force && sessionStorage.getItem(_UPDATE_DISMISS_KEY) === info.signature) return info;
+    if (!info || info.status !== 'ok' || !info.available) return info;
+    if (checkId !== _updateCheckId || _updateApplying) return info;
+    try {
+      if (!force && sessionStorage.getItem(_UPDATE_DISMISS_KEY) === info.signature) return info;
+    } catch (_) { /* Storage restrictions must not prevent update checks. */ }
     _showUpdateModal(info);
     return info;
   } catch (_) {
     return null;   // offline / bridge not ready — never block startup
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
 function _showUpdateModal(info) {
+  if (_updateApplying) return;
   _pendingUpdate = info;
   const modal = document.getElementById('update-modal');
   if (!modal) return;
   const n = info.count || 0;
-  let body = `A new version of DATA is available on GitHub — ${n} file${n === 1 ? '' : 's'} changed.`;
+  let body = `A new version of DATA is available on GitHub. ${n} file${n === 1 ? '' : 's'} changed.`;
   body += info.restart_required
     ? ' Updating will briefly restart DATA; your open windows stay open.'
     : ' Updating just reloads the dashboard.';
@@ -12637,7 +12824,7 @@ function _showUpdateModal(info) {
   _setUpdateStatus('');
   _setUpdateButtons(false);
   modal.hidden = false;
-  try { addLog(`Update available — ${n} file(s)`); } catch (_) {}
+  try { addLog(`Update available: ${n} file(s)`); } catch (_) {}
   try { document.getElementById('update-btn-apply').focus(); } catch (_) {}
 }
 
@@ -12651,17 +12838,21 @@ function _setUpdateStatus(text, isError = false) {
 function _setUpdateButtons(busy) {
   const a = document.getElementById('update-btn-apply');
   const c = document.getElementById('update-btn-cancel');
+  const check = document.getElementById('settings-update-check');
   if (a) a.disabled = busy;
   if (c) c.disabled = busy;
+  if (check) check.disabled = busy || _settingsUpdateChecking;
 }
 
 function dismissDashboardUpdate() {
   if (_updateApplying) return;
   if (_pendingUpdate && _pendingUpdate.signature) {
-    sessionStorage.setItem(_UPDATE_DISMISS_KEY, _pendingUpdate.signature);
+    try { sessionStorage.setItem(_UPDATE_DISMISS_KEY, _pendingUpdate.signature); } catch (_) {}
   }
   const modal = document.getElementById('update-modal');
   if (modal) modal.hidden = true;
+  const check = document.getElementById('settings-update-check');
+  if (check && check.getClientRects().length) check.focus();
 }
 
 async function applyDashboardUpdate() {
@@ -12686,7 +12877,7 @@ async function applyDashboardUpdate() {
     return;
   }
 
-  sessionStorage.removeItem(_UPDATE_DISMISS_KEY);
+  try { sessionStorage.removeItem(_UPDATE_DISMISS_KEY); } catch (_) {}
   if (result.status === 'partial') {
     _setUpdateStatus(`${result.message} Continuing…`, true);
   }
@@ -12712,7 +12903,11 @@ async function applyDashboardUpdate() {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   const modal = document.getElementById('update-modal');
-  if (modal && !modal.hidden) dismissDashboardUpdate();
+  if (modal && !modal.hidden) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    dismissDashboardUpdate();
+  }
 });
 
 // Check a few seconds after load so the update scan never competes with

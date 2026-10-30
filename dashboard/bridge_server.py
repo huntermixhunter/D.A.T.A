@@ -10787,6 +10787,9 @@ class Handler(BaseHTTPRequestHandler):
         #      (sounds/*.mp3, images, fonts) — sandboxed against path traversal.
         DASHBOARD_DIR = Path(__file__).parent
         STATIC_FILES = {
+            "/offline_maps.js": ("offline_maps.js", "application/javascript; charset=utf-8"),
+            "/offline_maps.css": ("offline_maps.css", "text/css; charset=utf-8"),
+            "/offline_archive.js": ("offline_archive.js", "application/javascript; charset=utf-8"),
             "/":             ("index.html", "text/html; charset=utf-8"),
             "/index.html":   ("index.html", "text/html; charset=utf-8"),
             "/app.js":       ("app.js",     "application/javascript; charset=utf-8"),
@@ -11377,6 +11380,14 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json({"error": "path not found"}, 404)
 
+        elif path.startswith("/offline/"):
+            import offline_archive
+            offline_archive.handle_http(self, path)
+
+        elif path.startswith("/maps/"):
+            import maps_offline
+            maps_offline.handle_http(self, path)
+
         elif path == "/file":
             # Serve a local file (currently images only) so the chat renderer can
             # inline-embed pictures DATA generated outside the dashboard dir.
@@ -11784,6 +11795,16 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # ── Standing orders (create / update / delete / run) ──
+        if path.startswith("/offline/"):
+            import offline_archive
+            offline_archive.handle_http(self, path, body)
+            return
+
+        if path.startswith("/maps/"):
+            import maps_offline
+            maps_offline.handle_http(self, path, body)
+            return
+
         if path.startswith("/standing_orders"):
             try:
                 data = json.loads(body) if body else {}

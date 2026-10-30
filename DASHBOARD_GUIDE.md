@@ -16,8 +16,11 @@ out of the box, or build on top of it. Both are first-class.
 
 > **Keep the baseplate current.** DATA updates itself. A built-in standing order,
 > **Dashboard self-update**, runs nightly (04:00) and pulls the latest dashboard files
-> from GitHub, then restarts. To update on demand, open the **Standing Orders** page
-> and click **RUN NOW** on it, or just say **"update yourself."** It runs on any
+> from GitHub, then restarts. To check on demand, open **Settings > Updates** and
+> click **CHECK FOR UPDATES**. This runs a fresh check even if the startup notice
+> did not appear or was dismissed. If updates are available, choose **UPDATE NOW**
+> in the notice to install them. You can also open **Standing Orders** and click
+> **RUN NOW** on the update order, or just say **"update yourself."** It runs on any
 > provider, because the update is a direct download, not an AI task. Do this once right
 > after installing. (Your own edits under `dashboard/` are backed up before each update,
 > and runtime files like `.env`, memory, and `standing_orders.json` are never touched.)
@@ -45,6 +48,13 @@ the time for your browser to get a reply from the dashboard server. BATTERY
 shows actual charge and is hidden when no battery sensor is present. Missing
 measurements show N/A; disconnected or outdated readings show STALE. A slow
 response check shows TIMEOUT and retries automatically.
+
+Use **Graph** or **Grid** at the top of the file browser to choose how items
+appear. The selection applies to Documents, the system map, the computer browser
+and newly opened project tabs. It is saved for the active profile in this browser
+and survives a reload. In computer and project tabs, folder cards browse their
+contents and file cards open the file in its usual app. Documents cards continue
+to open project workspaces.
 
 **Panel header controls** (top of the main channel):
 - **Agent dropdown** — pick which crew member answers on the main channel.

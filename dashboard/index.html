@@ -8,12 +8,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=health-readouts-20261029c" />
+  <link rel="stylesheet" href="theme.css?v=matrix-views-20261029" />
   <link rel="stylesheet" href="skill_search.css?v=1" />
   <link rel="stylesheet" href="advanced_tools.css?v=1" />
   <link rel="stylesheet" href="remote_access.css?v=1" />
   <link rel="stylesheet" href="marketplace.css?v=preview-divider-20261029" />
   <link rel="stylesheet" href="forum.css?v=1" />
+  <link rel="stylesheet" href="offline_maps.css?v=1">
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -415,9 +416,13 @@
             <div class="panel-title-bar">
               <span class="panel-title" id="matrix-panel-title">COMPUTER CORES — DOCUMENTS · PROJECT LAUNCHER</span>
               <div class="panel-pills">
+                <div class="matrix-view-switch" role="group" aria-label="File display">
+                  <button type="button" data-matrix-view="graph" aria-pressed="false" onclick="setMatrixView('graph')">GRAPH</button>
+                  <button type="button" data-matrix-view="grid" aria-pressed="true" onclick="setMatrixView('grid')">GRID</button>
+                </div>
                 <span class="pill orange" id="node-count">-- NODES</span>
                 <span class="pill blue" id="edge-count">-- CONNECTIONS</span>
-                <button class="data-btn-sm yellow" onclick="refreshCurrentMatrix()" title="Re-scan the active graph">↻ REFRESH</button>
+                <button class="data-btn-sm yellow" onclick="refreshCurrentMatrix()" title="Refresh the current tab">↻ REFRESH</button>
               </div>
             </div>
           </div>
@@ -437,7 +442,6 @@
               <button class="data-btn-sm orange" onclick="loadDocsProjects(true)">↻ REFRESH</button>
               <button class="data-btn-sm green" onclick="createDocsFolder()" title="Create a new project folder">+ NEW FOLDER</button>
               <button class="data-btn-sm yellow" onclick="addProjectTab()" title="Browse to any folder">BROWSE…</button>
-              <button class="data-btn-sm blue" id="docs-view-toggle" onclick="toggleDocsView()" title="Switch between card grid and node graph">VIEW: GRID</button>
             </div>
             <div class="docs-hint">Select a project — opens a new workspace tab rooted in that folder and a new com window.</div>
             <div class="docs-project-grid" id="docs-project-grid">
@@ -449,13 +453,13 @@
           <!-- SUB-PANEL: NEURAL GRAPH -->
           <div class="matrix-subpanel" id="msub-graph">
             <div class="matrix-controls">
-              <button class="data-btn-sm orange" onclick="fitMatrix()">FIT VIEW</button>
-              <button class="data-btn-sm orange" onclick="zoomMatrix(1.4)">ZOOM +</button>
-              <button class="data-btn-sm orange" onclick="zoomMatrix(0.7)">ZOOM −</button>
+              <button class="data-btn-sm orange" data-matrix-graph-only onclick="fitMatrix()">FIT VIEW</button>
+              <button class="data-btn-sm orange" data-matrix-graph-only onclick="zoomMatrix(1.4)">ZOOM +</button>
+              <button class="data-btn-sm orange" data-matrix-graph-only onclick="zoomMatrix(0.7)">ZOOM −</button>
               <button class="data-btn-sm yellow" onclick="initMatrix()">RESCAN</button>
               <button class="data-btn-sm yellow" onclick="scanDir()">SCAN DIR</button>
-              <button class="data-btn-sm blue" onclick="resetMatrix()">RESET</button>
-              <button class="data-btn-sm blue" onclick="toggleForce()">FREEZE</button>
+              <button class="data-btn-sm blue" data-matrix-graph-only onclick="resetMatrix()">RESET</button>
+              <button class="data-btn-sm blue" data-matrix-graph-only onclick="toggleForce()">FREEZE</button>
             </div>
             <div id="matrix-graph"></div>
           </div>
@@ -465,8 +469,8 @@
             <div class="matrix-controls">
               <div class="computer-breadcrumb" id="computer-breadcrumb"></div>
               <button class="data-btn-sm orange" onclick="computerUp()">◀ UP</button>
-              <button class="data-btn-sm yellow" onclick="fitMatrix()">FIT VIEW</button>
-              <button class="data-btn-sm blue" onclick="toggleForce()">FREEZE</button>
+              <button class="data-btn-sm yellow" data-matrix-graph-only onclick="fitMatrix()">FIT VIEW</button>
+              <button class="data-btn-sm blue" data-matrix-graph-only onclick="toggleForce()">FREEZE</button>
             </div>
             <div id="computer-graph"></div>
           </div>
@@ -701,6 +705,7 @@
             <button class="settings-tab" data-tab="voice"  onclick="settingsTab('voice')">VOICE</button>
             <button class="settings-tab" data-tab="model"  onclick="settingsTab('model')">MODEL</button>
             <button class="settings-tab" data-tab="upgrades" onclick="settingsTab('upgrades')">UPGRADES</button>
+            <button class="settings-tab" data-tab="updates" onclick="settingsTab('updates')">UPDATES</button>
             <button class="settings-tab" data-tab="crew"   onclick="settingsTab('crew')">CREW PERSONALITIES</button>
             <button class="settings-tab" data-tab="memory" onclick="settingsTab('memory')">MEMORY</button>
             <button class="settings-tab" data-tab="history" onclick="settingsTab('history')">HISTORY</button>
@@ -975,6 +980,15 @@
                 </section>
 
               </div>
+            </section>
+
+            <section class="settings-pane" data-pane="updates" aria-labelledby="settings-updates-title">
+              <h3 class="settings-h" id="settings-updates-title">Dashboard updates</h3>
+              <p class="settings-sub">Check for the latest DATA dashboard updates, even if the startup notice did not appear or was dismissed. You can review available updates before installing them.</p>
+              <div class="settings-opt-row">
+                <button type="button" class="settings-opt" id="settings-update-check" onclick="settingsCheckForDashboardUpdates()" aria-describedby="settings-update-status">CHECK FOR UPDATES</button>
+              </div>
+              <p class="settings-status" id="settings-update-status" role="status" aria-live="polite" aria-atomic="true"></p>
             </section>
 
             <section class="settings-pane" data-pane="crew">
@@ -1431,11 +1445,13 @@
       toggleRail(e.key === 'ArrowLeft' ? 'left' : 'right');
     });
   </script>
-  <script src="app.js?v=health-readouts-20261029c"></script>
+  <script src="app.js?v=matrix-views-20261029"></script>
   <script src="advanced_tools.js?v=1"></script>
   <script src="skill_search.js?v=1"></script>
   <script src="remote_access.js?v=1"></script>
   <script src="marketplace.js?v=1"></script>
   <script src="forum.js?v=1"></script>
+  <script src="offline_maps.js?v=1"></script>
+  <script src="offline_archive.js?v=1"></script>
 </body>
 </html>

@@ -32,6 +32,11 @@ paired to your account, or both. DATA can keep running after you close the
 desktop browser; the computer must remain powered on, awake and online.
 See `dashboard/REMOTE_ACCESS.md` for setup and connection details.
 
+**Settings > Updates > Check for Updates** runs a fresh dashboard update check,
+even if the startup notice was dismissed. When updates are available, choose
+**Update Now** in the notice to download and apply them. Connection failures
+appear in Settings so you can retry. Developer Git checkouts use Git to update.
+
 **Settings → Account** holds one identity for the dashboard, the Marketplace and
 the Forum: sign in or sign up, set the nickname and picture DATA uses for you,
 give each AI officer a face, and change your username, email, password and

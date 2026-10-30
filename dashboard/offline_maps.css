@@ -1,0 +1,44 @@
+#panel-maps { --om-accent: var(--data-teal, #62d4bc); color: var(--ink-1, #e8eceb); overflow: auto; }
+#panel-maps .om-header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 24px 10px; }
+#panel-maps h2 { font:500 clamp(24px, 3vw, 34px)/1.15 var(--font-main, sans-serif); margin:4px 0 0; }
+#panel-maps .om-eyebrow { font:11px var(--font-mono, monospace); letter-spacing:.12em; color:var(--om-accent); }
+#panel-maps #om-status { margin:0; padding:10px 24px 18px; font:14px/1.5 system-ui, sans-serif; border-bottom:1px solid var(--edge-3, #283632); }
+#panel-maps .om-layout { display:grid; grid-template-columns:minmax(240px, 290px) minmax(0, 1fr); flex:1; min-height:500px; }
+#panel-maps .om-sidebar { padding:20px; border-right:1px solid var(--edge-3, #283632); font:14px/1.5 system-ui, sans-serif; overflow:auto; max-height:calc(100dvh - 250px); }
+#panel-maps h3, #panel-maps h4 { font:600 16px/1.4 system-ui, sans-serif; margin:0 0 6px; color:var(--ink-1, #e8eceb); }
+#panel-maps p { margin:6px 0 12px; }
+#panel-maps .om-sidebar label { display:block; margin:20px 0 7px; font-weight:600; }
+#panel-maps button, #panel-maps input, #panel-maps select { font:14px system-ui, sans-serif; min-height:42px; border:1px solid var(--edge-5, #465950); border-radius:5px; background:var(--surf-field, #111c19); color:var(--ink-1, #e8eceb); padding:9px 12px; }
+#panel-maps button { cursor:pointer; }
+#panel-maps button:hover { border-color:var(--om-accent); }
+#panel-maps button:disabled { opacity:.45; cursor:default; }
+#panel-maps :is(button, input, select, summary):focus-visible { outline:2px solid var(--om-accent); outline-offset:3px; }
+#panel-maps select { width:100%; }
+#panel-maps .om-inline { display:flex; gap:6px; }
+#panel-maps input { width:100%; min-width:0; }
+#panel-maps small, #panel-maps .om-note { font:12px/1.6 system-ui, sans-serif; color:var(--ink-4, #a8b9b2); }
+#panel-maps details { margin-top:22px; }
+#panel-maps summary { cursor:pointer; font-weight:600; padding:8px 0; }
+#panel-maps .om-region-card { padding:16px 0; border-bottom:1px solid var(--edge-3, #283632); }
+#panel-maps .om-region-card p { font-size:12px; color:var(--ink-4, #a8b9b2); margin-bottom:6px; }
+#panel-maps .om-region-card button { display:block; margin-top:10px; width:100%; }
+#panel-maps .om-ready { color:var(--om-accent); }
+#panel-maps #om-storage { white-space:pre-wrap; overflow-wrap:anywhere; }
+#panel-maps .om-job { padding:12px 0; font-size:12px; }
+#panel-maps pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:160px; overflow:auto; font:11px/1.5 monospace; margin-top:6px; }
+#panel-maps .om-map-wrap { position:relative; display:flex; flex-direction:column; min-height:500px; background:var(--surf-deep, #0b1411); }
+#panel-maps #om-canvas { flex:1; min-height:450px; }
+#panel-maps #om-empty { position:absolute; inset:0 0 45px; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:30px; text-align:center; pointer-events:none; }
+#panel-maps #om-empty[hidden] { display:none; }
+#panel-maps #om-empty p { max-width:340px; color:var(--ink-4, #a8b9b2); font:14px/1.6 system-ui, sans-serif; }
+#panel-maps .om-compass { width:90px; height:90px; border:1px solid var(--edge-5, #465950); border-radius:50%; display:grid; place-items:center; font:300 58px system-ui; color:var(--om-accent); margin-bottom:25px; }
+#panel-maps #om-map-note { padding:10px 16px; margin:0; font:12px/1.6 system-ui, sans-serif; color:var(--ink-4, #a8b9b2); }
+#panel-maps .maplibregl-ctrl-attrib { font:11px/1.5 sans-serif; }
+@media(max-width:850px) { #panel-maps .om-layout { grid-template-columns:1fr; } #panel-maps .om-sidebar { max-height:none; border-right:0; } #panel-maps .om-map-wrap { grid-row:1; min-height:400px; } #panel-maps #om-canvas { min-height:360px; } }
+
+#panel-offline .oa-button {font:14px system-ui,sans-serif;padding:10px 16px;margin:12px 10px 12px 0;border:1px solid var(--edge-5,#465950);background:var(--surf-field,#111c19);color:var(--ink-1,#e8eceb);border-radius:5px;cursor:pointer;}
+#panel-offline .oa-button:disabled {opacity:.5;cursor:default;}
+#panel-offline {overflow:auto;}
+
+#panel-maps .maplibregl-ctrl-group button {background:#fff;color:#333;border:0;border-radius:0;padding:0;min-height:29px;width:29px;height:29px;}
+#panel-maps .maplibregl-ctrl-group button:hover {background:#eee;}
