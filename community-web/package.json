@@ -1,0 +1,20 @@
+{
+  "name": "magimatix-community",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:release": "node scripts/build.mjs --release",
+    "preview": "python scripts/serve.py",
+    "test:database": "node --test tests/database.test.mjs",
+    "test:browser": "python tests/browser.py"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.118.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.13",
+    "esbuild": "0.28.2"
+  }
+}

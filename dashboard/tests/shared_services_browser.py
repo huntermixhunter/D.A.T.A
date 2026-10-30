@@ -33,7 +33,7 @@ def main():
         stores = [mp.Marketplace(root / name, seed=False) for name in ("a", "b")]
         service = serve(create_server(("127.0.0.1", 0), hub), cleanup)
         cleanup.enter_context(patch.dict(os.environ, {"DATA_SERVICES_URL": service, "DATA_COMMUNITY_URL": ""}))
-        servers = [PreviewServer(("127.0.0.1", 0), make_handler(store)) for store in stores]
+        servers = [PreviewServer(("127.0.0.1", 0), make_handler(store, hosted_forum=False)) for store in stores]
         origins = [serve(server, cleanup) for server in servers]
         with sync_playwright() as pw, ExitStack() as browser_cleanup:
             browser = pw.chromium.launch(headless=True)

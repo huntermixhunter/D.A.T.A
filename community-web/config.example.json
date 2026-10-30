@@ -1,0 +1,7 @@
+{
+  "supabaseUrl": "",
+  "supabasePublishableKey": "",
+  "turnstileSiteKey": "",
+  "publicUrl": "https://forum.magimatix.com",
+  "registrationEnabled": false
+}

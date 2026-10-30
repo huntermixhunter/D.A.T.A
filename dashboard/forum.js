@@ -1,9 +1,30 @@
 /* DATA community forum. All member content is rendered as text. */
 (() => {
   'use strict';
+  // Public forum deployment. Local accounts and private chats remain on this device.
+  const HOSTED_FORUM_URL = 'https://forum.magimatix.com/';
   const root = document.getElementById('forum-root');
   if (!root || !window.MarketplaceUI) return;
   const { node, button, note, modal, field, busy } = window.MarketplaceUI.elements;
+  if (HOSTED_FORUM_URL) {
+    const url = new URL(HOSTED_FORUM_URL);
+    if (url.protocol !== 'https:' || url.username || url.password) return;
+    const refresh = () => root.replaceChildren(
+      node('header', { class: 'mp-head forum-header' }, node('div', {}, [
+        node('div', { class: 'mp-eyebrow' }, 'DATA COMMUNITY'),
+        node('h1', {}, 'People behind the dashboards.'),
+        node('p', { class: 'mp-muted' }, 'The community opens in your browser. Your online account and discussions are available across devices.'),
+      ])),
+      node('a', { class: 'mp-btn mp-btn-primary', href: url.href, target: '_blank', rel: 'noopener noreferrer' }, 'Open the community forum'),
+    );
+    window.ForumUI = { refresh, shared: () => true, hosted: () => true,
+      openHosted: () => window.open(url.href, '_blank', 'noopener,noreferrer') };
+    if (location.hash === '#forum') {
+      if (SidebarView.visible('forum')) showPanel('forum');
+      else openSettingsTab('view');
+    }
+    return;
+  }
   const state = { meta: null, account: null, category: 'all', view: 'all', sort: 'active', query: '',
     page: 1, threadId: null, postPage: 1, result: null, message: '', error: '', drafts: new Map() };
   let sequence = 0;

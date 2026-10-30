@@ -23,7 +23,7 @@ def main():
     with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"DATA_COMMUNITY_URL": ""}):
         store = mp.Marketplace(directory)
         forum = get_forum(store)
-        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store, hosted_forum=False))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         origin = f"http://localhost:{server.server_port}"

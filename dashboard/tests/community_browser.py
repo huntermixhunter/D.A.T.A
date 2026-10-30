@@ -93,8 +93,8 @@ def main():
         local_b = mp.Marketplace(root / "dashboard-b", seed=False)
         origin = serve(create_server(("127.0.0.1", 0), shared), cleanup)
         previews = [
-            PreviewServer(("127.0.0.1", 0), make_handler(local_a)),
-            PreviewServer(("127.0.0.1", 0), make_handler(local_b)),
+            PreviewServer(("127.0.0.1", 0), make_handler(local_a, hosted_forum=False)),
+            PreviewServer(("127.0.0.1", 0), make_handler(local_b, hosted_forum=False)),
         ]
         origins = [serve(server, cleanup) for server in previews]
         cleanup.enter_context(patch.dict(os.environ, {"DATA_COMMUNITY_URL": origin}))

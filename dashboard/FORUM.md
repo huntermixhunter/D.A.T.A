@@ -1,5 +1,28 @@
 # DATA Community Forum
 
+## Hosted website: 2026-10-29
+
+The optional Forum navigation entry now opens the public community in the
+browser at:
+
+https://forum.magimatix.com
+
+The website uses Cloudflare Pages and Supabase. Public browsing and registration
+are live following the owner's explicit activation approval on 2026-10-29.
+The email provider's free plan, public signup, confirmation delivery, password
+login, and password recovery are verified. The dashboard keeps an explicit link
+available if a browser blocks automatic opening. Community accounts are managed on that website,
+separately from local dashboard and Marketplace accounts. Nothing private was
+uploaded. These dashboard source changes are not yet in a retail release.
+
+Source, deployment, verification, and moderation instructions are in
+`community-web/README.md`. The hosted entry is verified with
+`python dashboard/tests/hosted_forum_browser.py`.
+
+The rest of this document describes the retained local/Python service. For that
+legacy preview, add `--local-forum` to the preview command below. The legacy
+browser tests select this mode explicitly.
+
 The optional Forum page is off by default. Enable it in **Settings > View >
 Navigation > Community Forum**. The setting is saved for the current dashboard
 profile in this browser, alongside the other page toggles. Hiding the page

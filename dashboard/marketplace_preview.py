@@ -7,6 +7,7 @@ Open /#upgrades to preview it directly. Other integrations remain inactive.
 """
 import argparse
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -16,7 +17,7 @@ import skill_search
 import advanced_tools
 
 
-def make_handler(store):
+def make_handler(store, *, hosted_forum=True):
     class PreviewHandler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
@@ -41,6 +42,8 @@ def make_handler(store):
             if path in files:
                 name, mime = files[path]
                 payload = (ROOT / name).read_bytes()
+                if name == "forum.js" and not hosted_forum:
+                    payload = re.sub(rb"const HOSTED_FORUM_URL = '[^']*';", b"const HOSTED_FORUM_URL = '';", payload, count=1)
                 if name == "index.html":
                     payload = payload.replace(b'<body class="theme-minimal">', b'<body class="theme-minimal" data-marketplace-preview>')
                 status = 200
@@ -68,10 +71,11 @@ def make_handler(store):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=7800)
+    parser.add_argument("--local-forum", action="store_true", help="Exercise the legacy local/shared Python forum instead of the hosted website")
     parser.add_argument("--data-dir", type=Path, default=ROOT.parent / "users" / "marketplace-preview")
     args = parser.parse_args()
     store = Marketplace(args.data_dir)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store))
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, hosted_forum=not args.local_forum))
     print(f"Marketplace preview: http://localhost:{args.port}/#marketplace", flush=True)
     try:
         server.serve_forever()
