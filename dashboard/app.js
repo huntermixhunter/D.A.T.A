@@ -374,23 +374,21 @@ const _SESSION_TAG = (() => {
 })();
 function _paneId(base) { return `${_SESSION_TAG}-${base}`; }
 
-// DATA sound palette — original synthesized UI tones, generated from pure
-// math by tools/make_sounds.py (no sampled or licensed audio anywhere).
+// DATA UI sound palette. These audio assets ship with the dashboard.
 const DATA_SOUNDS = {
-  transmit:   { src: 'sounds/transmit.wav',   volume: 0.44, cooldown: 120 },
-  confirm:    { src: 'sounds/confirm.wav',    volume: 0.24, cooldown: 80 },
-  receive:    { src: 'sounds/receive.wav',    volume: 0.34, cooldown: 220 },
-  engage:     { src: 'sounds/engage.wav',     volume: 0.30, cooldown: 180 },
-  error:      { src: 'sounds/error.wav',      volume: 0.44, cooldown: 1000 },
-  processing: { src: 'sounds/processing.wav', volume: 0.26, cooldown: 280 },
-  doorbell:   { src: 'sounds/doorbell.wav',   volume: 0.40, cooldown: 1200 },
+  transmit:   { src: 'sounds/transmit.mp3',     volume: 0.44, cooldown: 120 },
+  confirm:    { src: 'sounds/confirm.mp3',      volume: 0.24, cooldown: 80 },
+  receive:    { src: 'sounds/receive.mp3',      volume: 0.34, cooldown: 220 },
+  engage:     { src: 'sounds/panel.mp3',        volume: 0.30, cooldown: 180 },
+  error:      { src: 'sounds/error.mp3',        volume: 0.44, cooldown: 1000 },
+  processing: { src: 'sounds/processing.mp3',   volume: 0.26, cooldown: 280 },
+  doorbell:   { src: 'sounds/notification.mp3', volume: 0.40, cooldown: 1200 },
 };
 
 const _dataSoundCache = new Map();
 const _dataSoundLastPlayed = {};
 
 function initDataSounds() {
-  return; // SFX disabled — do not preload UI sound files
   for (const [name, cfg] of Object.entries(DATA_SOUNDS)) {
     if (_dataSoundCache.has(name)) continue;
     const audio = new Audio(cfg.src);
@@ -401,7 +399,6 @@ function initDataSounds() {
 }
 
 function playDataSound(name) {
-  return; // SFX disabled — UI sounds removed per Captain's order (better set TBD)
   const cfg = DATA_SOUNDS[name];
   if (!cfg) return;
 
@@ -548,7 +545,10 @@ function showPanel(name) {
   if (name === 'orders') refreshStandingOrders();
   if (name === 'widgets') renderWidgetsGrid();
   if (name === 'marketplace' && window.MarketplaceUI) window.MarketplaceUI.refresh();
-  if (name === 'forum' && window.ForumUI) window.ForumUI.refresh();
+  if (name === 'forum' && window.ForumUI) {
+    window.ForumUI.refresh();
+    window.ForumUI.openHosted?.();
+  }
 }
 
 // ── Open a path in Windows Explorer ──────────────────────
@@ -4325,7 +4325,7 @@ function _speakCapabilities() {
   addLog('Voice command: capabilities');
   // Long spoken reply — hold the wake echo off so it does not re-trigger.
   WAKE.cooldownUntil = Date.now() + 12000;
-  try { playDataSound('success'); } catch (e) {}
+  try { playDataSound('confirm'); } catch (e) {}
   const lines = [
     'I am DATA, your hands-free command deck.',
     'Say "computer", "hey data", or "wake up" to start talking, and I will listen, then reply out loud.',
@@ -7226,6 +7226,26 @@ let _shipsHealthSSE   = null;
 let _shipsModalOpen   = false;
 let _lastShipsHealth  = null;
 
+// Threshold reasons (CPU/GPU temp, disk, battery) arrive from the bridge ONLY
+// on the rising-edge tick a metric crosses critical, so they are persisted here
+// for the duration of the alert and cleared when the condition clears. Powers
+// the activity-log line that explains WHY the ship went to CONDITION RED.
+let _alertReasonStore = [];
+
+// Build the human-readable list of reasons the ship is at CONDITION RED right
+// now. Combines the persisted threshold reasons with the conditions derivable
+// on every tick — mirrors the backend `shields_down || worst < 60` rule in
+// build_ships_health().
+function _composeAlertReasons(h) {
+  const reasons = [];
+  if (h.shields_down) reasons.push('Shields down, system memory (RAM) at full capacity.');
+  if (typeof h.hull === 'number' && h.hull < 60) reasons.push(`Hull integrity critical (${Math.round(h.hull)}%), CPU load sustained.`);
+  if (typeof h.sif  === 'number' && h.sif  < 60) reasons.push(`SIF critical (${Math.round(h.sif)}%), disk near full.`);
+  if (typeof h.damp === 'number' && h.damp < 60) reasons.push(`Dampers critical (${Math.round(h.damp)}%), event loop lagging.`);
+  for (const r of _alertReasonStore) if (!reasons.includes(r)) reasons.push(r);
+  return reasons;
+}
+
 function _setBar(id, pct) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -7352,6 +7372,36 @@ function _applyShipsHealth(h) {
   }
   // Shields down (RAM maxed) — collapses the shield ring around the ship.
   document.body.classList.toggle('shields-down', !!h.shields_down);
+
+  // ── Condition-RED cause reporting (activity log, right-hand column) ─────
+  // The alert dot and the MSD pill say THAT the ship went red; the activity
+  // log says WHY. Three distinct events get logged:
+  //   • rising edge — one summary line naming every active trigger
+  //   • escalation  — a new metric crosses critical while already red
+  //   • all clear   — the condition drops back out of red
+  // The bridge sends alert_reasons[] only on the tick a metric crosses its
+  // critical threshold, so they are persisted in _alertReasonStore for the
+  // life of the alert.
+  const _nowRed       = (h.alert === 'red');
+  const _wasRed       = !!window._prevConditionRed;
+  const _newReasons   = Array.isArray(h.alert_reasons) ? h.alert_reasons : [];
+  const _freshReasons = _newReasons.filter(r => !_alertReasonStore.includes(r));
+  for (const r of _freshReasons) _alertReasonStore.push(r);
+
+  if (_nowRed && !_wasRed) {
+    // Rising edge — compose the cause list AFTER the store is updated so this
+    // tick's threshold crossings are included in the single summary line.
+    const _rs  = _composeAlertReasons(h);
+    const _why = _rs.length ? _rs.join(' ') : 'Cause unspecified.';
+    addLog(`🚨 CONDITION RED. Triggered by: ${_why}`);
+  } else if (_nowRed) {
+    // Already red and something ELSE just went critical — log the escalation.
+    for (const r of _freshReasons) addLog(`🚨 CRITICAL: ${r}`);
+  } else if (_wasRed) {
+    addLog('🟢 Condition red cleared. All systems nominal.');
+  }
+  if (!_nowRed) _alertReasonStore = [];
+  window._prevConditionRed = _nowRed;
 
   // ── Sparkline buffers — always push so opening the modal shows history ──
   _pushSpark('cpu', h.cpu);
@@ -10404,7 +10454,10 @@ function _settingsRenderAccount() {
   }
   // A connected community keeps its own accounts on the service, so this page
   // is not the place to change those. Only shown when one is actually wired up.
-  if (_acct.scope?.identity_scope === 'shared') {
+  if (window.ForumUI?.hosted?.()) {
+    root.append(_acctEl('p', { class: 'settings-sub', text:
+      'Your forum account is managed on the community website. The account below is for this dashboard and its Marketplace.' }));
+  } else if (_acct.scope?.identity_scope === 'shared') {
     root.append(_acctEl('p', { class: 'settings-sub', text:
       'One shared account for Marketplace and Forum. Account changes are saved online. Your private chats, memory, files and installed extensions stay on this device.' }),
       _acctEl('p', { class: 'settings-sub', text: _acct.scope.service_url || '' }));

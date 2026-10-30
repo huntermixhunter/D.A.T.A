@@ -9819,6 +9819,11 @@ def build_ships_health() -> dict:
         "sif":    sif,
         "damp":   damp,
         "alert":  alert,
+        # Threshold crossings detected on THIS tick only (hysteresis-gated by
+        # _check_critical, so each metric reports once per breach episode).
+        # The dashboard persists them for the life of the alert and writes the
+        # cause into the activity log.
+        "alert_reasons": critical_reasons,
         "tunnel": _tunnel_healthy(),
     }
 
