@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="forum.css?v=1" />
   <link rel="stylesheet" href="offline_maps.css?v=1">
   <link rel="stylesheet" href="crew-deck/host.css?v=1">
+  <link rel="stylesheet" href="arcade/host.css?v=1">
 </head>
 <body class="theme-minimal">
   <div id="app">
@@ -88,6 +89,9 @@
           </button>
           <button class="data-btn teal" data-nav-panel="crew-deck" data-sidebar-label="Crew Deck" onclick="showPanel('crew-deck')">
             CREW DECK
+          </button>
+          <button class="data-btn teal" data-nav-panel="arcade" data-sidebar-label="Arcade" onclick="showPanel('arcade')">
+            ARCADE
           </button>
           <button class="data-btn blue" onclick="showPanel('orders')">
             STANDING ORDERS
@@ -485,6 +489,11 @@
         <section class="panel crew-deck-panel" id="panel-crew-deck" aria-label="Crew Deck">
           <div class="crew-deck-loading" role="status">Open Crew Deck to connect.</div>
           <iframe id="crew-deck-frame" title="Crew Deck missions and activity" referrerpolicy="same-origin" hidden></iframe>
+        </section>
+
+        <section class="panel arcade-panel" id="panel-arcade" aria-label="Arcade">
+          <div class="arcade-loading" role="status">Open Arcade to launch Void Patrol.</div>
+          <iframe id="arcade-frame" title="Void Patrol arcade game" allow="fullscreen" referrerpolicy="same-origin" hidden></iframe>
         </section>
 
         <div class="panel" id="panel-orders">
@@ -1463,5 +1472,6 @@
   <script src="offline_maps.js?v=1"></script>
   <script src="offline_archive.js?v=1"></script>
   <script src="crew-deck/host.js?v=1"></script>
+  <script src="arcade/host.js?v=1"></script>
 </body>
 </html>

@@ -10838,7 +10838,20 @@ class Handler(BaseHTTPRequestHandler):
         #   2. Whitelisted extension serving from dashboard/ for assets
         #      (sounds/*.mp3, images, fonts) — sandboxed against path traversal.
         DASHBOARD_DIR = Path(__file__).parent
+        if path == "/arcade":
+            self.send_response(308)
+            self.send_header("Location", "/arcade/")
+            self.end_headers()
+            return
         STATIC_FILES = {
+            "/arcade/": ("arcade/index.html", "text/html; charset=utf-8"),
+            "/arcade/index.html": ("arcade/index.html", "text/html; charset=utf-8"),
+            "/arcade/game.mjs": ("arcade/game.mjs", "application/javascript; charset=utf-8"),
+            "/arcade/engine.mjs": ("arcade/engine.mjs", "application/javascript; charset=utf-8"),
+            "/arcade/renderer.mjs": ("arcade/renderer.mjs", "application/javascript; charset=utf-8"),
+            "/arcade/style.css": ("arcade/style.css", "text/css; charset=utf-8"),
+            "/arcade/host.js": ("arcade/host.js", "application/javascript; charset=utf-8"),
+            "/arcade/host.css": ("arcade/host.css", "text/css; charset=utf-8"),
             "/offline_maps.js": ("offline_maps.js", "application/javascript; charset=utf-8"),
             "/offline_maps.css": ("offline_maps.css", "text/css; charset=utf-8"),
             "/offline_archive.js": ("offline_archive.js", "application/javascript; charset=utf-8"),

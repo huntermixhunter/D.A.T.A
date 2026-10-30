@@ -1,0 +1,61 @@
+{
+  "processing": "Original mono 44.1 kHz, 16-bit PCM WAV, deterministic procedural synthesis with a -3 dBFS peak ceiling.",
+  "rights_status": "Original project assets, distributed under the repository Apache-2.0 license. No third-party recordings are included.",
+  "clips": [
+    {
+      "file": "laser-shot.wav",
+      "source": "Original procedural synthesis, tools/build_arcade_sounds.py",
+      "license": "Apache-2.0",
+      "duration_seconds": 0.5190022675736962,
+      "loop": false,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -20.81,
+      "bytes": 45820,
+      "sha256": "d3bddcb6856447cee921355be154fc81acf00124c17ca7db3eec96e1a4882ffa"
+    },
+    {
+      "file": "explosion.wav",
+      "source": "Original procedural synthesis, tools/build_arcade_sounds.py",
+      "license": "Apache-2.0",
+      "duration_seconds": 1.8560090702947847,
+      "loop": false,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -25.07,
+      "bytes": 163744,
+      "sha256": "841004007c83c7162f52e42c75898e7024a7407e8c1dc6f267b0a6f4e87ba96a"
+    },
+    {
+      "file": "engine-loop.wav",
+      "source": "Original procedural synthesis, tools/build_arcade_sounds.py",
+      "license": "Apache-2.0",
+      "duration_seconds": 3.0,
+      "loop": true,
+      "peak_dbfs": -5.95,
+      "rms_dbfs": -18.0,
+      "bytes": 264644,
+      "sha256": "870738ada80f45cb0225cfb17b98810a640f9e8fe59fdb0855f09f92a5616b18"
+    },
+    {
+      "file": "boost-loop.wav",
+      "source": "Original procedural synthesis, tools/build_arcade_sounds.py",
+      "license": "Apache-2.0",
+      "duration_seconds": 2.0,
+      "loop": true,
+      "peak_dbfs": -3.87,
+      "rms_dbfs": -16.0,
+      "bytes": 176444,
+      "sha256": "441873d0c28991550bed220ec345a3075607ffc79cefd66bbc929a0bbbd11882"
+    },
+    {
+      "file": "pulse.wav",
+      "source": "Original procedural synthesis, tools/build_arcade_sounds.py",
+      "license": "Apache-2.0",
+      "duration_seconds": 0.48,
+      "loop": false,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -20.66,
+      "bytes": 42380,
+      "sha256": "0ba3223f62dc09ef3c1e829648ee8f7b533287a82bad0b257bd00347a82ab8ce"
+    }
+  ]
+}

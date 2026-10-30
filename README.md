@@ -26,6 +26,15 @@ Changes apply immediately and are saved for each dashboard profile in this
 browser. The two core pages stay available, and Community Forum starts hidden.
 You can also collapse either sidebar or use Show All to restore every item.
 
+**Arcade** includes **Void Patrol**, a free-roaming space shooter with radar,
+six-cannon fortresses, sector-by-sector weapon upgrades, and a permanent ship hangar.
+Fly through a black starfield with smooth 360-degree mouse or stick steering.
+WASD and the arrow keys also steer. Hold Space or click to fire, and press F for
+fullscreen. Gamepad and touch controls work too.
+Salvage and high scores save locally for each dashboard profile. Leaving the
+panel pauses the game.
+See `dashboard/ARCADE.md` for controls, progression, and local preview instructions.
+
 **Settings > Remote Access** guides you through using DATA from your phone.
 Choose the full dashboard over a private Tailscale connection, a Telegram bot
 paired to your account, or both. DATA can keep running after you close the

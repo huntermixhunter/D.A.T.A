@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Void Patrol: a free-roaming space arcade. Hunt six-cannon fortresses, break their guns, and upgrade your ship between sectors.">
+  <title>Void Patrol | DATA Arcade</title>
+  <link rel="icon" href="../favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=2">
+  <script type="module" src="game.mjs?v=5"></script>
+</head>
+<body data-state="menu">
+  <main class="arcade" id="arcade">
+    <header class="topbar">
+      <a class="brand" href="../#arcade" aria-label="Void Patrol, DATA Arcade">
+        <span class="brand-cap" aria-hidden="true"></span>
+        <span class="brand-text"><span class="brand-name">VOID PATROL</span><span class="brand-sub">DATA ARCADE <em id="brand-tag">SECTOR 01</em></span></span>
+      </a>
+      <div class="ftl-status play-only" aria-label="Ship status">
+        <div class="hull"><span class="k">HULL</span><div class="hull-bar" id="hull-bar" role="meter" aria-label="Hull" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"></div><b id="hull-value">100</b></div>
+        <div class="shields"><span class="k">SHIELDS</span><div class="shield-pips" id="shield-pips" role="meter" aria-label="Shields" aria-valuemin="0" aria-valuemax="50" aria-valuenow="50"></div><b id="shield-value">50</b></div>
+      </div>
+      <div class="readouts">
+        <div class="pill play-only" id="condition" data-level="GREEN">CONDITION GREEN</div>
+        <div class="ro play-only"><span class="k">SCORE</span><span class="v exact" id="score">000000</span></div>
+        <div class="ro ro-best"><span class="k">BEST</span><span class="v" id="best">000000</span></div>
+        <div class="ro"><span class="k" id="salvage-label">SALVAGE</span><span class="v scrap"><i class="cog" aria-hidden="true"></i><span id="salvage">0</span></span></div>
+      </div>
+      <nav class="tools" aria-label="Game controls">
+        <button id="sound" class="ghost" type="button" aria-pressed="true" title="Sound on (M)"><span data-icon="sound"></span><span class="tool-label">SOUND</span></button>
+        <button id="pause" class="ghost" type="button" title="Pause (P or Esc)" aria-label="Pause game" disabled><span data-icon="pause"></span><span class="tool-label">PAUSE</span></button>
+        <button id="fullscreen" class="ghost" type="button" title="Fullscreen (F)" aria-label="Enter fullscreen"><span data-icon="expand"></span><span class="tool-label">FULLSCREEN</span></button>
+      </nav>
+    </header>
+
+    <section class="stage" id="stage" aria-label="Void Patrol playfield">
+      <canvas id="field" tabindex="0" aria-label="Space arcade. Move the mouse to steer freely, or use arrow keys or WASD. Space or click fires, Shift boosts, E fires a pulse, P pauses, F toggles fullscreen."></canvas>
+      <div id="storage-notice" class="storage-notice" role="status" hidden></div>
+
+      <div class="hud" id="play-hud" hidden>
+        <section class="radar-panel" aria-label="Sector radar">
+          <div class="panel-title"><span>RADAR</span><span id="radar-bases">3 STATIONS</span></div>
+          <canvas id="radar" width="200" height="200" aria-label="Radar. Green squares are stations, red are fighters, white is your ship."></canvas>
+          <div class="radar-key"><span><i class="k-base"></i>STATION</span><span><i class="k-core"></i>CORE OPEN</span><span><i class="k-enemy"></i>FIGHTER</span></div>
+        </section>
+        <div class="objective"><strong id="objective">DESTROY 3 STATIONS</strong><span id="combo">CHAIN x1</span></div>
+        <section class="systems" aria-label="Ship systems">
+          <div class="sys" id="sys-boost"><div class="bars" id="boost-bars"></div><span class="nm">BOOST</span><span class="key">SHIFT</span></div>
+          <div class="sys" id="sys-pulse"><div class="bars" id="pulse-bars"></div><span class="nm">PULSE</span><span class="key">E</span></div>
+        </section>
+        <section class="weapons" id="weapons" aria-label="Weapons">
+          <div class="weapon-card">
+            <div class="weapon-head"><span class="wn">TWIN CANNONS</span><span class="wd">FORE + AFT</span></div>
+            <div class="charge"><b id="cannon-charge"></b></div>
+            <div class="mods" id="weapon-mods"></div>
+          </div>
+          <div class="weapons-tab"><span>WEAPONS</span><span class="trigger" id="trigger-state">HOLD SPACE OR CLICK TO FIRE</span></div>
+        </section>
+        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+        <div class="touch-controls">
+          <div id="joystick" class="joystick" role="group" aria-label="Touch steering"><span class="joystick-ring"></span><span id="stick"></span></div>
+          <div class="touch-actions">
+            <button id="touch-pulse" type="button" aria-label="Fire a pulse"><span data-icon="ring"></span><small>PULSE <b id="touch-pulse-count">2</b></small></button>
+            <button id="touch-boost" type="button" aria-label="Hold to boost" style="--energy:1"><span data-icon="arrow"></span><small>BOOST</small></button>
+            <button id="touch-fire" type="button" aria-label="Hold to fire"><span data-icon="burst"></span><small>FIRE</small></button>
+          </div>
+        </div>
+      </div>
+
+      <section id="menu" class="screen title-screen" aria-labelledby="game-title">
+        <div class="title-block">
+          <div class="kicker"><span class="dot"></span>FREE-ROAMING SPACE ARCADE</div>
+          <h1 id="game-title"><span>VOID</span> <span>PATROL</span></h1>
+          <p class="lede">Hunt the six-cannon fortresses. Break every gun, or thread one shot through the open core. Survive the formations and upgrade between sectors.</p>
+          <div class="actions">
+            <button id="launch" class="jump" type="button">LAUNCH</button>
+            <button id="open-hangar" class="ghost big" type="button">HANGAR</button>
+          </div>
+          <p class="launch-note" id="launch-note">Your ship flies at all times. Steer it, pull the trigger, and keep moving.</p>
+          <dl class="records">
+            <div><dt>BEST</dt><dd id="record-best">0</dd></div>
+            <div><dt>FURTHEST SECTOR</dt><dd id="record-sector">0</dd></div>
+            <div><dt>RUNS</dt><dd id="record-runs">0</dd></div>
+          </dl>
+        </div>
+        <aside class="briefing window" aria-labelledby="briefing-title">
+          <div class="window-inner">
+            <div class="panel-title" id="briefing-title"><span>FLIGHT CONTROLS</span><span>KEYS / MOUSE / PAD</span></div>
+            <ul class="keys">
+              <li><span class="combo"><kbd>MOUSE</kbd></span><span>360&deg; steering</span></li>
+              <li><span class="combo"><kbd>W A S D</kbd><kbd>ARROWS</kbd></span><span>Steer</span></li>
+              <li><span class="combo"><kbd>SPACE</kbd><kbd>CLICK</kbd></span><span>Fire</span></li>
+              <li><span class="combo"><kbd>SHIFT</kbd></span><span>Boost</span></li>
+              <li><span class="combo"><kbd>E</kbd></span><span>Pulse</span></li>
+              <li><span class="combo"><kbd>P</kbd><kbd>ESC</kbd></span><span>Pause</span></li>
+              <li><span class="combo"><kbd>F</kbd></span><span>Fullscreen</span></li>
+              <li><span class="combo"><kbd>M</kbd></span><span>Sound and voice</span></li>
+              <li><span class="combo"><kbd>ENTER</kbd></span><span>Launch</span></li>
+            </ul>
+            <p class="pad-note">Point where you want to fly for smooth 360&deg; turns. WASD or a stick takes over when used. Your ship keeps flying when released. Hold the trigger to fire. Gamepad: stick steers, A fires, B boosts, X pulses.</p>
+          </div>
+        </aside>
+        <div class="threats" aria-label="Threat briefing">
+          <article class="threat"><img src="assets/fortress.webp?v=2" alt="" width="96" height="96"><div><h3>FORTRESS</h3><p>Six cannon pods guard a reactor core. Destroy all six, or hit the core while its hatch is open.</p></div></article>
+          <article class="threat"><img src="assets/interceptor.webp?v=2" alt="" width="96" height="78"><div><h3>INTERCEPTOR</h3><p>Fast pursuit fighter. Flies in V formations. Destroy the leader to scatter them.</p></div></article>
+          <article class="threat"><img src="assets/manta.webp?v=2" alt="" width="96" height="65"><div><h3>MANTA</h3><p>Strafing gunship. Fires plasma bolts from range.</p></div></article>
+          <article class="threat"><span class="mine-icon" aria-hidden="true"></span><div><h3>COSMO-MINE</h3><p>Shoot them from a distance. The blast destroys everything nearby.</p></div></article>
+        </div>
+      </section>
+
+      <section id="hangar" class="screen hangar-screen" aria-labelledby="hangar-title" hidden>
+        <div class="hangar-wrap window">
+          <div class="window-inner">
+            <div class="panel-title"><span id="hangar-title">HANGAR</span><span>PERMANENT SHIP UPGRADES</span></div>
+            <div class="hangar-top">
+              <figure class="cutaway"><img src="assets/cutaway.webp?v=2" alt="Cutaway view of your ship"></figure>
+              <div class="wallet"><span class="k">SALVAGE</span><span class="v scrap"><i class="cog" aria-hidden="true"></i><span id="wallet">0</span></span><small>Earned from stations, fighters, and drops.</small></div>
+            </div>
+            <div id="hangar-items" class="hangar-items"></div>
+            <p id="hangar-feedback" class="hangar-feedback" role="status" aria-live="polite">Upgrades apply to every new run and save in this browser.</p>
+            <div class="hangar-actions">
+              <button id="hangar-launch" class="jump" type="button">LAUNCH</button>
+              <button id="hangar-back" class="ghost big" type="button">BACK</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="paused" class="screen modal-screen" aria-labelledby="pause-title" hidden>
+        <div class="window compact"><div class="window-inner">
+          <div class="panel-title"><span id="pause-title">PAUSED</span><span>FLIGHT ON HOLD</span></div>
+          <div class="window-body">
+            <p>Your ship is safe while paused.</p>
+            <button id="resume" class="jump" type="button">RESUME</button>
+            <button id="return-hangar" class="ghost big" type="button">END RUN AND BANK SALVAGE</button>
+            <div class="how-to"><b>Break the six cannon pods, then destroy the exposed core.</b><span>Or wait for the core hatch to open and land one shot inside for an instant kill.</span></div>
+          </div>
+        </div></div>
+      </section>
+
+      <section id="upgrade-screen" class="screen modal-screen" aria-labelledby="upgrade-title" hidden>
+        <div class="window wide"><div class="window-inner">
+          <div class="panel-title"><span id="clear-label">SECTOR CLEAR</span><span>SALVAGE BANKED</span></div>
+          <div class="window-body">
+            <h2 id="upgrade-title">Choose one system upgrade</h2>
+            <p>Hull repaired by 25. Shields restored. The next sector is waiting.</p>
+            <div id="upgrade-choices" class="upgrade-choices"></div>
+          </div>
+        </div></div>
+      </section>
+
+      <section id="gameover" class="screen modal-screen" aria-labelledby="gameover-title" hidden>
+        <div class="window compact"><div class="window-inner">
+          <div class="panel-title"><span id="record-label">SHIP DESTROYED</span><span>FLIGHT RECORD</span></div>
+          <div class="window-body">
+            <h2 id="gameover-title">Go again. Go further.</h2>
+            <div class="result-grid"><div><span>SCORE</span><strong id="final-score">0</strong></div><div><span>SECTOR</span><strong id="final-sector">1</strong></div><div><span>SALVAGE</span><strong id="final-salvage">0</strong></div></div>
+            <button id="retry" class="jump" type="button">LAUNCH AGAIN</button>
+            <button id="gameover-hangar" class="ghost big" type="button">OPEN HANGAR</button>
+          </div>
+        </div></div>
+      </section>
+    </section>
+  </main>
+  <noscript><p class="storage-notice">Enable JavaScript to play Void Patrol.</p></noscript>
+</body>
+</html>

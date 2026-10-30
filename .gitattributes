@@ -16,6 +16,7 @@
 *.jpg binary
 *.webp binary
 *.mp3 binary
+*.wav binary
 
 # Excluded from buyer zips (git archive) — dev-only files
 tools/ export-ignore

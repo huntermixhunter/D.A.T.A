@@ -707,9 +707,11 @@ document.getElementById('init-timestamp').textContent =
 
 // ── Panel navigation ──────────────────────────────────────
 window.getCrewDeckContext = () => ({ scope: _activeCaptain, token: _authToken, base: API_BASE });
+window.getArcadeProfile = () => _activeCaptain;
 
 function showPanel(name) {
   window.CrewDeckHost?.show(name);
+  window.ArcadeHost?.show(name);
   if (name === 'forum' && !SidebarView.visible('forum')) return;
   playDataSound('confirm');
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -1228,6 +1230,7 @@ async function switchCaptain(uid) {
   const target = _captainById(uid);
   if (!target) return;
   window.CrewDeckHost?.reset();
+  window.ArcadeHost?.reset();
   try {
     const res = await fetch(`${API_BASE}/user/switch`, {
       method: 'POST',
@@ -1242,6 +1245,7 @@ async function switchCaptain(uid) {
     }
     const data = await res.json();
     _activeCaptain = data.active || uid;
+    window.ArcadeHost?.reset();
     SidebarView.setProfile(_activeCaptain);
     AgentProfiles.clear();
     await AgentProfiles.load().catch(error => addLog(error.message));
