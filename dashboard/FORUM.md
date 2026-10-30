@@ -13,7 +13,7 @@ The email provider's free plan, public signup, confirmation delivery, password
 login, and password recovery are verified. The dashboard keeps an explicit link
 available if a browser blocks automatic opening. Community accounts are managed on that website,
 separately from local dashboard and Marketplace accounts. Nothing private was
-uploaded. These dashboard source changes are not yet in a retail release.
+uploaded. These dashboard changes ship in DATA v1.0.58.
 
 Source, deployment, verification, and moderation instructions are in
 `community-web/README.md`. The hosted entry is verified with
