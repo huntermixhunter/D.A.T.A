@@ -932,7 +932,9 @@ CREW_VOICES = {
 def crew_display_name(voice: str) -> str:
     """Display name for a crew voice id, falling back to a title-cased id."""
     spec = CREW_VOICES.get((voice or "").lower())
-    return spec["name"] if spec else (voice or "Data").title()
+    import agent_profiles
+    default = spec["name"] if spec else (voice or "Data").title()
+    return agent_profiles.display_name(globals(), (voice or "data").lower(), default)
 
 
 def _normalize_voice(voice: str) -> str:
@@ -10815,6 +10817,9 @@ class Handler(BaseHTTPRequestHandler):
                 break
 
     def do_GET(self):
+        import agent_profiles
+        if agent_profiles.handle_http(self, globals()):
+            return
         import crew_deck
         if crew_deck.handle_http(self, globals()):
             return
@@ -11372,7 +11377,7 @@ class Handler(BaseHTTPRequestHandler):
             _avail = set(local_voice.list_voices())
             self._json({
                 "voices": [
-                    {"id": vid, "name": spec["name"],
+                    {"id": vid, "name": crew_display_name(vid),
                      "is_crew": bool(spec["persona"]),
                      "wake":    spec.get("wake", [spec["name"]]),
                      "names":   spec.get("names", [vid])}
@@ -11815,6 +11820,9 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        import agent_profiles
+        if agent_profiles.handle_http(self, globals()):
+            return
         import crew_deck
         if crew_deck.handle_http(self, globals()):
             return

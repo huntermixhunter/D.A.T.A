@@ -136,6 +136,7 @@
   const rosterKey = 'retail';
   const rosterForced = true;
   const roster = () => CD.ROSTERS[rosterKey];
+  const assistantName = () => (S.mode === 'live' && missionState?.assistant?.name) || roster().computer;
   const capt = () => 'you';
 
   const torso = {};
@@ -190,7 +191,7 @@
       this.face = Math.random() < 0.5 ? 1 : -1; this.phase = rand(0, 10);
       this.moving = false; this.waiting = false; this.bubble = null; this.history = []; this.chatWith = null;
     }
-    get name() { return roster().names[this.role]; }
+    get name() { return (S.mode === 'live' && missionState?.roster?.find(o => o.id === this.agentId)?.name) || roster().names[this.role]; }
     get agentId() { return roster().ids[this.role]; }
   }
   CD.ROLE_ORDER.forEach((role, i) => { const c = new Crew(role, i); crew.push(c); crewByRole[role] = c; });
@@ -725,7 +726,7 @@
       ci(ctx, cx + Math.cos(a) * 24, cy + Math.sin(a) * 24, 2.2, true);
     }
     const show = S.labels || S.coreLabel || (S.hover && S.hover.type === 'core') || (S.sel && S.sel.type === 'core');
-    if (show) queueLabel(S.coreLabel ? `${roster().computer} · ${S.coreLabel}` : roster().computer, cx, cy + 40, '#66E0FF');
+    if (show) queueLabel(S.coreLabel ? `${assistantName()} · ${S.coreLabel}` : assistantName(), cx, cy + 40, '#66E0FF');
   }
 
   const packets = [];
@@ -868,7 +869,7 @@
   function tooltipHTML(h) {
     if (!h) return '';
     if (h.type === 'crew') { const c = crewByRole[h.role]; return `<b>${esc(c.name)}</b> · ${esc(statusOf(c).text)}`; }
-    if (h.type === 'core') return `<b>${esc(roster().computer)}</b> · ${S.inflight} chat turn${S.inflight === 1 ? '' : 's'} in flight${S.exact && S.coreLabel ? ` · ${esc(S.coreLabel.toLowerCase())}` : ''}`;
+    if (h.type === 'core') return `<b>${esc(assistantName())}</b> · ${S.inflight} chat turn${S.inflight === 1 ? '' : 's'} in flight${S.exact && S.coreLabel ? ` · ${esc(S.coreLabel.toLowerCase())}` : ''}`;
     const r = rooms[h.id], m = metricFor(r.id);
     const n = S.roomSt[r.id] ? S.roomSt[r.id].crew.length : 0;
     return `<b>${esc(r.name)}</b>${m ? ` · ${esc(m.label)}: ${esc(m.value)}` : ''}${n ? ` · ${n} aboard` : ''}`;
@@ -1002,7 +1003,11 @@
 
   function crewHTML(c) {
     const s = statusOf(c), d = c.duty, owned = ownedOrders(c.role);
-    let h = `<div class="head"><canvas data-portrait="${c.role}" width="${FW * 3}" height="${FH * 3}"></canvas>
+    const avatar = S.mode === 'live' && missionState?.roster?.find(o => o.id === c.agentId)?.avatar;
+    const picture = typeof avatar === 'string' && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(avatar)
+      ? `<img class="crew-profile-picture" src="${avatar}" alt="">`
+      : `<canvas data-portrait="${c.role}" width="${FW * 3}" height="${FH * 3}"></canvas>`;
+    let h = `<div class="head">${picture}
       <div><h2 style="color:${c.text}">${esc(c.name)}</h2><div class="sub">${esc(c.def.title)}</div>
       <div class="sub">Home: ${esc(rooms[c.def.home].name)} · Now: ${esc(rooms[c.room].name)}</div></div></div>`;
     h += '<h3>CURRENT</h3>';
@@ -1053,7 +1058,7 @@
   }
   function coreHTML() {
     const m = bridge.snap.msd, st = bridge.snap.status;
-    let x = `<h2 style="color:#66E0FF">${esc(roster().computer)}</h2><div class="sub">Main computer · Computer Core</div>
+    let x = `<h2 style="color:#66E0FF">${esc(assistantName())}</h2><div class="sub">Main computer · Computer Core</div>
       <div class="colorbar" style="background:#66E0FF"></div>
       <div class="about">The ship itself: every officer is summoned from here. The core brightens and gains an orbiting light for each chat turn in flight across your panes.</div>`;
     x += `<h3>LIVE</h3><div class="kv"><span class="k">Channels</span><span class="v">${S.inflight} in flight</span>`;
@@ -1064,14 +1069,14 @@
     x += '</div>';
     const cr = S.exact && bridge.snap.crew;
     if (cr) {
-      const who = (t) => (CD.isOfficerRole(t.role) ? crewByRole[t.role].name : roster().computer);
+      const who = (t) => (CD.isOfficerRole(t.role) ? crewByRole[t.role].name : assistantName());
       const ts = cr.turns || [];
       x += `<h3>CHANNELS (${ts.length})</h3>` + (ts.length
         ? `<ul class="mini-list">${ts.map((t) => `<li><span class="t">${esc(CD.fmtDur(Date.now() - t.started_at * 1000))}</span>${esc(t.source === 'order' ? 'Order: ' + t.label : paneTag(t))} · <b>${esc(who(t))}</b>: ${esc(t.doing || '')}${t.provider ? ` <span class="t">${esc(t.provider)}</span>` : ''}</li>`).join('')}</ul>`
         : '<div class="sub">No channels open.</div>');
       const hs = (cr.agents || []).filter((a) => !a.role || a.role === 'core');
       if (hs.length) {
-        x += `<h3>HELPERS (${hs.length})</h3><ul class="mini-list">${hs.map((a) => `<li><span class="t">${esc(CD.fmtDur(Date.now() - a.started_at * 1000))}</span>${esc(a.role === 'core' ? roster().computer : CD.helperLabel(a.type))}: ${esc(a.description || a.type)} · ${esc(a.doing || '')}</li>`).join('')}</ul>`;
+        x += `<h3>HELPERS (${hs.length})</h3><ul class="mini-list">${hs.map((a) => `<li><span class="t">${esc(CD.fmtDur(Date.now() - a.started_at * 1000))}</span>${esc(a.role === 'core' ? assistantName() : CD.helperLabel(a.type))}: ${esc(a.description || a.type)} · ${esc(a.doing || '')}</li>`).join('')}</ul>`;
       }
     }
     if (m && m.recent_tools && m.recent_tools.length) {

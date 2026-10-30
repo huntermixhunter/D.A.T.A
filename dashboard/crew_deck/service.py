@@ -192,6 +192,16 @@ def handle_http(handler, env):
             _json(handler, {'error': 'Method not allowed'}, 405)
             return True
         _guard(env, owner)
+        if 'roster' in data:
+            import agent_profiles
+            appearance = agent_profiles.snapshot(env, owner)
+            profiles = {item['id']: item for item in appearance['agents']}
+            for member in data['roster']:
+                profile = profiles.get(member['id'])
+                if profile:
+                    member.update(name=profile['name'], avatar=profile['avatar'])
+            data['assistant'] = profiles.get('data', {})
+        _guard(env, owner)
         _json(handler, data)
     except CrewError as exc:
         _json(handler, {'error': str(exc)}, 409)

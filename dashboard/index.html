@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <link rel="stylesheet" href="theme.css?v=matrix-views-20261029" />
+  <link rel="stylesheet" href="theme.css?v=agent-profiles-20261030" />
   <link rel="stylesheet" href="skill_search.css?v=1" />
   <link rel="stylesheet" href="advanced_tools.css?v=1" />
   <link rel="stylesheet" href="remote_access.css?v=1" />
@@ -348,9 +348,9 @@
               <div class="chat-window-wrap">
                 <div class="chat-window" id="chat-window">
                   <div class="chat-message data">
-                    <div class="avatar">◉</div>
+                    <div class="avatar"><span class="agent-avatar-content" data-agent-avatar="data" data-agent-fallback="◉">◉</span></div>
                     <div class="bubble">
-                      <div class="sender">DATA</div>
+                      <div class="sender"><span data-agent-label="data" data-agent-default="Data">DATA</span></div>
                       <div class="text">DATA main computer online, Captain. All systems nominal. How may I assist you?</div>
                       <div class="timestamp" id="init-timestamp"></div>
                     </div>
@@ -715,7 +715,7 @@
             <button class="settings-tab" data-tab="model"  onclick="settingsTab('model')">MODEL</button>
             <button class="settings-tab" data-tab="upgrades" onclick="settingsTab('upgrades')">UPGRADES</button>
             <button class="settings-tab" data-tab="updates" onclick="settingsTab('updates')">UPDATES</button>
-            <button class="settings-tab" data-tab="crew"   onclick="settingsTab('crew')">CREW PERSONALITIES</button>
+            <button class="settings-tab" data-tab="crew"   onclick="settingsTab('crew')">CREW PROFILES</button>
             <button class="settings-tab" data-tab="memory" onclick="settingsTab('memory')">MEMORY</button>
             <button class="settings-tab" data-tab="history" onclick="settingsTab('history')">HISTORY</button>
           </nav>
@@ -1001,17 +1001,17 @@
             </section>
 
             <section class="settings-pane" data-pane="crew">
-              <h3 class="settings-h">Crew personalities</h3>
-              <p class="settings-sub">Edit each officer's personality file in ~/.claude/agents. Saved to disk.</p>
+              <h3 class="settings-h">Crew profiles</h3>
+              <p class="settings-sub">Choose the main assistant or a crew member to edit their display name, picture, and personality.</p>
               <div class="settings-opt-row" id="settings-crew-pick"></div>
-              <h3 class="settings-h">Officer picture</h3>
-              <p class="settings-sub">Give the selected officer a face. PNG or JPEG, up to 512 KB. Pictures are stored on this computer and shown wherever the officer appears.</p>
-              <div class="settings-avatar-row" id="settings-crew-avatar"></div>
+              <h3 class="settings-h">Name and picture</h3>
+              <p class="settings-sub">PNG, JPEG, WebP, or GIF, up to 8 MB. Pictures are cropped to a square and stored on this computer.</p>
+              <div id="settings-crew-avatar"></div>
               <h3 class="settings-h">Personality file</h3>
               <textarea class="settings-editor" id="settings-crew-editor" spellcheck="false" placeholder="Select an officer above to load their personality file…"></textarea>
               <div class="settings-editor-bar">
                 <span class="settings-editor-path" id="settings-crew-path"></span>
-                <button class="settings-save" id="settings-crew-save" onclick="settingsSaveAgent()">SAVE</button>
+                <button class="settings-save" id="settings-crew-save" onclick="settingsSaveAgent()">SAVE PERSONALITY</button>
               </div>
             </section>
 
@@ -1454,7 +1454,7 @@
       toggleRail(e.key === 'ArrowLeft' ? 'left' : 'right');
     });
   </script>
-  <script src="app.js?v=matrix-views-20261029"></script>
+  <script src="app.js?v=agent-profiles-20261030"></script>
   <script src="advanced_tools.js?v=1"></script>
   <script src="skill_search.js?v=1"></script>
   <script src="remote_access.js?v=1"></script>

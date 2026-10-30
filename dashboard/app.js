@@ -11,6 +11,185 @@ const API_BASE = (location.protocol === 'file:' || !location.origin || location.
   ? 'http://localhost:7777'
   : location.origin;
 
+/* User-scoped agent appearance. Names are text; portraits are validated raster data. */
+window.AgentProfiles = (() => {
+  let profiles = new Map(), owner = '', generation = 0;
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, char =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  const raster = value => typeof value === 'string' && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(value) ? value : '';
+  const name = (id, fallback) => profiles.get(id)?.name || fallback || id;
+  function label(id, fallback) {
+    const custom = profiles.get(id)?.custom_name;
+    if (!custom) return fallback || name(id);
+    const role = (fallback || '').indexOf(' - ');
+    return custom + (role < 0 ? '' : fallback.slice(role));
+  }
+  function portrait(id, fallback) {
+    const src = raster(profiles.get(id)?.avatar);
+    return src ? `<img src="${src}" alt="" class="agent-portrait">` : escape(fallback);
+  }
+  function avatarHTML(id, fallback) {
+    const initial = profiles.get(id)?.custom_name ? Array.from(name(id))[0].toUpperCase() : fallback;
+    return `<span class="agent-avatar-content" data-agent-avatar="${escape(id)}" data-agent-fallback="${escape(fallback)}">${portrait(id, initial)}</span>`;
+  }
+  function senderHTML(id, fallback) {
+    return `<span data-agent-label="${escape(id)}" data-agent-default="${escape(fallback)}">${escape(label(id, fallback).toUpperCase())}</span>`;
+  }
+  function refresh() {
+    document.querySelectorAll('[data-agent-avatar]').forEach(el => {
+      const id = el.dataset.agentAvatar;
+      const fallback = profiles.get(id)?.custom_name ? Array.from(name(id))[0].toUpperCase() : el.dataset.agentFallback;
+      el.innerHTML = portrait(id, fallback);
+    });
+    document.querySelectorAll('[data-agent-label]').forEach(el => {
+      el.textContent = label(el.dataset.agentLabel, el.dataset.agentDefault).toUpperCase();
+    });
+    document.querySelectorAll('.pane-crew-select').forEach(select => {
+      const selected = select.value;
+      if (typeof _crewSelectOptionsHTML === 'function') select.innerHTML = _crewSelectOptionsHTML(selected);
+    });
+    if (typeof _paintCrewToggle === 'function') _paintCrewToggle();
+    if (typeof _settingsPaintVoiceRow === 'function') _settingsPaintVoiceRow();
+    refreshFace();
+    window.dispatchEvent(new Event('agent-profiles-changed'));
+  }
+  function refreshFace() {
+    const face = document.getElementById('convo-face-idle');
+    if (!face || face.tagName !== 'IMG') return;
+    if (!face.dataset.defaultPortrait) face.dataset.defaultPortrait = face.getAttribute('src');
+    const id = typeof CREW_VOICE === 'string' ? CREW_VOICE : 'data';
+    const src = raster(profiles.get(id)?.avatar);
+    const target = src || face.dataset.defaultPortrait;
+    if (face.getAttribute('src') !== target) face.src = target;
+    face.classList.toggle('agent-custom-face', !!src);
+  }
+  function apply(result) {
+    if (!result || !Array.isArray(result.agents) || !result.owner) throw new Error('The profile service returned an invalid response.');
+    owner = result.owner;
+    profiles = new Map(result.agents.map(agent => [agent.id, agent]));
+    refresh();
+    return result.agents;
+  }
+  async function load() {
+    const request = ++generation;
+    const headers = { 'X-Data-Request': '1' };
+    if (typeof _activeCaptain === 'string' && _activeCaptain) headers['X-Agent-Profile-Owner'] = _activeCaptain;
+    const response = await fetch(`${API_BASE}/agent-profiles`, { cache: 'no-store', headers });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Profiles are unavailable. Restart the dashboard to load the update.');
+    if (request !== generation) return [...profiles.values()];
+    return apply(result);
+  }
+  function clear() {
+    generation++;
+    profiles = new Map(); owner = '';
+    refresh();
+    document.getElementById('settings-crew-avatar')?.replaceChildren();
+  }
+  function node(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
+  async function readPicture(file) {
+    if (!file || !/^image\/(png|jpeg|webp|gif)$/.test(file.type)) throw new Error('Choose a PNG, JPEG, WebP, or GIF picture.');
+    if (file.size > 8 * 1024 * 1024) throw new Error('Choose a picture smaller than 8 MB.');
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image(); img.src = url;
+      await img.decode();
+      if (!img.width || !img.height || img.width * img.height > 32000000) throw new Error('Choose a picture no larger than 32 megapixels.');
+      const size = Math.min(img.width, img.height);
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;
+      canvas.getContext('2d').drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, 256, 256);
+      return canvas.toDataURL('image/png');
+    } finally { URL.revokeObjectURL(url); }
+  }
+  function renderEditor(agent) {
+    const host = document.getElementById('settings-crew-avatar');
+    if (!host) return;
+    host.replaceChildren();
+    const profile = profiles.get(agent?.id);
+    if (!profile) return;
+    const editOwner = owner;
+    let pendingAvatar = null, working = false;
+    const form = node('form', 'agent-profile-form');
+    const preview = node('div', 'agent-profile-preview');
+    preview.setAttribute('aria-label', 'Profile picture preview');
+    const fields = node('div', 'agent-profile-fields');
+    const labelEl = node('label', '', 'Display name'); labelEl.htmlFor = 'agent-display-name';
+    const input = node('input'); input.id = 'agent-display-name'; input.maxLength = 60;
+    input.value = profile.name; input.placeholder = profile.default_name; input.autocomplete = 'off';
+    const hint = node('p', 'settings-sub', 'Shown in chats and crew selectors. Saved for your current profile.');
+    const actions = node('div', 'agent-profile-actions');
+    const picker = node('input'); picker.type = 'file'; picker.accept = 'image/png,image/jpeg,image/webp,image/gif';
+    picker.hidden = true; picker.id = 'agent-picture-file';
+    const choose = node('button', 'settings-opt', 'Choose picture'); choose.type = 'button';
+    const remove = node('button', 'settings-opt', 'Remove picture'); remove.type = 'button';
+    const reset = node('button', 'settings-opt', 'Reset to default'); reset.type = 'button';
+    const save = node('button', 'settings-save', 'Save profile'); save.type = 'submit';
+    const status = node('p', 'agent-profile-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+    function show(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
+    function draw() {
+      preview.replaceChildren();
+      const src = raster(pendingAvatar === null ? profile.avatar : pendingAvatar);
+      if (src) { const img = node('img'); img.src = src; img.alt = ''; preview.append(img); }
+      else preview.textContent = Array.from(input.value || profile.default_name)[0].toUpperCase();
+      remove.disabled = working || !src;
+    }
+    function busy(value) {
+      working = value;
+      [input, choose, reset, save, picker].forEach(el => { el.disabled = value; });
+      draw();
+    }
+    choose.onclick = () => picker.click();
+    input.addEventListener('input', () => { draw(); show('Unsaved changes.'); });
+    picker.addEventListener('change', async () => {
+      const file = picker.files?.[0]; if (!file) return;
+      busy(true); show('Preparing picture...');
+      try { pendingAvatar = await readPicture(file); show('Picture ready. Save profile to apply it.'); }
+      catch (error) { show(error.message || 'That picture could not be read.', true); }
+      finally { picker.value = ''; busy(false); }
+    });
+    remove.onclick = () => { pendingAvatar = ''; draw(); show('Picture removed from preview. Save profile to apply.'); };
+    reset.onclick = () => { input.value = profile.default_name; pendingAvatar = ''; draw(); show('Default appearance ready. Save profile to apply.'); };
+    form.addEventListener('submit', async event => {
+      event.preventDefault(); if (working) return;
+      const proposed = input.value.trim();
+      if (!proposed) { show('Enter a display name, or use Reset to default.', true); input.focus(); return; }
+      busy(true); show('Saving profile...');
+      try {
+        const body = { owner: editOwner, id: agent.id, name: proposed === profile.default_name ? '' : proposed };
+        if (pendingAvatar !== null) body.avatar = pendingAvatar;
+        const response = await fetch(`${API_BASE}/agent-profiles`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Data-Request': '1' }, body: JSON.stringify(body),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'The profile could not be saved.');
+        if (owner !== editOwner) return;
+        generation++; apply(result);
+        Object.assign(profile, profiles.get(agent.id));
+        Object.assign(agent, profile); pendingAvatar = null;
+        document.querySelectorAll('#settings-crew-pick [data-agent]').forEach(button => {
+          button.textContent = name(button.dataset.agent, button.dataset.agent).toUpperCase();
+        });
+        try { localStorage.setItem('agent-profiles-updated', String(Date.now())); } catch (_) { /* Browser storage is optional. */ }
+        show('Profile saved.');
+      } catch (error) { show(error.message || 'The profile could not be saved.', true); }
+      finally { busy(false); }
+    });
+    actions.append(choose, remove, reset, save, picker);
+    fields.append(labelEl, input, hint, actions, status); form.append(preview, fields); host.append(form); draw();
+  }
+  window.addEventListener('storage', event => {
+    if (event.key === 'agent-profiles-updated') load().catch(() => {});
+  });
+  return { name, label, avatarHTML, senderHTML, refreshFace, load, clear, renderEditor,
+    get: id => profiles.get(id), get owner() { return owner; } };
+})();
+
+
 // Sidebar visibility is stored separately for each dashboard and profile.
 const SidebarView = (() => {
   const sidebar = document.querySelector('[data-sidebar-view]');
@@ -656,10 +835,12 @@ const CREW_LABELS = {
   sage:   'Sage - Advisor',
   scout:   'Scout - Content',
 };
-function crewLabel(id) { return CREW_LABELS[id] || 'Data'; }
+function crewLabel(id) { return AgentProfiles.label(id, CREW_LABELS[id] || 'Data'); }
 function _crewAvatar(id) {
-  return id === 'data' ? '◉' : (crewLabel(id)[0] || '◉').toUpperCase();
+  const fallback = id === 'data' ? '◉' : (CREW_LABELS[id]?.[0] || '◉').toUpperCase();
+  return AgentProfiles.avatarHTML(id, fallback);
 }
+function _crewSender(id) { return AgentProfiles.senderHTML(id, CREW_LABELS[id] || 'Data'); }
 
 // Crew wake words carried over from Conversation Mode into the global comms
 // listener. The whole finalized utterance must BE the wake word (optionally
@@ -683,7 +864,7 @@ function _crewWakeMatch(heard) {
     .replace(/^(?:hey|hi|hello|ok|okay|yo)\s+/, '')
     .trim();
   for (const id in CREW_WAKE) {
-    if (CREW_WAKE[id].indexOf(h) !== -1) return id;
+    if (CREW_WAKE[id].indexOf(h) !== -1 || AgentProfiles.get(id)?.custom_name?.toLowerCase() === h) return id;
   }
   return null;
 }
@@ -693,7 +874,7 @@ function _crewWakeMatch(heard) {
 // project workspace stores its own `crew` field on the workspace record.
 function _crewSelectOptionsHTML(selectedId) {
   return Object.keys(CREW_LABELS).map(id =>
-    `<option value="${id}"${id === selectedId ? ' selected' : ''}>${crewLabel(id).toUpperCase()}</option>`
+    `<option value="${id}"${id === selectedId ? ' selected' : ''}>${escapeHtml(crewLabel(id).toUpperCase())}</option>`
   ).join('');
 }
 
@@ -910,6 +1091,8 @@ async function bootCaptains() {
     _captains = Array.isArray(data.users) ? data.users : [];
     _activeCaptain = data.active || (_captains[0] && _captains[0].id) || '';
     SidebarView.setProfile(_activeCaptain);
+    AgentProfiles.clear();
+    await AgentProfiles.load().catch(error => addLog(error.message));
     window.CrewDeckHost?.reset();
     loadMatrixViewPreference();
     // With a single unnamed Captain there is nothing worth showing, so the
@@ -1060,6 +1243,8 @@ async function switchCaptain(uid) {
     const data = await res.json();
     _activeCaptain = data.active || uid;
     SidebarView.setProfile(_activeCaptain);
+    AgentProfiles.clear();
+    await AgentProfiles.load().catch(error => addLog(error.message));
     window.CrewDeckHost?.reset();
     loadMatrixViewPreference();
     renderCaptainSwitcher();
@@ -1309,7 +1494,7 @@ function appendMessage(role, text) {
 
   const isData = role === 'data';
   const avatarLetter = isData ? _crewAvatar(MAIN_CHAT_CREW) : 'C';
-  const senderLabel = isData ? crewLabel(MAIN_CHAT_CREW).toUpperCase() : 'CAPTAIN';
+  const senderLabel = isData ? _crewSender(MAIN_CHAT_CREW) : 'CAPTAIN';
   const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
 
   msg.innerHTML = `
@@ -1355,7 +1540,7 @@ function appendThinking() {
   msg.innerHTML = `
     <div class="avatar">${_crewAvatar(MAIN_CHAT_CREW)}</div>
     <div class="bubble">
-      <div class="sender">${crewLabel(MAIN_CHAT_CREW).toUpperCase()}</div>
+      <div class="sender">${_crewSender(MAIN_CHAT_CREW)}</div>
       <div class="text thinking-dots" id="thinking-step">
         Processing<span>.</span><span>.</span><span>.</span>
       </div>
@@ -1895,7 +2080,7 @@ function _startStreamBubble(winEl) {
   msg.innerHTML = `
     <div class="avatar">${_crewAvatar(MAIN_CHAT_CREW)}</div>
     <div class="bubble">
-      <div class="sender">${crewLabel(MAIN_CHAT_CREW).toUpperCase()}</div>
+      <div class="sender">${_crewSender(MAIN_CHAT_CREW)}</div>
       <div class="text streaming"></div>
       <div class="timestamp">${ts}</div>
     </div>
@@ -5022,7 +5207,7 @@ let CREW_VOICES_LIST = [];   // [{id, name, is_crew}] — populated from the bri
 
 function crewName(id) {
   const v = CREW_VOICES_LIST.find(x => x.id === (id || CREW_VOICE));
-  return v ? v.name : 'Data';
+  return AgentProfiles.name(id || CREW_VOICE, v ? v.name : 'Data');
 }
 
 async function syncCrewVoiceToggle() {
@@ -5045,7 +5230,7 @@ function _paintCrewToggle() {
   if (!CREW_VOICES_LIST.length) { row.innerHTML = ''; return; }
   row.innerHTML = CREW_VOICES_LIST.map(v => {
     const cls = 'convo-crew-opt' + (v.id === CREW_VOICE ? ' active' : '');
-    const nm  = (v.name || v.id).replace(/"/g, '&quot;');
+    const nm = escapeHtml(AgentProfiles.name(v.id, v.name || v.id));
     return `<button type="button" class="${cls}" data-voice="${v.id}"
               onclick="setCrewVoice('${v.id}')"
               title="Talk to ${nm}">${nm.toUpperCase()}</button>`;
@@ -5055,6 +5240,7 @@ function _paintCrewToggle() {
 function setCrewVoice(id) {
   CREW_VOICE = id;
   localStorage.setItem('crew-voice', id);
+  AgentProfiles.refreshFace();
   _paintCrewToggle();
   const nm = crewName(id);
   addLog(`Voice → ${nm}`);
@@ -9752,7 +9938,7 @@ function appendMessageToPane(winEl, role, text, crewId) {
   const isData = role === 'data';
   const crew = crewId || 'data';
   const avatar = isData ? _crewAvatar(crew) : 'C';
-  const sender = isData ? crewLabel(crew).toUpperCase() : 'CAPTAIN';
+  const sender = isData ? _crewSender(crew) : 'CAPTAIN';
   const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
   msg.innerHTML = `
     <div class="avatar">${avatar}</div>
@@ -9789,7 +9975,7 @@ function appendThinkingToPane(winEl, crewId) {
   msg.innerHTML = `
     <div class="avatar">${_crewAvatar(crew)}</div>
     <div class="bubble">
-      <div class="sender">${crewLabel(crew).toUpperCase()}</div>
+      <div class="sender">${_crewSender(crew)}</div>
       <div class="text thinking-dots">Processing<span>.</span><span>.</span><span>.</span></div>
     </div>
   `;
@@ -11097,7 +11283,7 @@ function _settingsPaintVoiceRow() {
   if (!row) return;
   if (!CREW_VOICES_LIST.length) { row.innerHTML = '<span class="settings-sub">No crew voices available.</span>'; return; }
   row.innerHTML = (CREW_VOICES_LIST || []).map(v =>
-    `<button class="settings-opt${v.id === CREW_VOICE ? ' active' : ''}" data-voice="${v.id}" onclick="settingsSetCrewVoice('${v.id}')">${(v.name || v.id).toUpperCase()}</button>`).join('');
+    `<button class="settings-opt${v.id === CREW_VOICE ? ' active' : ''}" data-voice="${v.id}" onclick="settingsSetCrewVoice('${v.id}')">${escapeHtml(AgentProfiles.name(v.id, v.name || v.id).toUpperCase())}</button>`).join('');
 }
 function settingsSetCrewVoice(id) { if (typeof setCrewVoice === 'function') setCrewVoice(id); _settingsPaintVoiceRow(); }
 
@@ -11191,97 +11377,45 @@ async function settingsSetModel(id) {
 // ── Crew personalities ──────────────────────────────────────
 async function _settingsLoadCrew() {
   try {
-    const d = await (await fetch(`${API_BASE}/agents`)).json();
-    _settingsAgents = d.agents || [];
+    const [response, profiles] = await Promise.all([
+      fetch(`${API_BASE}/agents`), AgentProfiles.load(),
+    ]);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not load personalities.');
+    const files = new Map((data.agents || []).map(agent => [agent.id, agent]));
+    _settingsAgents = profiles.map(profile => ({ ...files.get(profile.id), ...profile }));
     const pick = document.getElementById('settings-crew-pick');
-    if (pick) {
-      // Built as nodes, not markup: the id is a filename from ~/.claude/agents
-      // and a quote in it would otherwise break out of the inline handler.
-      pick.replaceChildren(..._settingsAgents.length
-        ? _settingsAgents.map(a => _acctEl('button', {
-            class: 'settings-opt' + (a.id === _settingsActiveAgent ? ' active' : ''),
-            type: 'button', 'data-agent': a.id, text: (a.name || a.id).toUpperCase(),
-            onclick: () => settingsPickAgent(a.id),
-          }))
-        : [_acctEl('span', { class: 'settings-sub', text: 'No officer personality files found in ~/.claude/agents.' })]);
-    }
-    const first = _settingsActiveAgent && _settingsAgents.some(a => a.id === _settingsActiveAgent)
-      ? _settingsActiveAgent : (_settingsAgents[0] || {}).id;
-    if (first) settingsPickAgent(first);
-    else _settingsRenderAgentAvatar(null);
-  } catch (e) { addLog(`Crew personalities load failed: ${e.message || e}`); }
+    if (pick) pick.replaceChildren(..._settingsAgents.map(agent => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'settings-opt'; button.dataset.agent = agent.id;
+      button.textContent = agent.name.toUpperCase();
+      button.addEventListener('click', () => settingsPickAgent(agent.id));
+      return button;
+    }));
+    const selected = _settingsAgents.some(agent => agent.id === _settingsActiveAgent) ? _settingsActiveAgent : 'data';
+    settingsPickAgent(selected);
+  } catch (error) {
+    const host = document.getElementById('settings-crew-avatar');
+    if (host) host.textContent = 'Profiles could not be loaded. Restart the dashboard if it has not loaded the update. ' + (error.message || '');
+    addLog(`Crew profiles load failed: ${error.message || error}`);
+  }
 }
 function settingsPickAgent(id) {
   _settingsActiveAgent = id;
-  const a = _settingsAgents.find(x => x.id === id);
-  const ed = document.getElementById('settings-crew-editor');
-  const pa = document.getElementById('settings-crew-path');
-  if (a && ed) ed.value = a.content || '';
-  if (a && pa) pa.textContent = a.path || '';
-  document.querySelectorAll('#settings-crew-pick .settings-opt').forEach(b =>
-    b.classList.toggle('active', b.dataset.agent === id));
-  _settingsRenderAgentAvatar(a || null);
-}
-
-// ── Officer pictures ────────────────────────────────────────────────────────
-// One picture per officer, stored next to the Captain's under users/ and
-// validated with the same PNG/JPEG checks. Lives with the other AI agent
-// settings so an officer's face and personality are edited in one place.
-function _settingsRenderAgentAvatar(agent, flash) {
-  const host = document.getElementById('settings-crew-avatar');
-  if (!host) return;
-  host.replaceChildren();
-  if (!agent) {
-    host.append(_acctEl('p', { class: 'settings-sub', text: 'Select an officer above to set their picture.' }));
-    return;
+  const agent = _settingsAgents.find(item => item.id === id);
+  const editor = document.getElementById('settings-crew-editor');
+  const path = document.getElementById('settings-crew-path');
+  const save = document.getElementById('settings-crew-save');
+  if (editor) {
+    editor.value = agent?.content || '';
+    editor.disabled = !agent?.path;
+    editor.placeholder = agent?.path ? 'Edit the personality instructions.' : 'This agent uses its built-in personality. Its display name and picture can be edited above.';
   }
-  const status = _acctStatus('crew-avatar');
-  const preview = _acctAvatarImg(agent.avatar ? `${API_BASE}${agent.avatar}` : '', 'settings-identity-av', agent.name);
-  const picker = _acctEl('input', { type: 'file', class: 'settings-file', accept: 'image/png,image/jpeg' });
-
-  async function send(image, done) {
-    status.className = 'settings-status';
-    status.textContent = 'Working…';
-    try {
-      const res = await fetch(`${API_BASE}/agents/avatar`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: agent.id, image }),
-      });
-      const out = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(out.error || 'Could not save that picture.');
-      agent.avatar = out.avatar || '';
-      addLog(`${agent.name} picture ${image ? 'updated' : 'removed'}`);
-      // Repaint first — the REMOVE button appears or disappears — then write
-      // the confirmation into the control that actually ended up on screen.
-      _settingsRenderAgentAvatar(agent, { tone: 'ok', text: done });
-    } catch (e) {
-      status.className = 'settings-status err';
-      status.textContent = e.message || 'Could not save that picture.';
-    }
-  }
-
-  picker.addEventListener('change', async () => {
-    try {
-      const data = await _acctReadImage(picker);
-      if (data) await send(data, 'Picture saved.');
-    } catch (e) {
-      status.className = 'settings-status err';
-      status.textContent = e.message;
-    } finally { picker.value = ''; }
-  });
-
-  host.append(
-    preview,
-    _acctEl('div', { class: 'settings-avatar-actions' }, [
-      _acctEl('label', { class: 'settings-opt settings-opt-file', text: 'CHOOSE PICTURE' }, [picker]),
-      agent.avatar ? _acctEl('button', {
-        class: 'settings-opt', type: 'button', text: 'REMOVE PICTURE',
-        onclick: () => send('', 'Picture removed.'),
-      }) : null,
-      status,
-    ]),
-  );
-  if (flash) { status.className = 'settings-status ' + flash.tone; status.textContent = flash.text; }
+  if (path) path.textContent = agent?.path || '';
+  if (save) save.disabled = !agent?.path;
+  document.querySelectorAll('#settings-crew-pick .settings-opt').forEach(button =>
+    button.classList.toggle('active', button.dataset.agent === id));
+  AgentProfiles.renderEditor(agent);
 }
 async function settingsSaveAgent() {
   if (!_settingsActiveAgent) { addLog('Pick an officer first'); return; }
