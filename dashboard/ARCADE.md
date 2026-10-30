@@ -20,6 +20,9 @@ There are no accounts, purchases, external game services, or AI calls to play.
    pulse charges before the next sector.
 4. Collect salvage cogs and repair drops. Spend banked salvage on permanent hull,
    shield, engine, and weapons upgrades in the hangar between runs.
+5. Clear Sector 10 in one run to complete the patrol and unlock the Event Horizon
+   dashboard theme. Equip it on the victory screen or in Settings > Appearance.
+   Choose another upgrade to continue into endless patrol, or finish the run.
 
 Pressure rises the longer you stay in a sector. Condition moves from GREEN to
 YELLOW after 50 seconds and to RED after 100, with more frequent formation
@@ -96,10 +99,19 @@ Apache-2.0 license. No third-party sound recordings are distributed.
 ## Progress
 
 Permanent hangar levels, banked salvage, highest score, furthest sector, run
-count, and the sound preference are stored in browser localStorage. The key is
+count, highest cleared sector, and the sound preference are stored in browser localStorage. The key is
 `data-void-patrol-v1:<dashboard-profile>`. Dashboard profiles have separate
 progress. The standalone `/arcade/` page uses the separate `solo` key. Other
 browsers and devices do not share these records.
+
+Event Horizon uses pure-black surfaces with violet and ice-blue accents and
+orbital artwork. It stays locked until Sector 10 is cleared; reaching that sector
+alone does not qualify. Victory saves immediately, before the next upgrade, and
+the reward remains available after death or a reload. The chosen theme is stored
+as `data-theme:<dashboard-profile>`, separately for each profile. Previous saves
+that reached Sector 11 or later qualify automatically. Standalone progress does
+not unlock a dashboard profile's theme. Clearing browser storage removes the save
+and reward. If storage is unavailable, the unlock lasts only for the current visit.
 
 Progress banks on sector completion, death, pause, page exit, and at five-second
 intervals during a run. Every write starts from the saved record, so two open
@@ -118,6 +130,9 @@ hangar; numeric fields and upgrade levels are bounded before use.
 - `arcade/index.html` and `arcade/style.css`: the full-viewport game, HUD, and
   screens.
 - `arcade/host.js` and `arcade/host.css`: lazy dashboard embedding.
+- `appearance.mjs` and `event_horizon.css`: profile-specific theme selection,
+  reward gating, and the approved Event Horizon design. Game messages are checked
+  against the current iframe, origin, and active profile before changing themes.
 - `arcade/assets/`: WebP sprites keyed from the supplied artwork (`ship`,
   `interceptor`, `manta`, `fortress`), the deep star layer (`stars`), and the
   ship cutaway shared with the Crew Deck (`cutaway`).

@@ -2,6 +2,7 @@
 // World units are measured against the artwork: the player ship is 150 long,
 // a fortress is 480 across, and the sector wraps at WORLD on both axes.
 export const WORLD = 4800;
+export const REWARD_SECTOR = 10;
 export const TAU = Math.PI * 2;
 export const wrap = n => ((n % WORLD) + WORLD) % WORLD;
 export const delta = (a, b) => ((a - b + WORLD * 1.5) % WORLD) - WORLD / 2;
@@ -56,10 +57,14 @@ export function cleanProfile(value) {
   const raw = value && typeof value === 'object' ? value : {};
   return {
     version: 1, salvage: n(raw.salvage), best: n(raw.best), sector: n(raw.sector, 999),
+    // Older records tracked sectors reached. Reaching 11 proves that 10 was cleared.
+    clearedSector: Math.max(n(raw.clearedSector, 999), n(raw.sector, 999) - 1),
     runs: n(raw.runs), sound: raw.sound !== false,
     hangar: Object.fromEntries(HANGAR.map(item => [item.id, n(raw.hangar?.[item.id], item.max)])),
   };
 }
+
+export const hasEventHorizon = profile => cleanProfile(profile).clearedSector >= REWARD_SECTOR;
 
 export function purchase(profile, id) {
   const item = HANGAR.find(upgrade => upgrade.id === id);
@@ -85,6 +90,7 @@ export class Game {
     this.mode = 'ready';
     this.upgrades = Object.fromEntries(UPGRADES.map(item => [item.id, 0]));
     this.wave = 1;
+    this.clearedSector = 0;
     this.score = 0;
     this.salvage = 0;
     this.kills = 0;
@@ -391,6 +397,8 @@ export class Game {
   }
 
   finishSector() {
+    if (this.mode !== 'playing' || this.remaining !== 0) return;
+    this.clearedSector = this.wave;
     this.reward(75 + this.wave * 15);
     this.score += 1500 + Math.max(0, Math.floor(180 - this.sectorTime)) * 10;
     this.mode = 'upgrade';

@@ -9,6 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@100;300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <link rel="stylesheet" href="theme.css?v=agent-profiles-20261030" />
+  <link rel="stylesheet" href="event_horizon.css?v=1" />
+  <script type="module" src="appearance.mjs?v=1"></script>
   <link rel="stylesheet" href="skill_search.css?v=1" />
   <link rel="stylesheet" href="advanced_tools.css?v=1" />
   <link rel="stylesheet" href="remote_access.css?v=1" />
@@ -736,7 +738,10 @@
               <div class="settings-opt-row" id="settings-theme-row">
                 <button class="settings-opt" data-theme="minimal" onclick="settingsSetTheme('minimal')">MINIMAL</button>
                 <button class="settings-opt" data-theme="cyber"   onclick="settingsSetTheme('cyber')">CYBER</button>
+                <button class="settings-opt" data-theme="event-horizon" onclick="settingsSetTheme('event-horizon')" disabled aria-describedby="event-horizon-status">EVENT HORIZON (LOCKED)</button>
               </div>
+              <p class="settings-sub" id="event-horizon-status" role="status">Clear Sector 10 in one Void Patrol run to unlock Event Horizon.</p>
+              <button class="settings-opt" type="button" onclick="closeSettings(); showPanel('arcade')">PLAY VOID PATROL</button>
             </section>
 
             <!-- ACCOUNT — one identity for the dashboard, the Marketplace and
@@ -1350,57 +1355,7 @@
   <div id="email-cockpit" class="email-cockpit" aria-hidden="true"><!-- cockpit fills this --></div>
 
   <script>
-    // Theme bootstrap, runs before app.js to avoid flash-of-wrong-theme.
-    // Dark themes cycle in order: MINIMAL (default), CYBER.
-    var THEME_CYCLE = ['minimal', 'cyber'];
-    var THEME_NEXT_LABEL = { minimal: 'CYBER', cyber: 'MINIMAL' };
-
-    function currentTheme() {
-      var c = document.body.classList;
-      if (c.contains('theme-cyberpunk')) return 'cyber';
-      return 'minimal';
-    }
-
-    function applyTheme(theme) {
-      if (THEME_CYCLE.indexOf(theme) === -1) theme = 'minimal';
-      var c = document.body.classList;
-      c.toggle('theme-cyberpunk', theme === 'cyber');
-      c.toggle('theme-minimal', theme !== 'cyber');
-      c.remove('theme-light'); // Clear the retired skin on older pages.
-      try { localStorage.setItem('data-theme', theme); } catch (e) {}
-      _themeLabel();
-      if (typeof addLog === 'function') addLog('Theme → ' + theme.toUpperCase());
-      if (typeof _settingsPaintTheme === 'function') _settingsPaintTheme();
-    }
-
-    function toggleTheme() {
-      var i = THEME_CYCLE.indexOf(currentTheme());
-      applyTheme(THEME_CYCLE[(i + 1) % THEME_CYCLE.length]);
-    }
-
-    function _themeLabel() {
-      var lbl = document.getElementById('theme-toggle-label');
-      if (lbl) lbl.textContent = THEME_NEXT_LABEL[currentTheme()];
-    }
-
-    (function () {
-      var saved = 'minimal';
-      try { saved = localStorage.getItem('data-theme') || 'minimal'; } catch (e) {}
-      if (saved === 'cyberpunk') saved = 'cyber';   // older stored value
-      // Retired or unrecognized preferences use the dark default.
-      if (THEME_CYCLE.indexOf(saved) === -1) saved = 'minimal';
-      try { localStorage.setItem('data-theme', saved); } catch (e) {}
-      var c = document.body.classList;
-      c.remove('theme-minimal', 'theme-cyberpunk', 'theme-light');
-      if (saved === 'cyber') c.add('theme-cyberpunk');
-      else c.add('theme-minimal');
-    })();
-
-    document.addEventListener('DOMContentLoaded', _themeLabel);
-    _themeLabel();
-
-    // MSD metric-card placement (defined in app.js).
-    if (typeof _arrangeMsdCards === 'function') _arrangeMsdCards();
+    // Appearance and earned themes are initialized by appearance.mjs.
 
     // Collapsible rails
     // Either sidebar can be folded away to give the page its width back.
@@ -1472,6 +1427,6 @@
   <script src="offline_maps.js?v=1"></script>
   <script src="offline_archive.js?v=1"></script>
   <script src="crew-deck/host.js?v=1"></script>
-  <script src="arcade/host.js?v=1"></script>
+  <script src="arcade/host.js?v=event-horizon-1"></script>
 </body>
 </html>

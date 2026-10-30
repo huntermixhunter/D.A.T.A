@@ -1,0 +1,229 @@
+/* Event Horizon: earned in Void Patrol. Black surfaces match the embedded artwork. */
+body.theme-event-horizon {
+  color-scheme: dark;
+  /* Match the black in the schematic artwork and signal display. */
+  --p-bg: #000000;
+  --p-surface: var(--p-bg);
+  --p-raised: #0c0c0c;
+  --p-edge: #303647;
+  --p-muted: #959cb1;
+  --p-ink: #e2e5ee;
+  --p-accent: #b9a4f4;
+  --p-secondary: #9bd4e0;
+  --p-rgb: 185, 164, 244;
+  --p-second-rgb: 155, 212, 224;
+  --p-green: #91ccad;
+  --p-red: #f18d96;
+  --data-bg: var(--p-bg);
+  --data-bg2: var(--p-surface);
+  --data-orange: var(--p-accent);
+  --data-orange2: var(--p-secondary);
+  --data-yellow: var(--p-secondary);
+  --data-blue: var(--p-secondary);
+  --data-blue2: var(--p-accent);
+  --data-lightblue: var(--p-secondary);
+  --data-purple: var(--p-accent);
+  --data-teal: var(--p-secondary);
+  --data-green: var(--p-green);
+  --data-red: var(--p-red);
+  --data-pink: var(--p-secondary);
+  --data-text: var(--p-ink);
+  --data-text-dim: var(--p-muted);
+  --accent-rgb: var(--p-rgb);
+  --surf-card: var(--p-surface);
+  --surf-ctl: var(--p-bg);
+  --surf-ctl2: var(--p-surface);
+  --surf-ctl-hi: var(--p-raised);
+  --surf-well: var(--p-bg);
+  --surf-bubble: var(--p-surface);
+  --surf-media: var(--p-bg);
+  --surf-field: var(--p-bg);
+  --surf-deep: var(--p-bg);
+  --surf-sunken: var(--p-bg);
+  --surf-raised: var(--p-raised);
+  --surf-track: var(--p-raised);
+  --edge-0: var(--p-edge);
+  --edge-black: var(--p-edge);
+  --edge-1: var(--p-edge);
+  --edge-cool-1: var(--p-edge);
+  --edge-2: var(--p-edge);
+  --edge-3: var(--p-edge);
+  --edge-4: var(--p-edge);
+  --edge-cool-2: var(--p-edge);
+  --edge-5: var(--p-edge);
+  --edge-deep: var(--p-edge);
+  --edge-deep-2: var(--p-edge);
+  --ink-1: var(--p-ink);
+  --ink-2: var(--p-ink);
+  --ink-3: var(--p-ink);
+  --ink-4: var(--p-muted);
+  --ink-5: var(--p-muted);
+  --ink-6: var(--p-muted);
+  --font-main: 'Orbitron', 'Arial', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+  --sidebar-w: 240px;
+  --right-w: 224px;
+  --header-h: 76px;
+  --footer-h: 46px;
+  background: var(--p-bg);
+  letter-spacing: .025em;
+}
+body.theme-event-horizon .scanlines { display: none; }
+body.theme-event-horizon :is(.header-title, .panel-title, .section-label, .data-btn, .data-btn-sm, .send-btn) { text-shadow: none; }
+body.theme-event-horizon #app { padding: 0 12px; isolation: isolate; }
+body.theme-event-horizon .data-header { align-items: center; padding: 0; border-bottom: 1px solid var(--p-edge); }
+body.theme-event-horizon .header-title { padding: 0 22px; gap: 16px; }
+body.theme-event-horizon .system-name { color: var(--p-ink); font-size: 26px; letter-spacing: .22em; }
+body.theme-event-horizon .ship-name { font-size: 9px; color: var(--p-muted); letter-spacing: .09em; max-width: 290px; line-height: 1.8; white-space: normal; }
+body.theme-event-horizon .separator { color: var(--p-accent); }
+body.theme-event-horizon .stardate-value { font-size: 13px; color: var(--p-ink); }
+body.theme-event-horizon .stardate-label { font-size: 8px; }
+body.theme-event-horizon .header-status { font-size: 9px; letter-spacing: .1em; padding: 0 18px; white-space: nowrap; }
+body.theme-event-horizon .status-dot { width: 5px; height: 5px; }
+body.theme-event-horizon .header-left-elbow,
+body.theme-event-horizon .header-right-cap,
+body.theme-event-horizon .sidebar-elbow-top,
+body.theme-event-horizon .sidebar-elbow-bottom,
+body.theme-event-horizon .right-elbow-top,
+body.theme-event-horizon .right-elbow-bottom,
+body.theme-event-horizon .footer-left-cap,
+body.theme-event-horizon .footer-right-cap {
+  background: var(--p-surface); border: 1px solid var(--p-edge); box-shadow: none; clip-path: none;
+}
+body.theme-event-horizon .header-left-elbow { height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border: none; background: none; }
+body.theme-event-horizon .theme-mark { width: 34px; height: 34px; color: var(--p-accent); flex-shrink: 0; }
+body.theme-event-horizon .theme-lockup { display: flex; flex-direction: column; gap: 5px; }
+body.theme-event-horizon .theme-lockup strong { font-size: 10px; letter-spacing: .1em; color: var(--p-accent); white-space: nowrap; }
+body.theme-event-horizon .theme-lockup small { font: 8px var(--font-mono); letter-spacing: .16em; color: var(--p-muted); }
+body.theme-event-horizon .header-right-cap { width: 42px; height: 28px; background: repeating-linear-gradient(120deg, transparent 0 5px, var(--p-accent) 5px 6px); border: none; opacity: .45; }
+body.theme-event-horizon .sidebar-elbow-top,
+body.theme-event-horizon .right-elbow-top { height: 40px; margin-bottom: 8px; display: flex; align-items: center; padding: 0 14px; font: 9px var(--font-mono); letter-spacing: .12em; color: var(--p-muted); border-width: 0 0 1px; background: var(--p-bg); }
+body.theme-event-horizon .sidebar-elbow-bottom,
+body.theme-event-horizon .right-elbow-bottom { border: none; min-height: 65px; background: repeating-linear-gradient(135deg, transparent 0 10px, rgba(var(--p-rgb), .045) 10px 11px); }
+body.theme-event-horizon .data-body { gap: 14px; padding: 14px 0 8px; }
+body.theme-event-horizon .data-sidebar,
+body.theme-event-horizon .data-right { background: var(--p-bg); border: 1px solid var(--p-edge); scrollbar-width: thin; scrollbar-color: var(--p-edge) transparent; }
+body.theme-event-horizon .sidebar-section { padding: 6px 14px; gap: 4px; }
+body.theme-event-horizon .right-section { padding: 14px; }
+body.theme-event-horizon .section-label { color: var(--p-muted); border-color: var(--p-edge); font: 9px var(--font-mono); letter-spacing: .17em; padding-bottom: 9px; margin-bottom: 8px; }
+body.theme-event-horizon :is(.sidebar-divider, .right-divider) { height: 1px; border-radius: 0; margin: 8px 14px; background: var(--p-edge); }
+body.theme-event-horizon .data-btn { background: transparent; color: var(--p-muted); border: 1px solid transparent; border-radius: 2px; padding: 8px 10px; font-size: 10px; letter-spacing: .065em; box-shadow: none; filter: none; }
+body.theme-event-horizon .data-btn::after { display: none; }
+body.theme-event-horizon .data-btn:hover { background: rgba(var(--p-rgb), .07); color: var(--p-ink); border-color: var(--p-edge); transform: none; box-shadow: none; filter: none; }
+body.theme-event-horizon .data-btn.active { color: var(--p-accent); background: rgba(var(--p-rgb), .12); border: 1px solid rgba(var(--p-rgb), .28); box-shadow: inset 3px 0 var(--p-accent); }
+body.theme-event-horizon .data-btn[data-nav-panel='arcade'] { color: var(--p-secondary); }
+body.theme-event-horizon .data-btn[data-nav-panel='arcade']::before { content: ''; display: inline-block; width: 5px; height: 5px; border: 1px solid currentColor; transform: rotate(45deg); margin-right: 10px; vertical-align: 2px; }
+body.theme-event-horizon .data-main { position: relative; min-width: 0; isolation: isolate; }
+body.theme-event-horizon .panel { background: transparent; position: relative; }
+body.theme-event-horizon .chats-wrapper { background: transparent; }
+body.theme-event-horizon .panel.active { border: 1px solid var(--p-edge); }
+body.theme-event-horizon .panel-title-bar { border-color: var(--p-edge); padding: 14px 18px; background: var(--p-bg); }
+body.theme-event-horizon .panel-title { font-size: 11px; color: var(--p-accent); letter-spacing: .16em; }
+body.theme-event-horizon .data-btn-sm { background: var(--p-raised); color: var(--p-accent); border: 1px solid var(--p-edge); border-radius: 2px; font-size: 9px; box-shadow: none; }
+body.theme-event-horizon .data-btn-sm:hover { border-color: var(--p-accent); box-shadow: none; filter: none; }
+body.theme-event-horizon .pane-header { background: var(--p-bg); border-color: var(--p-edge); padding: 9px 14px; }
+body.theme-event-horizon .pane-title { font: 10px var(--font-mono); letter-spacing: .14em; color: var(--p-muted); }
+body.theme-event-horizon select { color: var(--p-muted) !important; background-color: var(--p-bg) !important; border-color: var(--p-edge) !important; }
+body.theme-event-horizon .chat-window { padding: 26px 22px; gap: 20px; position: relative; }
+body.theme-event-horizon .chat-message { gap: 14px; }
+body.theme-event-horizon .bubble { background: var(--p-surface) !important; border: 1px solid var(--p-edge) !important; border-radius: 3px !important; padding: 17px 20px; box-shadow: none; max-width: 90%; }
+body.theme-event-horizon .chat-message.data .bubble { border-left: 2px solid var(--p-accent) !important; }
+body.theme-event-horizon .chat-message.captain .bubble,
+body.theme-event-horizon .chat-message.user .bubble { border-color: rgba(var(--p-second-rgb), .2) !important; }
+body.theme-event-horizon .chat-message .text { color: var(--p-ink); font: 13px/1.9 var(--font-mono); letter-spacing: 0; }
+body.theme-event-horizon .chat-message .text strong { color: var(--p-accent); font-weight: 500; }
+body.theme-event-horizon .chat-message .sender { font: 9px var(--font-mono); letter-spacing: .17em; margin-bottom: 10px; }
+body.theme-event-horizon .chat-message .timestamp { color: var(--p-muted); font-size: 8px; margin-top: 10px; }
+body.theme-event-horizon .chat-message.data .avatar { background: var(--p-raised); border: 1px solid var(--p-edge); color: var(--p-accent); box-shadow: none; border-radius: 50%; width: 34px; height: 34px; }
+body.theme-event-horizon .chat-message.captain .avatar { color: var(--p-secondary); }
+body.theme-event-horizon .copy-btn,
+body.theme-event-horizon .tts-btn { color: var(--p-muted); border-color: var(--p-edge); background: var(--p-bg); opacity: .7; }
+body.theme-event-horizon .chat-input-area { border-top: 1px solid var(--p-edge); background: var(--p-bg); padding: 14px 18px; }
+body.theme-event-horizon .data-input { background: var(--p-surface); border: 1px solid var(--p-edge); color: var(--p-ink); font-size: 12px; box-shadow: none; }
+body.theme-event-horizon .data-input::placeholder { color: var(--p-muted); opacity: .85; }
+body.theme-event-horizon .data-input:focus { box-shadow: none; border-color: var(--p-accent); }
+body.theme-event-horizon .send-btn { background: var(--p-accent); color: var(--p-bg); border-radius: 2px; font-size: 10px; box-shadow: none; padding: 12px 18px; }
+body.theme-event-horizon .send-btn:hover { box-shadow: none; filter: brightness(1.12); }
+body.theme-event-horizon .input-label { font: 9px var(--font-mono); color: var(--p-secondary); }
+body.theme-event-horizon .vital-cell { border: 1px solid var(--p-edge); background: var(--p-bg); border-radius: 2px; padding: 12px 4px; }
+body.theme-event-horizon .vital-value { color: var(--p-accent); font-size: 22px; }
+body.theme-event-horizon #vitals-status { font-size: 15px; color: var(--p-green); }
+body.theme-event-horizon .vital-label { color: var(--p-muted); font: 8px var(--font-mono); margin-top: 5px; }
+body.theme-event-horizon .log-entry { font: 9px/1.9 var(--font-mono); color: var(--p-muted); border-color: var(--p-edge); }
+body.theme-event-horizon .log-entry:first-child { color: var(--p-accent); }
+body.theme-event-horizon .sys-power-btn { border: 1px solid var(--p-edge); color: var(--p-muted); padding: 10px 8px; font-size: 9px; }
+body.theme-event-horizon .sys-power-btn.shutdown { background: rgba(240, 120, 130, .045); color: var(--p-red); border-color: var(--p-edge); }
+body.theme-event-horizon .ships-health { padding: 4px 0; background: var(--p-bg); }
+body.theme-event-horizon .ships-health:not(.alert-red):hover { outline: 1px solid var(--p-accent); outline-offset: 3px; }
+body.theme-event-horizon .ship-holo-frame { background: var(--p-bg); box-shadow: none; border-color: var(--p-edge); }
+body.theme-event-horizon #mini-matrix { background: var(--p-bg); border-color: var(--p-edge); }
+/* The graph renderer sets an inline background on its SVG. */
+body.theme-event-horizon #mini-matrix svg { background: var(--p-bg) !important; }
+body.theme-event-horizon .ship-holo-frame img { filter: saturate(.4); }
+body.theme-event-horizon .engine-value { text-shadow: none; color: var(--p-secondary); }
+body.theme-event-horizon .health-readout-fill { background: var(--p-accent); box-shadow: none; }
+body.theme-event-horizon .health-readout-value { color: var(--p-secondary); }
+body.theme-event-horizon .health-readout-label { color: var(--p-muted); font-size: 9px; }
+body.theme-event-horizon .health-readout { padding: 5px 0; }
+body.theme-event-horizon .ctx-budget-fill { background: var(--p-accent); }
+body.theme-event-horizon .ctx-budget-row { font-size: 9px; }
+body.theme-event-horizon .data-footer { border-top: 1px solid var(--p-edge); padding: 8px 0; align-items: center; gap: 10px; }
+body.theme-event-horizon .footer-left-cap { height: 28px; color: var(--p-accent); min-width: 100px; }
+body.theme-event-horizon .footer-left-cap::after { display: none; }
+body.theme-event-horizon .settings-toggle-label { font-size: 9px; text-shadow: none; }
+body.theme-event-horizon .footer-segments { gap: 4px; height: 5px; flex: none; }
+body.theme-event-horizon .footer-seg { width: 32px; height: 5px; background: var(--p-accent); box-shadow: none; filter: none; opacity: .65; }
+body.theme-event-horizon .footer-seg:nth-child(even) { opacity: .25; }
+body.theme-event-horizon .footer-seg.short { width: 12px; }
+body.theme-event-horizon .footer-text { color: var(--p-muted); font: 8px var(--font-mono); letter-spacing: .14em; }
+body.theme-event-horizon .footer-right-cap { width: 45px; height: 16px; background: repeating-linear-gradient(135deg, transparent 0 4px, var(--p-edge) 4px 5px); border: 0; }
+body.theme-event-horizon .captain-switch { border-radius: 3px; border-color: var(--p-edge) !important; padding: 5px; }
+body.theme-event-horizon .captain-name-line { color: var(--p-accent) !important; font-size: 10px; }
+body.theme-event-horizon .captain-avatar { background: var(--p-raised) !important; color: var(--p-accent) !important; border-radius: 2px; }
+body.theme-event-horizon :focus-visible { outline: 2px solid var(--p-secondary); outline-offset: 3px; }
+body.theme-event-horizon .rail-toggle { color: var(--p-muted); }
+
+
+.event-horizon-lockup, .event-horizon-atmosphere { display: none; }
+body.theme-event-horizon .event-horizon-lockup { display: flex; gap: 12px; align-items: center; }
+body.theme-event-horizon .event-horizon-atmosphere { display: block; position: absolute; inset: 0; overflow: hidden; z-index: -1; pointer-events: none; color: var(--p-accent); }
+body.theme-event-horizon .event-horizon-atmosphere svg { position: absolute; width: 680px; height: 680px; right: -85px; bottom: -45px; opacity: .38; }
+body.theme-event-horizon .orbit-motion { transform-origin: 300px 300px; animation: event-horizon-orbit 140s linear infinite; }
+body.theme-event-horizon #mini-matrix svg circle:not(.hit-target) { stroke: var(--p-accent); fill: rgba(var(--p-rgb), .13); }
+body.theme-event-horizon #mini-matrix svg text { fill: var(--p-accent); }
+body.theme-event-horizon #mini-matrix svg line { stroke: rgba(var(--p-second-rgb), .33); }
+body.theme-event-horizon .sidebar-elbow-top::before { content: 'WORKSPACE'; }
+body.theme-event-horizon .right-elbow-top::before { content: 'SYSTEM STATUS'; }
+body.theme-event-horizon .settings-opt:disabled { opacity: .5; cursor: not-allowed; }
+@keyframes event-horizon-orbit { to { transform: rotate(360deg); } }
+@media (max-width: 1300px) {
+  body.theme-event-horizon { --sidebar-w: 210px; --right-w: 195px; }
+  body.theme-event-horizon .ship-name { display: none; }
+  body.theme-event-horizon .chat-message .text { font-size: 12px; }
+}
+@media (max-width: 900px) {
+  body.theme-event-horizon #app { padding: 0 6px; }
+  body.theme-event-horizon .header-left-elbow { display: none; }
+  body.theme-event-horizon .header-title { padding: 0 12px; }
+  body.theme-event-horizon .header-status { display: none; }
+  body.theme-event-horizon .data-body { padding-top: 8px; }
+  body.theme-event-horizon .chat-window { padding: 16px 12px; }
+  body.theme-event-horizon .bubble { max-width: calc(100% - 42px); padding: 14px; }
+}
+@media (min-width: 901px) {
+  body.theme-event-horizon.rail-left-collapsed { --sidebar-w: 0px; }
+  body.theme-event-horizon.rail-left-collapsed .event-horizon-lockup { display: none; }
+  body.theme-event-horizon.rail-right-collapsed { --right-w: 0px; }
+}
+@media (max-width: 600px) {
+  body.theme-event-horizon .system-name { font-size: 20px; letter-spacing: .12em; }
+  body.theme-event-horizon .header-title { padding: 0 8px; gap: 8px; min-width: 0; }
+  body.theme-event-horizon .header-captain { max-width: 110px; min-width: 0; }
+  body.theme-event-horizon .captain-switch { max-width: 110px; }
+  body.theme-event-horizon .chat-input-area { padding: 8px; }
+  body.theme-event-horizon .data-input { font-size: 14px; }
+  body.theme-event-horizon .send-btn { font-size: 9px; padding: 10px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.theme-event-horizon *, body.theme-event-horizon *::before, body.theme-event-horizon *::after { animation: none !important; transition: none !important; }
+}

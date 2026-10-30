@@ -1092,6 +1092,7 @@ async function bootCaptains() {
     const data = await res.json();
     _captains = Array.isArray(data.users) ? data.users : [];
     _activeCaptain = data.active || (_captains[0] && _captains[0].id) || '';
+    window.RewardThemes?.setProfile(_activeCaptain);
     SidebarView.setProfile(_activeCaptain);
     AgentProfiles.clear();
     await AgentProfiles.load().catch(error => addLog(error.message));
@@ -1245,6 +1246,7 @@ async function switchCaptain(uid) {
     }
     const data = await res.json();
     _activeCaptain = data.active || uid;
+    window.RewardThemes?.setProfile(_activeCaptain);
     window.ArcadeHost?.reset();
     SidebarView.setProfile(_activeCaptain);
     AgentProfiles.clear();
@@ -11268,6 +11270,7 @@ function _settingsPaintTheme() {
   const cur = _settingsCurrentTheme();
   document.querySelectorAll('#settings-theme-row .settings-opt').forEach(b =>
     b.classList.toggle('active', b.dataset.theme === cur));
+  window.RewardThemes?.paint();
 }
 function settingsSetTheme(t) {
   if (typeof applyTheme === 'function') applyTheme(t);

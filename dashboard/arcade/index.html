@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2">
-  <script type="module" src="game.mjs?v=5"></script>
+  <link rel="stylesheet" href="style.css?v=event-horizon-1">
+  <script type="module" src="game.mjs?v=event-horizon-1"></script>
 </head>
 <body data-state="menu">
   <main class="arcade" id="arcade">
@@ -81,6 +81,7 @@
             <button id="open-hangar" class="ghost big" type="button">HANGAR</button>
           </div>
           <p class="launch-note" id="launch-note">Your ship flies at all times. Steer it, pull the trigger, and keep moving.</p>
+          <p class="reward-progress" id="reward-progress" role="status">EVENT HORIZON / Clear Sector 10 in one run to unlock the dashboard theme.</p>
           <dl class="records">
             <div><dt>BEST</dt><dd id="record-best">0</dd></div>
             <div><dt>FURTHEST SECTOR</dt><dd id="record-sector">0</dd></div>
@@ -147,7 +148,13 @@
           <div class="panel-title"><span id="clear-label">SECTOR CLEAR</span><span>SALVAGE BANKED</span></div>
           <div class="window-body">
             <h2 id="upgrade-title">Choose one system upgrade</h2>
-            <p>Hull repaired by 25. Shields restored. The next sector is waiting.</p>
+            <p id="upgrade-detail">Hull repaired by 25. Shields restored. The next sector is waiting.</p>
+            <section id="victory-reward" class="victory-reward" aria-label="Event Horizon reward" hidden>
+              <svg class="reward-orbit" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="11"/><ellipse cx="32" cy="32" rx="28" ry="12" transform="rotate(-30 32 32)"/><circle cx="32" cy="32" r="23" stroke-dasharray="2 7"/><circle cx="53" cy="19" r="3" fill="currentColor" stroke="none"/></svg>
+              <div><span class="reward-eyebrow">VOID PATROL VICTORY REWARD</span><h3>EVENT HORIZON</h3><p>Pure black. Violet light. Ice-blue accents.</p></div>
+              <div class="reward-actions"><button id="equip-reward" class="ghost big" type="button">EQUIP EVENT HORIZON</button><button id="victory-hangar" class="ghost big" type="button">FINISH RUN</button></div>
+              <p id="reward-equip-status" role="status"></p>
+            </section>
             <div id="upgrade-choices" class="upgrade-choices"></div>
           </div>
         </div></div>

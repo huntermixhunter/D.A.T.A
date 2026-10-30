@@ -1,4 +1,4 @@
-import { Game, HANGAR, UPGRADES, cleanProfile, purchase, hangarCost, clamp } from './engine.mjs';
+import { Game, HANGAR, UPGRADES, cleanProfile, purchase, hangarCost, clamp, REWARD_SECTOR, hasEventHorizon } from './engine.mjs';
 import { Renderer } from './renderer.mjs';
 
 const $ = id => document.getElementById(id);
@@ -239,9 +239,17 @@ const hullCells = cells('hull-bar', 20), shieldCells = cells('shield-pips', 4), 
 function storageKey() { return 'data-void-patrol-v1:' + profileId; }
 function notice(message) { $('storage-notice').textContent = message; $('storage-notice').hidden = false; }
 function save() {
-  if (!profileReady) return;
-  try { localStorage.setItem(storageKey(), JSON.stringify(profile)); }
-  catch (_) { notice('Browser storage is unavailable. Upgrades and records will last only for this visit.'); }
+  if (!profileReady) return false;
+  try { localStorage.setItem(storageKey(), JSON.stringify(profile)); return true; }
+  catch (_) { notice('Browser storage is unavailable. Upgrades, rewards, and records will last only for this visit.'); return false; }
+}
+
+function syncReward() {
+  const earned = hasEventHorizon(profile);
+  $('reward-progress').textContent = earned
+    ? 'EVENT HORIZON UNLOCKED / Dashboard theme'
+    : 'EVENT HORIZON / Clear Sector ' + REWARD_SECTOR + ' in one run to unlock. Best: ' + profile.clearedSector + '/' + REWARD_SECTOR + ' cleared.';
+  if (embedded) window.parent.postMessage({ type: 'data-arcade-progress', profile: profileId, clearedSector: profile.clearedSector }, location.origin);
 }
 function loadProfile(id) {
   profileId = id;
@@ -252,6 +260,7 @@ function loadProfile(id) {
     if (text) raw = JSON.parse(text);
   } catch (_) { notice('Saved progress could not be read. This visit starts with a fresh hangar.'); }
   profile = cleanProfile(raw);
+  syncReward();
   audio.enabled = profile.sound;
   game = new Game({ hangar: profile.hangar });
   $('launch').disabled = false; $('hangar-launch').disabled = false; $('open-hangar').disabled = false;
@@ -264,7 +273,10 @@ function refreshProfile() {
   if (!profileReady) return;
   try {
     const text = localStorage.getItem(storageKey());
-    if (text) profile = { ...cleanProfile(JSON.parse(text)), sound: profile.sound };
+    if (text) {
+      const saved = cleanProfile(JSON.parse(text));
+      profile = { ...saved, sound: profile.sound, clearedSector: Math.max(saved.clearedSector, profile.clearedSector) };
+    }
   } catch (_) { /* Keep the in-memory profile. */ }
 }
 
@@ -276,7 +288,10 @@ function bank() {
   credited = game.salvage;
   profile.best = Math.max(profile.best, Math.floor(game.score));
   profile.sector = Math.max(profile.sector, game.wave);
+  const wasEarned = hasEventHorizon(profile);
+  profile.clearedSector = Math.max(profile.clearedSector, game.clearedSector);
   save();
+  if (!wasEarned && hasEventHorizon(profile)) syncReward();
 }
 
 function updatePreferences() {
@@ -289,6 +304,7 @@ function updateRecords() {
   $('record-best').textContent = profile.best.toLocaleString();
   $('record-sector').textContent = String(profile.sector);
   $('record-runs').textContent = String(profile.runs);
+  syncReward();
 }
 
 function renderHangar() {
@@ -382,6 +398,18 @@ function firePulse() {
 
 function showUpgrades() {
   $('clear-label').textContent = 'SECTOR ' + String(game.wave).padStart(2, '0') + ' CLEAR';
+  const victory = game.clearedSector === REWARD_SECTOR;
+  $('victory-reward').hidden = !victory;
+  $('upgrade-title').textContent = victory ? 'Patrol complete. Event Horizon unlocked.' : 'Choose one system upgrade';
+  $('upgrade-detail').textContent = victory
+    ? 'Ten sectors cleared in one run. Choose an upgrade to continue into endless patrol, or return to the hangar.'
+    : 'Hull repaired by 25. Shields restored. The next sector is waiting.';
+  $('equip-reward').hidden = !embedded;
+  $('reward-equip-status').textContent = embedded
+    ? 'Available in Settings > Appearance for this profile in this browser.'
+    : 'This reward belongs to your standalone save. Play inside the dashboard to earn its theme for your dashboard profile.';
+  $('equip-reward').disabled = false;
+  $('equip-reward').textContent = 'EQUIP EVENT HORIZON';
   $('upgrade-choices').replaceChildren();
   for (const id of game.choices) {
     const upgrade = UPGRADES.find(item => item.id === id) || { id: 'repair', name: 'Field service', tag: 'SUPPORT', icon: 'shield', detail: 'Fully repair your hull and bank 60 extra salvage.', max: 0 };
@@ -618,6 +646,11 @@ $('pause').addEventListener('click', () => game.mode === 'paused' ? resume() : p
 $('resume').addEventListener('click', resume);
 $('return-hangar').addEventListener('click', goHangar);
 $('gameover-hangar').addEventListener('click', goHangar);
+$('victory-hangar').addEventListener('click', goHangar);
+$('equip-reward').addEventListener('click', () => {
+  if (!embedded || !active || !hasEventHorizon(profile)) return;
+  window.parent.postMessage({ type: 'data-arcade-equip-theme', profile: profileId }, location.origin);
+});
 $('fullscreen').addEventListener('click', toggleFullscreen);
 $('sound').addEventListener('click', () => {
   profile.sound = !profile.sound; audio.enabled = profile.sound;
@@ -731,6 +764,11 @@ if (embedded) {
       setActive(event.data.active !== false);
     }
     if (event.data?.type === 'data-arcade-visibility') setActive(event.data.active === true);
+    if (event.data?.type === 'data-arcade-theme-equipped' && event.data.profile === profileId) {
+      $('equip-reward').disabled = true;
+      $('equip-reward').textContent = 'EVENT HORIZON EQUIPPED';
+      $('reward-equip-status').textContent = 'Your dashboard now wears Event Horizon. Your run is ready when you are.';
+    }
   });
   window.parent.postMessage({ type: 'data-arcade-ready' }, location.origin);
 } else loadProfile('solo');

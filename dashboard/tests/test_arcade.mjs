@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, WORLD, delta, distance, wrap, angleDiff, cleanProfile, purchase, hangarCost, UPGRADES } from '../arcade/engine.mjs';
+import { Game, WORLD, delta, distance, wrap, angleDiff, cleanProfile, purchase, hangarCost, UPGRADES, REWARD_SECTOR, hasEventHorizon } from '../arcade/engine.mjs';
 
 function seeded() {
   let seed = 123456;
@@ -27,6 +27,47 @@ function quiet(g) {
 function advance(g, seconds, input = {}) { for (let n = 0; n < Math.round(seconds * 60); n++) g.step(1 / 60, input); }
 function clearBases(g) { for (const base of g.bases) { for (const pod of base.pods) g.hitBase(base, pod, 100); g.hitBase(base, null, 100); } g.step(.016); }
 const volleys = g => g.drainEvents().filter(event => event.type === 'shot').length;
+
+test('Event Horizon requires clearing ten sectors in one run and allows endless continuation', () => {
+  const g = game();
+  for (let sector = 1; sector <= REWARD_SECTOR; sector++) {
+    assert.equal(g.wave, sector);
+    assert.equal(hasEventHorizon({ clearedSector: g.clearedSector, sector: g.wave }), false);
+    quiet(g); clearBases(g);
+    assert.equal(g.clearedSector, sector);
+    assert.equal(hasEventHorizon({ clearedSector: g.clearedSector }), sector === REWARD_SECTOR);
+    const salvage = g.salvage;
+    g.finishSector();
+    assert.equal(g.salvage, salvage, 'a completed sector cannot grant duplicate salvage');
+    assert.ok(g.chooseUpgrade(g.choices[0]));
+  }
+  assert.equal(g.wave, 11);
+  assert.equal(g.mode, 'playing');
+  assert.equal(g.clearedSector, 10);
+});
+
+test('death in Sector 10 does not unlock Event Horizon and new runs reset completion', () => {
+  const g = game();
+  for (let i = 1; i < REWARD_SECTOR; i++) {
+    quiet(g); clearBases(g); g.chooseUpgrade(g.choices[0]);
+  }
+  g.player.invulnerable = 0;
+  g.damagePlayer(1e6);
+  assert.equal(g.mode, 'dead');
+  assert.equal(hasEventHorizon({ sector: g.wave, clearedSector: g.clearedSector }), false);
+  assert.equal(game().clearedSector, 0);
+});
+
+test('reward survives save and purchase; old records migrate only when clearance is provable', () => {
+  assert.equal(hasEventHorizon(null), false);
+  assert.equal(hasEventHorizon({ sector: 10 }), false);
+  assert.equal(hasEventHorizon({ sector: 11 }), true);
+  assert.equal(hasEventHorizon({ clearedSector: '10' }), false);
+  assert.equal(hasEventHorizon({ clearedSector: Infinity }), false);
+  const profile = cleanProfile({ clearedSector: 10, sector: 10, salvage: 1000 });
+  assert.ok(purchase(profile, 'armor'));
+  assert.equal(hasEventHorizon(cleanProfile(JSON.parse(JSON.stringify(profile)))), true);
+});
 
 test('flight never stops, steering is frame-rate independent, and the sector wraps', () => {
   const a = game(), b = game(), c = game(), d = game(); quiet(a); quiet(b); quiet(c); quiet(d);
