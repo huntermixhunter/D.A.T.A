@@ -325,6 +325,33 @@ completely blank memory.
 - **System vitals**: available RAM, battery charge, free disk space, and dashboard
   response time, with hover explanations and a detailed systems display
 
+## Self-improvement loop, with a human gate
+
+DATA writes features for itself. A scheduled job selects an improvement to the
+dashboard, implements it on a dated `auto/` branch, runs the syntax and compile
+checks, and opens a pull request explaining what it changed and why.
+
+It never merges its own work. Every change waits for a person to read the diff
+and decide.
+
+Each one is tagged [`auto-feature`](https://github.com/huntermixhunter/D.A.T.A/pulls?q=is%3Apr+label%3Aauto-feature),
+so machine-authored changes stay separable from hand-written ones at every point
+in the history. The record so far:
+
+| | |
+|---|---|
+| Opened by the loop | 38 |
+| Reviewed and merged | 7 |
+| Awaiting review | 31 |
+
+The open queue is deliberate, not abandoned. The generator produces faster than
+one person reviews, which is precisely the constraint the gate exists to enforce,
+and it is paused while the backlog is worked down. Every queued branch is
+independent and still merges cleanly.
+
+To see what an agent-authored change actually looks like, open any PR carrying
+that label and read the diff.
+
 ## License
 
 Open source under the **Apache License 2.0**. You are free to use, modify,
