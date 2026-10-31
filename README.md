@@ -346,11 +346,14 @@ in the history. The record so far:
 
 The open queue is deliberate, not abandoned. The generator produces faster than
 one person reviews, which is precisely the constraint the gate exists to enforce,
-and it is paused while the backlog is worked down. Every queued branch is
-independent and still merges cleanly.
+and it is paused while the backlog is worked down. Of those 31, 19 still apply to
+`main` cleanly and 12 need a rebase first, having drifted as earlier reviewed work
+merged.
 
-To see what an agent-authored change actually looks like, open any PR carrying
-that label and read the diff.
+How the loop runs, how failed runs are handled, and the verified current state:
+**[AUTONOMOUS_BUILD_LOOP.md](AUTONOMOUS_BUILD_LOOP.md)**. To see what an
+agent-authored change actually looks like, open any PR carrying that label and
+read the diff.
 
 ## License
 
