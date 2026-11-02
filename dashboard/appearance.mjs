@@ -1,56 +1,38 @@
-import { REWARD_SECTOR, hasEventHorizon } from './arcade/engine.mjs';
-
-const REWARD = 'event-horizon';
-const names = { minimal: 'MINIMAL', cyber: 'CYBER', [REWARD]: 'EVENT HORIZON' };
-const sessionProgress = new Map();
+// Dashboard themes: Minimal (default), Cyber, and Event Horizon, all available from the start.
+// Each dashboard profile keeps its own choice. The RewardThemes name dates from when Event Horizon
+// was a Void Patrol reward; app.js and the arcade host still call it to re-apply a profile's theme.
+const EVENT_HORIZON = 'event-horizon';
+const THEMES = ['minimal', 'cyber', EVENT_HORIZON];
+const names = { minimal: 'MINIMAL', cyber: 'CYBER', [EVENT_HORIZON]: 'EVENT HORIZON' };
 const selections = new Map();
 let profile = '';
 
 function read(key) {
   try { return localStorage.getItem(key); } catch (_) { return null; }
 }
-function savedProgress() {
-  try { return JSON.parse(read('data-void-patrol-v1:' + profile) || 'null'); } catch (_) { return null; }
-}
-function unlocked() {
-  return !!profile && (hasEventHorizon(savedProgress()) || hasEventHorizon(sessionProgress.get(profile)));
-}
-function available() { return ['minimal', 'cyber', ...(unlocked() ? [REWARD] : [])]; }
 function currentTheme() {
-  if (document.body.classList.contains('theme-event-horizon')) return REWARD;
+  if (document.body.classList.contains('theme-event-horizon')) return EVENT_HORIZON;
   return document.body.classList.contains('theme-cyberpunk') ? 'cyber' : 'minimal';
 }
 function paint() {
-  const earned = unlocked();
-  const button = document.querySelector('[data-theme="event-horizon"]');
-  if (button) {
-    button.disabled = !earned;
-    button.textContent = earned ? 'EVENT HORIZON' : 'EVENT HORIZON (LOCKED)';
-    button.title = earned ? 'Earned by clearing Sector ' + REWARD_SECTOR : 'Clear Sector ' + REWARD_SECTOR + ' in one run';
-  }
   document.querySelectorAll('#settings-theme-row [data-theme]').forEach(node => {
     node.classList.toggle('active', node.dataset.theme === currentTheme());
     node.setAttribute('aria-pressed', String(node.dataset.theme === currentTheme()));
   });
-  const status = document.getElementById('event-horizon-status');
-  if (status) status.textContent = earned
-    ? (hasEventHorizon(savedProgress()) ? 'Event Horizon unlocked. Available for this profile in this browser.' : 'Event Horizon unlocked for this visit. Browser storage is unavailable.')
-    : 'Clear Sector ' + REWARD_SECTOR + ' in one Void Patrol run to unlock Event Horizon.';
   const label = document.getElementById('theme-toggle-label');
-  const cycle = available();
-  if (label) label.textContent = names[cycle[(cycle.indexOf(currentTheme()) + 1) % cycle.length]];
+  if (label) label.textContent = names[THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length]];
 }
 function applyTheme(theme, { persist = true } = {}) {
-  if (!available().includes(theme)) { paint(); return false; }
-  document.body.classList.toggle('theme-event-horizon', theme === REWARD);
-  document.body.classList.toggle('theme-cyberpunk', theme === 'cyber' || theme === REWARD);
+  if (!THEMES.includes(theme)) { paint(); return false; }
+  document.body.classList.toggle('theme-event-horizon', theme === EVENT_HORIZON);
+  document.body.classList.toggle('theme-cyberpunk', theme === 'cyber' || theme === EVENT_HORIZON);
   document.body.classList.toggle('theme-minimal', theme === 'minimal');
   document.body.classList.remove('theme-light');
   if (persist) {
     selections.set(profile, theme);
     try { localStorage.setItem(profile ? 'data-theme:' + profile : 'data-theme', theme); }
     catch (_) {
-      const status = document.getElementById('event-horizon-status');
+      const status = document.getElementById('theme-status');
       paint();
       if (status) status.textContent = 'Appearance changed for this visit. Browser storage is unavailable.';
       return true;
@@ -63,20 +45,14 @@ function setProfile(id) {
   profile = typeof id === 'string' ? id : '';
   let saved = selections.get(profile) || read('data-theme:' + profile) || read('data-theme') || 'minimal';
   if (saved === 'cyberpunk') saved = 'cyber';
-  applyTheme(available().includes(saved) ? saved : 'minimal', { persist: false });
-}
-function updateProgress(id, clearedSector) {
-  if (!id || id !== profile || !Number.isInteger(clearedSector) || clearedSector < 0 || clearedSector > 999) return;
-  const previous = sessionProgress.get(id)?.clearedSector || 0;
-  sessionProgress.set(id, { clearedSector: Math.max(previous, clearedSector) });
-  paint();
+  applyTheme(THEMES.includes(saved) ? saved : 'minimal', { persist: false });
 }
 
 const orbit = '<circle cx="32" cy="32" r="11"/><ellipse cx="32" cy="32" rx="28" ry="12" transform="rotate(-30 32 32)"/><circle cx="32" cy="32" r="23" stroke-dasharray="2 7"/><circle cx="53" cy="19" r="3" fill="currentColor" stroke="none"/>';
 const emblem = '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">' + orbit + '</svg>';
 const lockup = document.createElement('div');
 lockup.className = 'event-horizon-lockup';
-lockup.innerHTML = '<span class="theme-mark">' + emblem + '</span><span class="theme-lockup"><strong>EVENT HORIZON</strong><small>VOID PATROL REWARD</small></span>';
+lockup.innerHTML = '<span class="theme-mark">' + emblem + '</span><span class="theme-lockup"><strong>EVENT HORIZON</strong><small>ORBITAL INTERFACE</small></span>';
 document.querySelector('.header-left-elbow')?.append(lockup);
 const atmosphere = document.createElement('div');
 atmosphere.className = 'event-horizon-atmosphere';
@@ -86,17 +62,13 @@ document.querySelector('.data-main')?.prepend(atmosphere);
 
 window.currentTheme = currentTheme;
 window.applyTheme = applyTheme;
-window.toggleTheme = () => {
-  const cycle = available();
-  applyTheme(cycle[(cycle.indexOf(currentTheme()) + 1) % cycle.length]);
-};
+window.toggleTheme = () => applyTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length]);
 window._themeLabel = paint;
-window.RewardThemes = { setProfile, updateProgress, unlocked, paint };
+window.RewardThemes = { setProfile, paint };
 setProfile(window.getArcadeProfile?.() || '');
 window.addEventListener('storage', event => {
-  if (event.key === null || event.key === 'data-void-patrol-v1:' + profile || event.key === 'data-theme:' + profile) {
-    if (event.key === null || event.key === 'data-void-patrol-v1:' + profile) sessionProgress.delete(profile);
-    if (event.key === null || event.key === 'data-theme:' + profile) selections.delete(profile);
+  if (event.key === null || event.key === 'data-theme:' + profile) {
+    selections.delete(profile);
     setProfile(profile);
   }
 });

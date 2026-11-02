@@ -2,7 +2,6 @@
 // World units are measured against the artwork: the player ship is 150 long,
 // a fortress is 480 across, and the sector wraps at WORLD on both axes.
 export const WORLD = 4800;
-export const REWARD_SECTOR = 1;
 export const TAU = Math.PI * 2;
 export const wrap = n => ((n % WORLD) + WORLD) % WORLD;
 export const delta = (a, b) => ((a - b + WORLD * 1.5) % WORLD) - WORLD / 2;
@@ -14,6 +13,15 @@ export const angleDiff = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(
 const TICK = 1 / 120;
 const MAX_ENEMIES = 24;
 const CONDITIONS = ['GREEN', 'YELLOW', 'RED'];
+// Fighters arrive from beyond the edge of the zoomed-out view, never on screen.
+export const SPAWN_RADIUS = 1350;
+// The camera looks ahead of the ship by this many seconds of its velocity.
+export const CAMERA_LEAD = .24;
+// Every fifth sector is a dreadnought fight.
+export const BOSS_EVERY = 5;
+// The cannons fire red lasers until this many weapon upgrades are installed in a run.
+export const LASER_BLUE_AT = 2;
+export const WEAPON_UPGRADES = ['rapid', 'spread', 'power'];
 
 export const SHIP = { radius: 24, nose: 74, tail: 69, turn: 7.5, turnEase: 12, cruise: 300, boost: 1.9 };
 export const ENEMIES = {
@@ -32,6 +40,34 @@ export const FORTRESS = {
     { x: 105, y: -146, tipX: 183, tipY: -210 },
   ],
 };
+// The dreadnought is the gunship artwork at four times scale. Local units, x points forward.
+export const BOSS = {
+  width: 460, gun: 30, shield: { rx: 285, ry: 205 },
+  core: { x: 70, y: 0 }, bay: { x: -190, y: 0 },
+  // Collision circles for the body and the thin crescent blades.
+  hull: [
+    { x: 150, y: 0, r: 58 }, { x: 45, y: 0, r: 94 }, { x: -80, y: 0, r: 94 },
+    { x: -180, y: -122, r: 30 }, { x: -180, y: 122, r: 30 }, { x: -60, y: -134, r: 24 }, { x: -60, y: 134, r: 24 },
+  ],
+  // Batteries sit on the outer plate edges, so each can be hit from its exposed side.
+  // Every dreadnought mounts the first four. From the second one on, all six.
+  guns: [{ x: 20, y: -116 }, { x: 20, y: 116 }, { x: -108, y: -108 }, { x: -108, y: 108 }, { x: 142, y: -60 }, { x: 142, y: 60 }],
+};
+
+// Difficulty scales enemy toughness, damage, aggression, and numbers, and how quickly later
+// sectors escalate. The player's ship is never changed, so hangar upgrades keep their value.
+export const DIFFICULTIES = [
+  { id: 'cadet', name: 'Cadet', detail: 'Gentler fire, fewer fighters, and slower escalation. Score x0.75.',
+    start: 0, growth: .7, hp: .8, damage: .7, fire: .75, speed: .92, bullet: .9, spawn: .8, score: .75, salvage: 1 },
+  { id: 'pilot', name: 'Pilot', detail: 'The standard patrol. Every sector hits harder than the last.',
+    start: 0, growth: 1, hp: 1, damage: 1, fire: 1, speed: 1, bullet: 1, spawn: 1, score: 1, salvage: 1 },
+  { id: 'veteran', name: 'Veteran', detail: 'Tougher, faster enemies that hit harder and escalate quickly. Score x1.5, salvage x1.25.',
+    start: 1, growth: 1.4, hp: 1.15, damage: 1.25, fire: 1.25, speed: 1.07, bullet: 1.1, spawn: 1.2, score: 1.5, salvage: 1.25 },
+  { id: 'ace', name: 'Ace', detail: 'Relentless from the first sector. Bring an upgraded ship. Score x2, salvage x1.5.',
+    start: 2, growth: 1.75, hp: 1.3, damage: 1.45, fire: 1.5, speed: 1.14, bullet: 1.18, spawn: 1.4, score: 2, salvage: 1.5 },
+];
+export const DEFAULT_DIFFICULTY = 'pilot';
+export const difficultyFor = id => DIFFICULTIES.find(item => item.id === id) || DIFFICULTIES.find(item => item.id === DEFAULT_DIFFICULTY);
 
 export const UPGRADES = [
   { id: 'rapid', name: 'Overclocked cannons', tag: 'WEAPONS', detail: 'Fire 20% faster with each level.', max: 4, icon: 'burst' },
@@ -59,12 +95,10 @@ export function cleanProfile(value) {
     version: 1, salvage: n(raw.salvage), best: n(raw.best), sector: n(raw.sector, 999),
     // Older records tracked sectors reached. Reaching 2 proves that 1 was cleared.
     clearedSector: Math.max(n(raw.clearedSector, 999), n(raw.sector, 999) - 1),
-    runs: n(raw.runs), sound: raw.sound !== false,
+    runs: n(raw.runs), sound: raw.sound !== false, difficulty: difficultyFor(raw.difficulty).id,
     hangar: Object.fromEntries(HANGAR.map(item => [item.id, n(raw.hangar?.[item.id], item.max)])),
   };
 }
-
-export const hasEventHorizon = profile => cleanProfile(profile).clearedSector >= REWARD_SECTOR;
 
 export function purchase(profile, id) {
   const item = HANGAR.find(upgrade => upgrade.id === id);
@@ -84,13 +118,16 @@ function hitsSegment(bullet, target, radius) {
 }
 
 export class Game {
-  constructor({ random = Math.random, hangar = {} } = {}) {
+  constructor({ random = Math.random, hangar = {}, difficulty = DEFAULT_DIFFICULTY } = {}) {
     this.random = random;
     this.hangar = cleanProfile({ hangar }).hangar;
+    this.difficulty = difficultyFor(difficulty);
     this.mode = 'ready';
     this.upgrades = Object.fromEntries(UPGRADES.map(item => [item.id, 0]));
     this.wave = 1;
     this.clearedSector = 0;
+    this.bossKills = 0;
+    this.viewRadius = 0;
     this.score = 0;
     this.salvage = 0;
     this.kills = 0;
@@ -105,6 +142,7 @@ export class Game {
     this.enemies = [];
     this.pickups = [];
     this.bases = [];
+    this.boss = null;
     this.rocks = [];
     this.mines = [];
     this.blasts = [];
@@ -121,7 +159,29 @@ export class Game {
   get speed() { return SHIP.cruise * (1 + this.hangar.drive * .05 + this.upgrades.engine * .12); }
   get fireDelay() { return .2 * Math.pow(.8, this.upgrades.rapid) / (1 + this.hangar.cannons * .08); }
   get multiplier() { return 1 + Math.min(4, Math.floor(this.combo / 5)); }
-  get remaining() { return this.bases.filter(base => !base.dead).length; }
+  get remaining() { return this.bases.filter(base => !base.dead).length + (this.boss && !this.boss.dead ? 1 : 0); }
+  get bossSector() { return this.wave % BOSS_EVERY === 0; }
+  get weaponLevel() { return WEAPON_UPGRADES.reduce((sum, id) => sum + this.upgrades[id], 0); }
+  get laser() { return this.weaponLevel >= LASER_BLUE_AT ? 'blue' : 'red'; }
+  // Escalation: zero in Sector 1 on Pilot, rising every sector at the difficulty's pace.
+  get threat() { return this.difficulty.start + (this.wave - 1) * this.difficulty.growth; }
+  get maxEnemies() { return Math.round(MAX_ENEMIES * this.difficulty.spawn); }
+  get cannonSpeed() { return Math.min(450, 299 + this.threat * 10) * this.difficulty.bullet; }
+  get plasmaSpeed() { return Math.min(470, 338 + this.threat * 9) * this.difficulty.bullet; }
+  get pace() {
+    const t = this.threat, speed = this.difficulty.speed;
+    return Math.min(440 * speed, (250 + t * 11) * speed + this.sectorTime * .35);
+  }
+  // The browser reports how far the view reaches, so wide screens never see fighters appear.
+  // The ring also clears the camera's look-ahead at full boost, plus a margin wider than any fighter.
+  get spawnRadius() { return Math.max(SPAWN_RADIUS, this.viewRadius + 80 + this.speed * SHIP.boost * CAMERA_LEAD); }
+  // Enemy hits grow 3.5% per escalation step on top of the difficulty's damage.
+  enemyDamage(base) { return Math.round(base * this.difficulty.damage * (1 + this.threat * .035)); }
+  // Hit points grow faster than linearly, so late sectors keep pace with an upgraded ship.
+  toughness(base, linear, curve) {
+    const t = this.threat;
+    return Math.max(1, Math.floor((base + t * linear + t * t / curve) * this.difficulty.hp));
+  }
 
   emit(type, data = {}) { this.events.push({ type, ...data }); }
   drainEvents() { return this.events.splice(0); }
@@ -134,7 +194,9 @@ export class Game {
     this.condition = 'GREEN';
     this.alertRank = 0;
     this.shots = []; this.enemies = []; this.pickups = []; this.bases = []; this.rocks = []; this.mines = []; this.blasts = [];
-    const count = Math.min(3 + Math.floor((this.wave - 1) / 2), 7);
+    this.boss = null;
+    const boss = this.bossSector;
+    const count = boss ? 0 : Math.min(3 + Math.floor(this.threat / 2), 7);
     const offset = this.random() * TAU;
     for (let i = 0; i < count; i++) {
       let spot = null;
@@ -148,18 +210,21 @@ export class Game {
       spot ||= { x: wrap(p.x + Math.cos(fallback) * 1300), y: wrap(p.y + Math.sin(fallback) * 1300) };
       this.bases.push(this.makeBase(spot.x, spot.y));
     }
+    if (boss) this.boss = this.makeBoss();
     for (let i = 0; i < 52; i++) {
       const radius = 22 + Math.pow(this.random(), 1.6) * 40;
       const rock = { id: this.nextId++, x: this.random() * WORLD, y: this.random() * WORLD, radius,
         seed: this.random(), variant: Math.floor(this.random() * 8), hp: radius > 44 ? 4 : radius > 32 ? 3 : 2, dead: false };
       if (distance(rock, p) > 300 && this.bases.every(base => distance(rock, base) > 330)) this.rocks.push(rock);
     }
-    for (let i = 0; i < Math.min(8 + this.wave * 2, 34); i++) {
+    const mines = Math.min(Math.round((10 + this.threat * 2) * (boss ? .5 : 1)), 36);
+    for (let i = 0; i < mines; i++) {
       const mine = { id: this.nextId++, x: this.random() * WORLD, y: this.random() * WORLD, phase: this.random() * TAU, dead: false };
       if (distance(mine, p) > 340 && this.bases.every(base => distance(mine, base) > 300)) this.mines.push(mine);
     }
     p.invulnerable = 2;
-    this.emit('sector', { wave: this.wave });
+    this.emit('sector', { wave: this.wave, boss });
+    if (this.boss) this.emit('boss', { x: this.boss.x, y: this.boss.y, level: this.boss.level });
   }
 
   makeBase(x, y) {
@@ -167,21 +232,49 @@ export class Game {
     const rot = this.random() < .5 ? 0 : Math.PI / 2;
     const cos = Math.cos(rot), sin = Math.sin(rot);
     const turn = (dx, dy) => [dx * cos - dy * sin, dx * sin + dy * cos];
-    const podHp = 3 + Math.floor(this.wave / 3);
+    const podHp = this.toughness(3, .45, 120);
     const pods = FORTRESS.pods.map((spec, index) => {
       const [ox, oy] = turn(spec.x, spec.y), [tx, ty] = turn(spec.tipX, spec.tipY);
       return { index, x: wrap(x + ox), y: wrap(y + oy), tipX: wrap(x + tx), tipY: wrap(y + ty),
-        aim: Math.atan2(ty - oy, tx - ox), hp: podHp, maxHp: podHp, shotTimer: 1.5 + this.random() * 3 };
+        aim: Math.atan2(ty - oy, tx - ox), hp: podHp, maxHp: podHp, shotTimer: (1.5 + this.random() * 3) / this.difficulty.fire };
     });
-    const hp = 8 + this.wave * 2;
+    const hp = this.toughness(10, 2.5, 20);
     return { id: this.nextId++, x, y, rot, pods, hp, maxHp: hp, dead: false,
       hatch: 0, hatchState: 'closed', hatchTimer: 2.5 + this.random() * 3.5 };
   }
 
   makeEnemy(kind, x, y, angle, extra = {}) {
-    return { id: this.nextId++, kind, x, y, angle, hp: ENEMIES[kind].hp + Math.floor((this.wave - 1) / 3),
-      shotTimer: 1.2 + this.random() * 1.6, phase: this.random() * TAU, side: this.random() < .5 ? -1 : 1,
+    return { id: this.nextId++, kind, x, y, angle, hp: this.toughness(ENEMIES[kind].hp, 1 / 3, 150),
+      shotTimer: (1.2 + this.random() * 1.6) / this.difficulty.fire, phase: this.random() * TAU, side: this.random() < .5 ? -1 : 1,
       dead: false, formation: 0, leader: false, ox: 0, oy: 0, ...extra };
+  }
+
+  makeBoss() {
+    const p = this.player, level = Math.max(1, Math.floor(this.wave / BOSS_EVERY)), t = this.threat, d = this.difficulty;
+    const angle = this.random() * TAU, reach = Math.max(1500, this.spawnRadius + 150);
+    const gunHp = Math.max(1, Math.floor((16 + level * 18 + t) * d.hp));
+    const maxHp = Math.max(1, Math.floor((60 + level * 110 + t * 5) * d.hp));
+    const guns = BOSS.guns.slice(0, level >= 2 ? 6 : 4).map((spec, index) => ({ index, x: 0, y: 0, aim: 0,
+      hp: gunHp, maxHp: gunHp, timer: (1.6 + this.random() * 2.2) / d.fire }));
+    const boss = { id: this.nextId++, level, x: wrap(p.x + Math.cos(angle) * reach), y: wrap(p.y + Math.sin(angle) * reach),
+      angle: angle + Math.PI, hp: maxHp, maxHp, phase: 1, guns, core: { x: 0, y: 0 }, hull: BOSS.hull.map(part => ({ x: 0, y: 0, r: part.r })),
+      charge: 0, ringTimer: 4.5, launchTimer: 7, coreTimer: 2, side: this.random() < .5 ? -1 : 1, sideTimer: 7, dead: false };
+    this.placeBoss(boss);
+    return boss;
+  }
+
+  // World position of a point given in the dreadnought's own frame.
+  bossPoint(boss, local, out = {}) {
+    const c = Math.cos(boss.angle), s = Math.sin(boss.angle);
+    out.x = wrap(boss.x + local.x * c - local.y * s);
+    out.y = wrap(boss.y + local.x * s + local.y * c);
+    return out;
+  }
+
+  placeBoss(boss) {
+    for (const gun of boss.guns) this.bossPoint(boss, BOSS.guns[gun.index], gun);
+    this.bossPoint(boss, BOSS.core, boss.core);
+    boss.hull.forEach((part, i) => this.bossPoint(boss, BOSS.hull[i], part));
   }
 
   pause() { if (this.mode === 'playing') { this.mode = 'paused'; this.player.boosting = false; this.player.trigger = false; } }
@@ -190,12 +283,12 @@ export class Game {
   addScore(amount) {
     this.combo++;
     this.comboTime = 5;
-    const gained = amount * this.multiplier;
+    const gained = Math.round(amount * this.multiplier * this.difficulty.score);
     this.score += gained;
     return gained;
   }
 
-  reward(amount) { this.salvage += Math.round(amount * (1 + this.upgrades.magnet * .25)); }
+  reward(amount) { this.salvage += Math.round(amount * (1 + this.upgrades.magnet * .25) * this.difficulty.salvage); }
 
   damagePlayer(amount) {
     const p = this.player;
@@ -228,7 +321,8 @@ export class Game {
   shoot(x, y, angle, speed, owner, damage = 1, kind = owner === 'player' ? 'bolt' : 'cannon', carryX = 0, carryY = 0) {
     const vx = Math.cos(angle) * speed + carryX, vy = Math.sin(angle) * speed + carryY;
     this.shots.push({ x: wrap(x), y: wrap(y), oldX: wrap(x), oldY: wrap(y), vx, vy, stepX: 0, stepY: 0,
-      life: owner === 'player' ? .8 : 2.6, owner, damage, kind, angle: Math.atan2(vy, vx), dead: false });
+      life: owner === 'player' ? .8 : 2.6, owner, damage, kind, color: owner === 'player' ? this.laser : '',
+      angle: Math.atan2(vy, vx), dead: false });
   }
 
   fire() {
@@ -240,7 +334,7 @@ export class Game {
     const back = p.angle + Math.PI;
     this.shoot(p.x + Math.cos(back) * SHIP.tail, p.y + Math.sin(back) * SHIP.tail, back, 900, 'player', damage, 'bolt', p.vx, p.vy);
     p.shotTimer = this.fireDelay;
-    this.emit('shot', { x: p.x, y: p.y, angle: p.angle });
+    this.emit('shot', { x: p.x, y: p.y, angle: p.angle, laser: this.laser });
   }
 
   killEnemy(enemy, credited = true) {
@@ -294,6 +388,60 @@ export class Game {
     this.emit('base', { x: base.x, y: base.y, rot: base.rot, id: base.id, direct, points, pods: base.pods.map(pod => pod.hp > 0) });
   }
 
+  // Batteries take hits first. The hull deflects fire until every battery is destroyed.
+  hitBoss(shot) {
+    const boss = this.boss;
+    const gun = boss.guns.find(item => item.hp > 0 && hitsSegment(shot, item, BOSS.gun));
+    if (gun) {
+      shot.dead = true;
+      this.emit('spark', { x: shot.x, y: shot.y, kind: 'pod', laser: shot.color });
+      this.hitGun(boss, gun, shot.damage);
+      return true;
+    }
+    if (!boss.hull.some(part => hitsSegment(shot, part, part.r))) return false;
+    shot.dead = true;
+    if (boss.phase === 1) this.emit('deflect', { x: shot.x, y: shot.y, kind: 'shield' });
+    else {
+      this.emit('spark', { x: shot.x, y: shot.y, kind: 'boss', laser: shot.color });
+      this.damageBoss(boss, shot.damage);
+    }
+    return true;
+  }
+
+  hitGun(boss, gun, amount) {
+    if (boss.dead || gun.hp <= 0) return false;
+    gun.hp -= amount;
+    this.emit('gunHit', { index: gun.index });
+    if (gun.hp <= 0) {
+      const points = this.addScore(250);
+      this.reward(10);
+      this.emit('explosion', { x: gun.x, y: gun.y, size: 48, kind: 'pod', points });
+      if (boss.guns.every(item => item.hp <= 0)) {
+        boss.phase = 2; boss.coreTimer = 1.4; boss.ringTimer = Math.min(boss.ringTimer, 2.5);
+        this.emit('bossShield', { x: boss.x, y: boss.y });
+      }
+    }
+    return true;
+  }
+
+  damageBoss(boss, amount) {
+    if (boss.dead || boss.phase !== 2) return false;
+    boss.hp -= amount;
+    this.emit('bossHit', {});
+    if (boss.hp <= 0) this.destroyBoss(boss);
+    return true;
+  }
+
+  destroyBoss(boss) {
+    boss.dead = true;
+    boss.hp = 0;
+    boss.charge = 0;
+    this.bossKills++;
+    const points = this.addScore(5000 * boss.level);
+    this.reward(150 + boss.level * 75);
+    this.emit('bossDown', { x: boss.x, y: boss.y, angle: boss.angle, level: boss.level, points });
+  }
+
   breakRock(rock, credited = true) {
     if (rock.dead) return;
     rock.dead = true;
@@ -322,7 +470,12 @@ export class Game {
     for (const base of this.bases) {
       if (!base.dead) for (const pod of base.pods) if (pod.hp > 0 && distance(pod, blast) < blast.radius + 20) this.hitBase(base, pod, 2);
     }
-    if (distance(blast, this.player) < blast.radius * .8) this.damagePlayer(28);
+    const boss = this.boss;
+    if (boss && !boss.dead) {
+      for (const gun of boss.guns) if (gun.hp > 0 && distance(gun, blast) < blast.radius + 20) this.hitGun(boss, gun, 2);
+      if (boss.hull.some(part => distance(part, blast) < blast.radius + part.r * .5)) this.damageBoss(boss, 6);
+    }
+    if (distance(blast, this.player) < blast.radius * .8) this.damagePlayer(this.enemyDamage(28));
   }
 
   pulse() {
@@ -341,34 +494,40 @@ export class Game {
       for (const pod of base.pods) if (pod.hp > 0 && distance(pod, p) < radius) this.hitBase(base, pod, 4);
       if (wasOpen && distance(base, p) < radius) this.hitBase(base, null, 7);
     }
+    const boss = this.boss;
+    if (boss && !boss.dead) {
+      for (const gun of boss.guns) if (gun.hp > 0 && distance(gun, p) < radius) this.hitGun(boss, gun, 4);
+      if (boss.hull.some(part => distance(part, p) < radius + part.r * .5)) this.damageBoss(boss, 12);
+    }
     return true;
   }
 
   // Returns extra seconds to wait before the next spawn.
   spawnEnemies() {
-    const p = this.player;
-    if (this.enemies.length >= MAX_ENEMIES) return 0;
+    const p = this.player, t = this.threat;
+    if (this.enemies.length >= this.maxEnemies) return 0;
     const angle = this.random() * TAU;
-    const x = wrap(p.x + Math.cos(angle) * 980), y = wrap(p.y + Math.sin(angle) * 980);
+    const reach = this.spawnRadius, x = wrap(p.x + Math.cos(angle) * reach), y = wrap(p.y + Math.sin(angle) * reach);
     const pressure = this.sectorTime > 100 ? 2 : this.sectorTime > 50 ? 1 : 0;
-    const odds = this.wave === 1 ? [0, .25, .45][pressure] : [.3, .5, .7][pressure];
+    const odds = t < 1 ? [0, .25, .45][pressure] : [.3, .5, .7][pressure];
     if (this.random() < odds) { this.spawnFormation(x, y, angle + Math.PI); return 3; }
-    const count = this.wave >= 3 || this.sectorTime > 40 ? 2 : 1;
-    for (let i = 0; i < count && this.enemies.length < MAX_ENEMIES; i++) {
-      const kind = this.wave >= 2 && this.random() < .35 ? 'gunner' : 'chaser';
+    const count = 1 + (t >= 2 || this.sectorTime > 40 ? 1 : 0) + (t >= 7 ? 1 : 0) + (t >= 14 ? 1 : 0);
+    const gunners = t >= 1 ? Math.min(.55, .35 + t * .012) : 0;
+    for (let i = 0; i < count && this.enemies.length < this.maxEnemies; i++) {
+      const kind = gunners && this.random() < gunners ? 'gunner' : 'chaser';
       const a = angle + (i - (count - 1) / 2) * .25;
-      this.enemies.push(this.makeEnemy(kind, wrap(p.x + Math.cos(a) * 980), wrap(p.y + Math.sin(a) * 980), a + Math.PI));
+      this.enemies.push(this.makeEnemy(kind, wrap(p.x + Math.cos(a) * reach), wrap(p.y + Math.sin(a) * reach), a + Math.PI));
     }
     return 0;
   }
 
-  // A leader with four wingmen in a V. Destroying the leader breaks the formation.
+  // A leader with wingmen in a V. Destroying the leader breaks the formation.
   spawnFormation(x, y, heading) {
-    const id = this.nextId++, c = Math.cos(heading), s = Math.sin(heading);
-    const slots = [[0, 0], [-82, -80], [-82, 80], [-164, -160], [-164, 160]];
+    const id = this.nextId++, c = Math.cos(heading), s = Math.sin(heading), t = this.threat;
+    const slots = [[0, 0], [-82, -80], [-82, 80], [-164, -160], [-164, 160], [-246, -240], [-246, 240]].slice(0, t >= 6 ? 7 : 5);
     for (const [i, [ox, oy]] of slots.entries()) {
-      if (this.enemies.length >= MAX_ENEMIES) break;
-      const kind = this.wave >= 4 && i >= 3 ? 'gunner' : 'chaser';
+      if (this.enemies.length >= this.maxEnemies) break;
+      const kind = t >= 3 && i >= 3 ? 'gunner' : 'chaser';
       this.enemies.push(this.makeEnemy(kind, wrap(x + ox * c - oy * s), wrap(y + ox * s + oy * c), heading,
         { formation: id, leader: i === 0, ox, oy }));
     }
@@ -377,6 +536,7 @@ export class Game {
 
   chooseUpgrade(id) {
     if (this.mode !== 'upgrade' || !this.choices.includes(id)) return false;
+    const laser = this.laser, afterBoss = this.bossSector;
     if (id === 'repair') { this.player.hull = this.maxHull; this.reward(60); }
     else {
       const item = UPGRADES.find(upgrade => upgrade.id === id);
@@ -384,7 +544,8 @@ export class Game {
       this.upgrades[id]++;
       if (id === 'hull') this.player.hull = Math.min(this.maxHull, this.player.hull + 45);
     }
-    this.player.hull = Math.min(this.maxHull, this.player.hull + 25);
+    // Destroying a dreadnought earns a full repair.
+    this.player.hull = afterBoss ? this.maxHull : Math.min(this.maxHull, this.player.hull + 25);
     this.player.shield = this.maxShield;
     this.player.energy = 100;
     this.player.pulses = Math.min(6, this.player.pulses + 1 + this.upgrades.pulse);
@@ -392,15 +553,17 @@ export class Game {
     this.wave++;
     this.mode = 'playing';
     this.choices = [];
+    if (this.laser !== laser) this.emit('laser', { color: this.laser });
     this.spawnSector();
     return true;
   }
 
   finishSector() {
     if (this.mode !== 'playing' || this.remaining !== 0) return;
+    const boss = this.bossSector;
     this.clearedSector = this.wave;
-    this.reward(75 + this.wave * 15);
-    this.score += 1500 + Math.max(0, Math.floor(180 - this.sectorTime)) * 10;
+    this.reward(75 + this.wave * 15 + (boss ? 100 : 0));
+    this.score += Math.round((1500 + Math.max(0, Math.floor(180 - this.sectorTime)) * 10) * this.difficulty.score);
     this.mode = 'upgrade';
     this.player.boosting = false;
     this.player.trigger = false;
@@ -410,13 +573,15 @@ export class Game {
       this.choices.push(available.splice(Math.floor(this.random() * available.length), 1)[0]);
     }
     if (!this.choices.length) this.choices.push('repair');
-    this.emit('clear', { wave: this.wave });
+    this.emit('clear', { wave: this.wave, boss });
   }
 
   updateCondition() {
     const formation = this.enemies.some(enemy => enemy.formation && !enemy.dead);
+    const boss = this.boss && !this.boss.dead ? this.boss : null;
     let level = this.sectorTime > 100 ? 'RED' : this.sectorTime > 50 ? 'YELLOW' : 'GREEN';
-    if (formation && level === 'GREEN') level = 'YELLOW';
+    if ((formation || boss) && level === 'GREEN') level = 'YELLOW';
+    if (boss && boss.phase === 2) level = 'RED';
     this.condition = level;
     const rank = CONDITIONS.indexOf(level);
     if (rank > this.alertRank) { this.alertRank = rank; this.emit('condition', { level }); }
@@ -483,13 +648,16 @@ export class Game {
 
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
-      const extra = this.spawnEnemies();
-      this.spawnTimer = Math.max(1.6, 5.2 - this.wave * .25 - this.sectorTime / 70) + extra;
+      const extra = this.spawnEnemies(), t = this.threat;
+      const gap = Math.max(Math.max(1.05, 1.6 - t * .02), 4.95 - t * .25 - this.sectorTime / 70) / this.difficulty.spawn;
+      // A dreadnought launches its own fighters, so fewer arrive from deep space.
+      this.spawnTimer = gap * (this.boss && !this.boss.dead ? 1.5 : 1) + extra;
     }
     this.updateEnemies(dt);
     this.updateBases(dt);
+    this.updateBoss(dt);
     for (const rock of this.rocks) {
-      if (!rock.dead && distance(rock, p) < rock.radius + SHIP.radius * .7) { this.damagePlayer(16); this.breakRock(rock, false); }
+      if (!rock.dead && distance(rock, p) < rock.radius + SHIP.radius * .7) { this.damagePlayer(this.enemyDamage(16)); this.breakRock(rock, false); }
     }
     for (const mine of this.mines) if (!mine.dead && distance(mine, p) < 44) this.detonateMine(mine, 0);
     this.updateShots(dt);
@@ -502,10 +670,9 @@ export class Game {
   }
 
   updateEnemies(dt) {
-    const p = this.player;
+    const p = this.player, rules = this.difficulty, t = this.threat, pace = this.pace;
     const leaders = new Map();
     for (const enemy of this.enemies) if (enemy.leader && !enemy.dead) leaders.set(enemy.formation, enemy);
-    const pace = Math.min(390, 240 + this.wave * 10 + this.sectorTime * .35);
     for (const enemy of this.enemies) {
       if (enemy.dead) continue;
       const gunner = enemy.kind === 'gunner';
@@ -536,17 +703,19 @@ export class Game {
       if (gunner && enemy.shotTimer <= 0) {
         if (d < 720 && Math.abs(angleDiff(enemy.angle, toPlayer)) < 1) {
           const gx = enemy.x + Math.cos(enemy.angle) * 52, gy = enemy.y + Math.sin(enemy.angle) * 52;
-          this.shoot(gx, gy, Math.atan2(delta(p.y, gy), delta(p.x, gx)), Math.min(460, 330 + this.wave * 8), 'enemy', 14, 'plasma');
+          // Veteran gunships fire a three-bolt spread.
+          const aim = Math.atan2(delta(p.y, gy), delta(p.x, gx)), lanes = t >= 8 ? 1 : 0;
+          for (let lane = -lanes; lane <= lanes; lane++) this.shoot(gx, gy, aim + lane * .14, this.plasmaSpeed, 'enemy', this.enemyDamage(14), 'plasma');
           this.emit('enemyShot', { x: gx, y: gy, kind: 'plasma' });
-          enemy.shotTimer = Math.max(1.4, 2.8 - this.wave * .08) + this.random() * .6;
+          enemy.shotTimer = (Math.max(1.4, 2.72 - t * .08) + this.random() * .6) / rules.fire;
         } else enemy.shotTimer = .3;
       }
-      if (d < SHIP.radius + ENEMIES[enemy.kind].radius * .85) { this.damagePlayer(16); this.killEnemy(enemy, false); }
+      if (d < SHIP.radius + ENEMIES[enemy.kind].radius * .85) { this.damagePlayer(this.enemyDamage(16)); this.killEnemy(enemy, false); }
     }
   }
 
   updateBases(dt) {
-    const p = this.player;
+    const p = this.player, t = this.threat;
     for (const base of this.bases) {
       if (base.dead) continue;
       this.updateHatch(base, dt);
@@ -556,16 +725,94 @@ export class Game {
           if (pod.shotTimer <= 0) {
             const dx = delta(p.x, pod.tipX), dy = delta(p.y, pod.tipY), aim = Math.atan2(dy, dx);
             if (Math.hypot(dx, dy) < 780 && Math.cos(aim - pod.aim) > .2) {
-              this.shoot(pod.tipX, pod.tipY, aim, Math.min(430, 290 + this.wave * 9), 'enemy', 14, 'cannon');
+              this.shoot(pod.tipX, pod.tipY, aim, this.cannonSpeed, 'enemy', this.enemyDamage(14), 'cannon');
               this.emit('enemyShot', { x: pod.tipX, y: pod.tipY, kind: 'cannon' });
-              pod.shotTimer = Math.max(1.8, 4.2 - this.wave * .12) + this.random() * 1.5;
+              pod.shotTimer = (Math.max(1.8, 4.08 - t * .12) + this.random() * 1.5) / this.difficulty.fire;
             } else pod.shotTimer = .35 + this.random() * .5;
           }
         }
-        if (distance(pod, p) < FORTRESS.pod + SHIP.radius * .6) this.collide(pod, 20);
+        if (distance(pod, p) < FORTRESS.pod + SHIP.radius * .6) this.collide(pod, this.enemyDamage(20));
       }
-      if (distance(base, p) < FORTRESS.body + SHIP.radius * .6) this.collide(base, 20);
+      if (distance(base, p) < FORTRESS.body + SHIP.radius * .6) this.collide(base, this.enemyDamage(20));
     }
+  }
+
+  updateBoss(dt) {
+    const boss = this.boss, p = this.player, rules = this.difficulty;
+    if (!boss || boss.dead) return;
+    const enraged = boss.phase === 2;
+    const dx = delta(p.x, boss.x), dy = delta(p.y, boss.y), range = Math.hypot(dx, dy), toPlayer = Math.atan2(dy, dx);
+    if ((boss.sideTimer -= dt) <= 0) { boss.side = -boss.side; boss.sideTimer = 6 + this.random() * 4; }
+    // Close in, then circle at battle range with the broadside batteries on target.
+    let goal = toPlayer;
+    if (range < 430) goal = toPlayer + boss.side * 2.1;
+    else if (range < 760) goal = toPlayer + boss.side * .95;
+    const turn = (enraged ? .72 : .52) * rules.speed;
+    boss.angle += clamp(angleDiff(boss.angle, goal), -turn * dt, turn * dt);
+    const speed = (105 + boss.level * 12) * rules.speed * (enraged ? 1.3 : 1) * (range > 1000 ? 1.9 : 1);
+    boss.x = wrap(boss.x + Math.cos(boss.angle) * speed * dt);
+    boss.y = wrap(boss.y + Math.sin(boss.angle) * speed * dt);
+    this.placeBoss(boss);
+
+    // Batteries turn to track the ship and fire aimed cannon rounds.
+    for (const gun of boss.guns) {
+      if (gun.hp <= 0) continue;
+      const gx = delta(p.x, gun.x), gy = delta(p.y, gun.y);
+      gun.aim = Math.atan2(gy, gx);
+      if ((gun.timer -= dt) > 0) continue;
+      if (Math.hypot(gx, gy) < 1000) {
+        const mx = gun.x + Math.cos(gun.aim) * 34, my = gun.y + Math.sin(gun.aim) * 34;
+        this.shoot(mx, my, gun.aim, this.cannonSpeed, 'enemy', this.enemyDamage(14), 'cannon');
+        this.emit('enemyShot', { x: mx, y: my, kind: 'cannon' });
+        gun.timer = (Math.max(1.3, 2.6 - boss.level * .2) + this.random() * 1.2) / rules.fire;
+      } else gun.timer = .4;
+    }
+
+    // The core glows as it charges, then releases a ring of plasma. The glow is the warning.
+    boss.ringTimer -= dt;
+    if (boss.charge > 0 || boss.ringTimer <= 0) {
+      if (boss.charge === 0) this.emit('bossCharge', { x: boss.core.x, y: boss.core.y });
+      boss.charge = Math.min(1, boss.charge + dt / .9);
+      if (boss.charge >= 1) {
+        boss.charge = 0;
+        boss.ringTimer = Math.max(2.4, 6.5 - boss.level * .5) * (enraged ? .6 : 1) / rules.fire;
+        this.bossRing(boss);
+      }
+    }
+
+    // Fighters launch from the rear bay.
+    if ((boss.launchTimer -= dt) <= 0) {
+      const count = Math.min(2 + boss.level, Math.max(0, this.maxEnemies - this.enemies.length));
+      const bay = this.bossPoint(boss, BOSS.bay), back = boss.angle + Math.PI;
+      for (let i = 0; i < count; i++) {
+        const a = back + (i - (count - 1) / 2) * .4;
+        this.enemies.push(this.makeEnemy('chaser', wrap(bay.x + Math.cos(a) * 30), wrap(bay.y + Math.sin(a) * 30), a));
+      }
+      if (count) this.emit('launch', { x: bay.x, y: bay.y, count });
+      boss.launchTimer = Math.max(5, 11 - boss.level) * (enraged ? .75 : 1) / rules.spawn;
+    }
+
+    // With the shield down, the exposed core fires aimed plasma volleys.
+    if (enraged && (boss.coreTimer -= dt) <= 0) {
+      const aim = Math.atan2(delta(p.y, boss.core.y), delta(p.x, boss.core.x));
+      for (let lane = -1; lane <= 1; lane++) this.shoot(boss.core.x, boss.core.y, aim + lane * .16, this.plasmaSpeed, 'enemy', this.enemyDamage(14), 'plasma');
+      this.emit('enemyShot', { x: boss.core.x, y: boss.core.y, kind: 'plasma' });
+      boss.coreTimer = Math.max(1.2, 2.4 - boss.level * .2) / rules.fire;
+    }
+
+    // Ramming the hull bounces the ship away and hurts.
+    const hull = boss.hull.find(part => distance(part, p) < part.r + SHIP.radius * .6);
+    if (hull) this.collide(hull, this.enemyDamage(24));
+  }
+
+  bossRing(boss) {
+    const count = 14 + boss.level * 4 + (boss.phase === 2 ? 6 : 0);
+    const speed = Math.min(360, 235 + boss.level * 15) * this.difficulty.bullet, offset = this.random() * TAU, damage = this.enemyDamage(12);
+    for (let i = 0; i < count; i++) {
+      const a = offset + i * TAU / count;
+      this.shoot(boss.core.x + Math.cos(a) * 40, boss.core.y + Math.sin(a) * 40, a, speed, 'enemy', damage, 'plasma');
+    }
+    this.emit('bossRing', { x: boss.core.x, y: boss.core.y, count });
   }
 
   updateShots(dt) {
@@ -585,22 +832,23 @@ export class Game {
       for (const enemy of this.enemies) {
         if (!enemy.dead && hitsSegment(shot, enemy, ENEMIES[enemy.kind].radius)) {
           enemy.hp -= shot.damage; shot.dead = true;
-          this.emit('spark', { x: shot.x, y: shot.y, kind: 'hit', id: enemy.id });
+          this.emit('spark', { x: shot.x, y: shot.y, kind: 'hit', id: enemy.id, laser: shot.color });
           if (enemy.hp <= 0) this.killEnemy(enemy);
           break;
         }
       }
       if (shot.dead) continue;
+      if (this.boss && !this.boss.dead && this.hitBoss(shot)) continue;
       for (const base of this.bases) {
         if (base.dead) continue;
         const pod = base.pods.find(item => item.hp > 0 && hitsSegment(shot, item, FORTRESS.pod));
         if (pod) {
           shot.dead = true; this.hitBase(base, pod, shot.damage);
-          this.emit('spark', { x: shot.x, y: shot.y, kind: 'pod' }); break;
+          this.emit('spark', { x: shot.x, y: shot.y, kind: 'pod', laser: shot.color }); break;
         }
         if (hitsSegment(shot, base, FORTRESS.core)) {
           shot.dead = true;
-          this.emit(this.hitBase(base, null, shot.damage) ? 'spark' : 'deflect', { x: shot.x, y: shot.y, kind: 'core' });
+          this.emit(this.hitBase(base, null, shot.damage) ? 'spark' : 'deflect', { x: shot.x, y: shot.y, kind: 'core', laser: shot.color });
           break;
         }
       }

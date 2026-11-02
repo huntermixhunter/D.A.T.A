@@ -10,9 +10,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=sector-one-2">
+  <link rel="stylesheet" href="style.css?v=dreadnought-1">
   <script src="../embedded_theme.js?v=1"></script>
-  <script type="module" src="game.mjs?v=sector-one-2"></script>
+  <script type="module" src="game.mjs?v=dreadnought-1"></script>
 </head>
 <body data-state="menu">
   <main class="arcade" id="arcade">
@@ -46,16 +46,21 @@
         <section class="radar-panel" aria-label="Sector radar">
           <div class="panel-title"><span>RADAR</span><span id="radar-bases">3 STATIONS</span></div>
           <canvas id="radar" width="200" height="200" aria-label="Radar. Green squares are stations, red are fighters, white is your ship."></canvas>
-          <div class="radar-key"><span><i class="k-base"></i>STATION</span><span><i class="k-core"></i>CORE OPEN</span><span><i class="k-enemy"></i>FIGHTER</span></div>
+          <div class="radar-key"><span class="key-station"><i class="k-base"></i>STATION</span><span class="key-core"><i class="k-core"></i>CORE OPEN</span><span class="key-boss"><i class="k-boss"></i>DREADNOUGHT</span><span><i class="k-enemy"></i>FIGHTER</span></div>
         </section>
         <div class="objective"><strong id="objective">DESTROY 3 STATIONS</strong><span id="combo">CHAIN x1</span></div>
+        <section class="boss-bar" id="boss-bar" aria-label="Dreadnought status" hidden>
+          <div class="boss-head"><strong id="boss-name">DREADNOUGHT</strong><span id="boss-state">SHIELD UP</span></div>
+          <div class="boss-meter shield" aria-hidden="true"><b id="boss-shield"></b></div>
+          <div class="boss-meter hull" id="boss-hull-meter" role="meter" aria-label="Dreadnought hull" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><b id="boss-hull"></b></div>
+        </section>
         <section class="systems" aria-label="Ship systems">
           <div class="sys" id="sys-boost"><div class="bars" id="boost-bars"></div><span class="nm">BOOST</span><span class="key">SHIFT</span></div>
           <div class="sys" id="sys-pulse"><div class="bars" id="pulse-bars"></div><span class="nm">PULSE</span><span class="key">E</span></div>
         </section>
-        <section class="weapons" id="weapons" aria-label="Weapons">
+        <section class="weapons" id="weapons" aria-label="Weapons" data-laser="red">
           <div class="weapon-card">
-            <div class="weapon-head"><span class="wn">TWIN CANNONS</span><span class="wd">FORE + AFT</span></div>
+            <div class="weapon-head"><span class="wn" id="laser-name">RED LASERS</span><span class="wd">FORE + AFT</span></div>
             <div class="charge"><b id="cannon-charge"></b></div>
             <div class="mods" id="weapon-mods"></div>
           </div>
@@ -76,13 +81,17 @@
         <div class="title-block">
           <div class="kicker"><span class="dot"></span>FREE-ROAMING SPACE ARCADE</div>
           <h1 id="game-title"><span>VOID</span> <span>PATROL</span></h1>
-          <p class="lede">Hunt the six-cannon fortresses. Break every gun, or thread one shot through the open core. Survive the formations and upgrade between sectors.</p>
+          <p class="lede">Hunt the six-cannon fortresses. Break every gun, or thread one shot through the open core. Every fifth sector, a dreadnought arrives. Survive and upgrade between sectors.</p>
+          <div class="difficulty">
+            <span class="difficulty-label" id="difficulty-label">DIFFICULTY</span>
+            <div class="difficulty-options" id="difficulty-options" role="radiogroup" aria-labelledby="difficulty-label" aria-describedby="difficulty-detail"></div>
+            <p class="difficulty-detail" id="difficulty-detail" aria-live="polite"></p>
+          </div>
           <div class="actions">
             <button id="launch" class="jump" type="button">LAUNCH</button>
             <button id="open-hangar" class="ghost big" type="button">HANGAR</button>
           </div>
           <p class="launch-note" id="launch-note">Your ship flies at all times. Steer it, pull the trigger, and keep moving.</p>
-          <p class="reward-progress" id="reward-progress" role="status">EVENT HORIZON / Clear Sector 1 to unlock the dashboard theme.</p>
           <dl class="records">
             <div><dt>BEST</dt><dd id="record-best">0</dd></div>
             <div><dt>FURTHEST SECTOR</dt><dd id="record-sector">0</dd></div>
@@ -103,7 +112,7 @@
               <li><span class="combo"><kbd>M</kbd></span><span>Sound and voice</span></li>
               <li><span class="combo"><kbd>ENTER</kbd></span><span>Launch</span></li>
             </ul>
-            <p class="pad-note">Point where you want to fly for smooth 360&deg; turns. WASD or a stick takes over when used. Your ship keeps flying when released. Hold the trigger to fire. Gamepad: stick steers, A fires, B boosts, X pulses.</p>
+            <p class="pad-note">Point where you want to fly for smooth 360&deg; turns. WASD or a stick takes over when used. Your ship keeps flying when released. Hold the trigger to fire. Gamepad: stick steers, A fires, B boosts, X pulses. On this screen, left and right choose the difficulty; after a run, B returns here.</p>
           </div>
         </aside>
         <div class="threats" aria-label="Threat briefing">
@@ -111,6 +120,7 @@
           <article class="threat"><img src="assets/interceptor.webp?v=2" alt="" width="96" height="78"><div><h3>INTERCEPTOR</h3><p>Fast pursuit fighter. Flies in V formations. Destroy the leader to scatter them.</p></div></article>
           <article class="threat"><img src="assets/manta.webp?v=2" alt="" width="96" height="65"><div><h3>MANTA</h3><p>Strafing gunship. Fires plasma bolts from range.</p></div></article>
           <article class="threat"><span class="mine-icon" aria-hidden="true"></span><div><h3>COSMO-MINE</h3><p>Shoot them from a distance. The blast destroys everything nearby.</p></div></article>
+          <article class="threat boss-threat"><img src="assets/manta.webp?v=2" alt="" width="96" height="65"><div><h3>DREADNOUGHT</h3><p>Every fifth sector. Gun batteries power its shield. Destroy them, then break the hull.</p></div></article>
         </div>
       </section>
 
@@ -134,7 +144,7 @@
 
       <section id="paused" class="screen modal-screen" aria-labelledby="pause-title" hidden>
         <div class="window compact"><div class="window-inner">
-          <div class="panel-title"><span id="pause-title">PAUSED</span><span>FLIGHT ON HOLD</span></div>
+          <div class="panel-title"><span id="pause-title">PAUSED</span><span id="pause-meta">FLIGHT ON HOLD</span></div>
           <div class="window-body">
             <p>Your ship is safe while paused.</p>
             <button id="resume" class="jump" type="button">RESUME</button>
@@ -150,12 +160,6 @@
           <div class="window-body">
             <h2 id="upgrade-title">Choose one system upgrade</h2>
             <p id="upgrade-detail">Hull repaired by 25. Shields restored. The next sector is waiting.</p>
-            <section id="victory-reward" class="victory-reward" aria-label="Event Horizon reward" hidden>
-              <svg class="reward-orbit" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="11"/><ellipse cx="32" cy="32" rx="28" ry="12" transform="rotate(-30 32 32)"/><circle cx="32" cy="32" r="23" stroke-dasharray="2 7"/><circle cx="53" cy="19" r="3" fill="currentColor" stroke="none"/></svg>
-              <div><span class="reward-eyebrow">VOID PATROL VICTORY REWARD</span><h3>EVENT HORIZON</h3><p>Pure black. Violet light. Ice-blue accents.</p></div>
-              <div class="reward-actions"><button id="equip-reward" class="ghost big" type="button">EQUIP EVENT HORIZON</button><button id="victory-hangar" class="ghost big" type="button">FINISH RUN</button></div>
-              <p id="reward-equip-status" role="status"></p>
-            </section>
             <div id="upgrade-choices" class="upgrade-choices"></div>
           </div>
         </div></div>
@@ -163,7 +167,7 @@
 
       <section id="gameover" class="screen modal-screen" aria-labelledby="gameover-title" hidden>
         <div class="window compact"><div class="window-inner">
-          <div class="panel-title"><span id="record-label">SHIP DESTROYED</span><span>FLIGHT RECORD</span></div>
+          <div class="panel-title"><span id="record-label">SHIP DESTROYED</span><span id="gameover-meta">FLIGHT RECORD</span></div>
           <div class="window-body">
             <h2 id="gameover-title">Go again. Go further.</h2>
             <div class="result-grid"><div><span>SCORE</span><strong id="final-score">0</strong></div><div><span>SECTOR</span><strong id="final-sector">1</strong></div><div><span>SALVAGE</span><strong id="final-salvage">0</strong></div></div>

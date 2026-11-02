@@ -10,7 +10,7 @@
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <link rel="stylesheet" href="theme.css?v=pane-reorder-20261030" />
   <link rel="stylesheet" href="event_horizon.css?v=1" />
-  <script type="module" src="appearance.mjs?v=1"></script>
+  <script type="module" src="appearance.mjs?v=2"></script>
   <link rel="stylesheet" href="skill_search.css?v=1" />
   <link rel="stylesheet" href="advanced_tools.css?v=1" />
   <link rel="stylesheet" href="remote_access.css?v=1" />
@@ -733,9 +733,9 @@
               <div class="settings-opt-row" id="settings-theme-row">
                 <button class="settings-opt" data-theme="minimal" onclick="settingsSetTheme('minimal')">MINIMAL</button>
                 <button class="settings-opt" data-theme="cyber"   onclick="settingsSetTheme('cyber')">CYBER</button>
-                <button class="settings-opt" data-theme="event-horizon" onclick="settingsSetTheme('event-horizon')" disabled aria-describedby="event-horizon-status">EVENT HORIZON (LOCKED)</button>
+                <button class="settings-opt" data-theme="event-horizon" onclick="settingsSetTheme('event-horizon')">EVENT HORIZON</button>
               </div>
-              <p class="settings-sub" id="event-horizon-status" role="status">Clear Sector 1 in Void Patrol to unlock Event Horizon.</p>
+              <p class="settings-sub" id="theme-status" role="status">Every theme is available. Your choice is saved for this profile in this browser.</p>
               <button class="settings-opt" type="button" onclick="closeSettings(); showPanel('arcade')">PLAY VOID PATROL</button>
             </section>
 
@@ -1349,7 +1349,7 @@
   <div id="email-cockpit" class="email-cockpit" aria-hidden="true"><!-- cockpit fills this --></div>
 
   <script>
-    // Appearance and earned themes are initialized by appearance.mjs.
+    // Appearance themes are initialized by appearance.mjs.
 
     // Collapsible rails
     // Either sidebar can be folded away to give the page its width back.
@@ -1420,6 +1420,6 @@
   <script src="offline_maps.js?v=sidebar-defaults-20261030"></script>
   <script src="offline_archive.js?v=sidebar-defaults-20261030"></script>
   <script src="crew-deck/host.js?v=1"></script>
-  <script src="arcade/host.js?v=event-horizon-1"></script>
+  <script src="arcade/host.js?v=dreadnought-1"></script>
 </body>
 </html>

@@ -33,19 +33,8 @@
     if (current) timer = setTimeout(() => show('arcade'), 600);
   }
   window.addEventListener('message', event => {
-    if (event.source !== frame.contentWindow || event.origin !== location.origin) return;
+    if (event.source !== frame.contentWindow || event.origin !== location.origin || event.data?.type !== 'data-arcade-ready') return;
     if (profile !== window.getArcadeProfile?.()) { reset(); return; }
-    if (event.data?.type === 'data-arcade-progress' && event.data.profile === profile) {
-      window.RewardThemes?.updateProgress(profile, event.data.clearedSector);
-      return;
-    }
-    if (event.data?.type === 'data-arcade-equip-theme' && event.data.profile === profile && current) {
-      if (window.RewardThemes?.unlocked() && window.applyTheme?.('event-horizon')) {
-        send({ type: 'data-arcade-theme-equipped', profile });
-      }
-      return;
-    }
-    if (event.data?.type !== 'data-arcade-ready') return;
     clearTimeout(timer);
     send({ type: 'data-arcade-init', profile, active: current });
     status.hidden = true; frame.hidden = false;

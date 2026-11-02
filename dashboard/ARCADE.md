@@ -9,8 +9,9 @@ There are no accounts, purchases, external game services, or AI calls to play.
 
 ## The loop
 
-1. Launch a run. Your ship never stops flying; you steer it. Green squares on
-   the radar and arrows at the screen edge lead to the stations.
+1. Choose a difficulty on the title screen, then launch a run. Your ship never
+   stops flying; you steer it. Green squares on the radar and arrows at the screen
+   edge lead to the stations.
 2. Each station has six cannon pods that fire from their barrels at a ship in
    front of them. Destroy all six to expose the core, then destroy the core.
    The core hatch also cycles open every few seconds: one shot into the open
@@ -18,11 +19,9 @@ There are no accounts, purchases, external game services, or AI calls to play.
 3. Destroy every station to clear the sector, then install one of three system
    upgrades. The ship receives 25 hull repair, full shields, full boost, and more
    pulse charges before the next sector.
-4. Collect salvage cogs and repair drops. Spend banked salvage on permanent hull,
+4. Every fifth sector is a dreadnought fight instead of stations. See below.
+5. Collect salvage cogs and repair drops. Spend banked salvage on permanent hull,
    shield, engine, and weapons upgrades in the hangar between runs.
-5. Clear Sector 10 in one run to complete the patrol and unlock the Event Horizon
-   dashboard theme. Equip it on the victory screen or in Settings > Appearance.
-   Choose another upgrade to continue into endless patrol, or finish the run.
 
 Pressure rises the longer you stay in a sector. Condition moves from GREEN to
 YELLOW after 50 seconds and to RED after 100, with more frequent formation
@@ -33,6 +32,71 @@ destroys nearby fighters and sets off other mines; flying into one hurts. Astero
 break apart under fire and block enemy shots. Consecutive kills build a score
 multiplier; taking damage or going five seconds without a kill resets it.
 Shields recharge after a few seconds without damage.
+
+## Difficulty
+
+Four levels are chosen on the title screen and saved with the profile: Cadet,
+Pilot (the default), Veteran, and Ace. Difficulty scales enemy toughness, damage,
+fire rate, speed, and numbers, and how quickly later sectors escalate. Veteran
+starts one escalation step in and Ace two. The player's ship and hangar upgrades
+are identical at every level.
+
+| Level | Enemy toughness | Enemy damage | Fire rate | Escalation per sector | Score | Salvage |
+| --- | --- | --- | --- | --- | --- | --- |
+| Cadet | x0.8 | x0.7 | x0.75 | x0.7 | x0.75 | x1 |
+| Pilot | x1 | x1 | x1 | x1 | x1 | x1 |
+| Veteran | x1.15 | x1.25 | x1.25 | x1.4 | x1.5 | x1.25 |
+| Ace | x1.3 | x1.45 | x1.5 | x1.75 | x2 | x1.5 |
+
+Sector 1 on Pilot plays exactly as before. After that, every level keeps
+escalating instead of leveling off: pods, cores, and fighters toughen faster than
+linearly, enemy hits grow 3.5% per step, fighters speed up toward a cap that
+boosting still outruns, spawns arrive in larger groups, formations grow to seven
+ships, and late gunships fire three-bolt spreads. The pause screen and flight
+record show the difficulty.
+
+## Dreadnought
+
+Every fifth sector (5, 10, 15, and so on) replaces the stations with a
+dreadnought: the gunship artwork at four times scale, recolored crimson.
+Destroying it clears the sector.
+
+- Gun batteries (four on the first dreadnought, six on later ones) track the
+  ship and fire cannon rounds. While any battery survives, a violet shield
+  deflects hits on the hull. Batteries sit on the outer plates, so attack each
+  one from its exposed side.
+- The core telegraphs a plasma ring. It brightens while a dashed ring closes in
+  for about a second, then slow plasma bolts fire outward with gaps to fly
+  through. A pulse clears nearby bolts.
+- Fighters launch from the rear bay every several seconds.
+- Destroying the last battery collapses the shield. The hull then takes damage
+  anywhere, the dreadnought moves faster, rings come more often, the exposed core
+  fires aimed volleys, and condition goes RED.
+- Ramming the hull bounces the ship away and hurts.
+- If the ship is lost on the same tick the dreadnought falls, the run still ends:
+  the kill scores, but the sector does not clear.
+- A kill is worth 5,000 points per dreadnought level, a large salvage bonus, and
+  a full hull repair before the next sector. Later dreadnoughts are tougher and
+  fire faster. The upgrade screen before a dreadnought sector warns that one is
+  waiting.
+
+A status bar under the objective shows battery strength (the shield) and hull.
+The radar marks the dreadnought with a pink diamond, and an edge arrow labeled
+BOSS points to it when it is off screen.
+
+## Lasers and view
+
+The cannons fire red lasers at the start of every run. After two weapon upgrades
+in the same run (any mix of Overclocked cannons, Split shot, and Heavy rounds)
+they switch to blue lasers with a callout. Weapon cards that would make the
+switch say so on the upgrade screen, and the weapons panel names the current
+lasers and takes their color. Permanent hangar upgrades do not change the color.
+
+The camera shows about 2,000 world units across a widescreen playfield, 25%
+further than before. Fighters and dreadnoughts still arrive from beyond the edge
+of the view: the browser reports how far the view reaches, so wide screens and
+phones are covered too. The spawn ring also allows for the camera running ahead
+of the ship at full boost with every engine upgrade.
 
 ## Controls
 
@@ -46,8 +110,9 @@ Shields recharge after a few seconds without damage.
 | P or Escape | Pause or resume |
 | F or the Fullscreen button | Toggle fullscreen, including inside the dashboard. In fullscreen, Escape exits fullscreen and pauses the run |
 | M | Toggle sound effects and arcade voice callouts, on by default |
-| Enter | Launch from the title or game-over screen |
-| Gamepad | Left stick or D-pad steers, A or RB fires, B or RT boosts, X or Y pulses, Start pauses. A or Start launches and resumes; on the upgrade screen the stick picks a card and A installs it |
+| Enter | Launch from the title or game-over screen, including while a difficulty level has focus |
+| Click a level, or arrow keys, Home, and End | Choose the difficulty on the title screen |
+| Gamepad | Left stick or D-pad steers, A or RB fires, B or RT boosts, X or Y pulses, Start pauses. A or Start launches and resumes. On the title screen, left and right choose the difficulty; on the game-over screen, B returns to the title. On the upgrade screen the stick picks a card and A installs it |
 | Touch | Virtual stick steers; hold FIRE and BOOST; tap PULSE |
 
 Steering eases into the requested heading and keeps a little flight momentum.
@@ -65,7 +130,9 @@ a buffered press is consumed during the hold and cannot replay after release.
 Leaving the Arcade panel, switching browser tabs, or moving focus to another
 window pauses a run. Returning requires an explicit Resume. Hidden panels stop
 the animation loop and suspend game audio. Profile switches unload the old game.
-End Run and Bank Salvage opens the hangar without losing earned salvage.
+End Run and Bank Salvage opens the hangar without losing earned salvage. Damage
+smoke stops once the ship is lost, so the game-over screen stops redrawing when
+the last effects fade.
 
 ## Sound effects
 
@@ -86,7 +153,11 @@ Sound is enabled for new profiles and begins on the Launch gesture. A saved
 mute preference is respected. The five effects are local mono PCM WAV files in
 `arcade/assets/sounds/`. There is no YouTube connection during play. The audio
 context decodes them once when sound is enabled. Levels are normalized, simultaneous
-samples are capped, and a compressor controls overlapping blasts. Pausing,
+samples are capped, and a compressor controls overlapping blasts. The
+dreadnought adds synthesized cues for its warning, charge-up, plasma ring, shield
+collapse, fighter launch, and destruction, plus a chime when the lasers turn blue;
+voice callouts announce the dreadnought, its shield failing, its destruction, and
+blue lasers. No callout plays once the ship is lost. Pausing,
 muting, and leaving the game discard active sounds so they cannot replay on
 resume. Existing synthesized system cues remain, and synthesized combat sounds
 also cover missing or undecodable samples.
@@ -99,19 +170,18 @@ Apache-2.0 license. No third-party sound recordings are distributed.
 ## Progress
 
 Permanent hangar levels, banked salvage, highest score, furthest sector, run
-count, highest cleared sector, and the sound preference are stored in browser localStorage. The key is
+count, highest cleared sector, chosen difficulty, and the sound preference are stored in browser localStorage. The key is
 `data-void-patrol-v1:<dashboard-profile>`. Dashboard profiles have separate
 progress. The standalone `/arcade/` page uses the separate `solo` key. Other
 browsers and devices do not share these records.
 
 Event Horizon uses pure-black surfaces with violet and ice-blue accents and
-orbital artwork. It stays locked until Sector 10 is cleared; reaching that sector
-alone does not qualify. Victory saves immediately, before the next upgrade, and
-the reward remains available after death or a reload. The chosen theme is stored
-as `data-theme:<dashboard-profile>`, separately for each profile. Previous saves
-that reached Sector 11 or later qualify automatically. Standalone progress does
-not unlock a dashboard profile's theme. Clearing browser storage removes the save
-and reward. If storage is unavailable, the unlock lasts only for the current visit.
+orbital artwork. It is available to every profile from the start, in Settings >
+Appearance and the header theme toggle, alongside Minimal and Cyber; no arcade
+progress is needed. The chosen theme is stored as `data-theme:<dashboard-profile>`,
+separately for each profile. If storage is unavailable, a theme change lasts only
+for the current visit. Inside the dashboard the arcade's top bar compacts sooner,
+because dashboard themes use wider type.
 
 Progress banks on sector completion, death, pause, page exit, and at five-second
 intervals during a run. Every write starts from the saved record, so two open
@@ -130,9 +200,8 @@ hangar; numeric fields and upgrade levels are bounded before use.
 - `arcade/index.html` and `arcade/style.css`: the full-viewport game, HUD, and
   screens.
 - `arcade/host.js` and `arcade/host.css`: lazy dashboard embedding.
-- `appearance.mjs` and `event_horizon.css`: profile-specific theme selection,
-  reward gating, and the approved Event Horizon design. Game messages are checked
-  against the current iframe, origin, and active profile before changing themes.
+- `appearance.mjs` and `event_horizon.css`: profile-specific theme selection and
+  the approved Event Horizon design. All three themes are available from the start.
 - `arcade/assets/`: WebP sprites keyed from the supplied artwork (`ship`,
   `interceptor`, `manta`, `fortress`), the deep star layer (`stars`), and the
   ship cutaway shared with the Crew Deck (`cutaway`).
@@ -168,6 +237,7 @@ AI, schedules, and payments.
 node --test dashboard/tests/test_arcade.mjs
 python dashboard/tests/check_arcade_browser.py --base http://localhost:7817
 python dashboard/tests/check_arcade_audio.py --base http://localhost:7817
+python dashboard/tests/check_arcade_features.py --base http://localhost:7817
 ```
 
 The browser check requires the existing Python Playwright environment and a
@@ -201,3 +271,27 @@ the exact served files, decoded sample playback on trigger volleys, explosion
 variants, bounded overlap, pause/resume, immediate mute, saved preferences, and
 synthesized fallback for both missing and corrupt WAV files. The report is
 `build/arcade-checks/audio-results.json`.
+
+Gameplay checkpoint, 2026-11-01: difficulty levels, dreadnought sectors, red and
+blue lasers, and the wider view. All 30 simulation tests passed, including
+difficulty, escalation, dreadnought, laser, and view coverage. The full browser
+check, the audio check, and the new feature check passed with no game JavaScript
+errors. The feature check covers the difficulty selector (mouse, arrow keys,
+persistence), both laser colors through the real upgrade flow, a complete
+dreadnought fight from warning to full repair, and 390px and 320px layouts.
+Screenshots are under `build/arcade-checks/features/`. A scripted pilot flying
+attack runs beats the first Cadet dreadnought in about 100 seconds and gets the
+first Pilot dreadnought to between 13% and 66% hull while ramming fighters and
+the hull, so the fight is winnable but demands dodging.
+`check_event_horizon.py` now confirms Event Horizon on a brand-new profile with no
+arcade progress, per-profile persistence, the theme cycle, pure-black surfaces,
+blocked storage, and phone layouts, including the phone vitals toggle.
+
+Review fixes, 2026-11-01: a code review found that Enter did nothing while a
+difficulty level had focus, and that dreadnought callouts could play over the
+ship's destruction on the same tick. Both are fixed and covered by tests, along
+with a spawn ring that clears the camera's look-ahead at full boost, damage smoke
+that stops after death so the game-over screen stops redrawing, gamepad B from
+game over to the title, one cached battery gradient instead of one per frame, and
+pulse feedback that shows through dreadnought callouts. All 31 simulation tests
+and every browser check passed with no game JavaScript errors.

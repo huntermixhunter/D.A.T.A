@@ -160,7 +160,18 @@ def review_regressions(browser, base):
     page.evaluate("() => { g.player.invulnerable = 0; g.damagePlayer(9999); }")
     page.keyboard.press("Escape")
     expect(page.locator("#gameover")).to_be_visible(timeout=5000)
-    page.locator("#retry").click(); page.wait_for_function("g.mode === 'playing'")
+    # Gamepad B on the game-over screen returns to the title, where the stick changes the level and A launches.
+    level = "document.querySelector('#difficulty-options [aria-checked=true]').dataset.difficulty"
+    page.evaluate(PRESS, 1); page.wait_for_timeout(150); page.evaluate(RELEASE, 1)
+    expect(page.locator("#menu")).to_be_visible()
+    before = page.evaluate(level)
+    page.evaluate("() => { window.__pad.axes[0] = 1; }"); page.wait_for_timeout(150)
+    page.evaluate("() => { window.__pad.axes[0] = 0; }"); page.wait_for_timeout(150)
+    after = page.evaluate(level)
+    assert (before, after) == ("pilot", "veteran"), (before, after)
+    page.evaluate(PRESS, 0); page.wait_for_timeout(150); page.evaluate(RELEASE, 0)
+    page.wait_for_function("g.mode === 'playing' && g.difficulty.id === 'veteran'")
+    result["gamepad_game_over_to_title"] = "B returned to the title, the stick chose Veteran, and A launched it"
     page.evaluate(REVIEW_CALM)
     page.keyboard.press("KeyP"); expect(page.locator("#paused")).to_be_visible()
     page.set_viewport_size({"width": 1000, "height": 700}); page.wait_for_timeout(400)
@@ -393,7 +404,7 @@ def run(base, artifacts):
         assert not arcade_errors, arcade_errors
         checks.append("no game JavaScript errors")
         review = review_regressions(browser, base)
-        checks.append("review regressions: gamepad launch, pause, resume and upgrade choice without extra render loops; held trigger across screens; sub-frame taps; immediate trigger release; fullscreen exits; resize while paused; two tabs")
+        checks.append("review regressions: gamepad launch, pause, resume and upgrade choice without extra render loops; gamepad B from game over to the title and a new level; held trigger across screens; sub-frame taps; immediate trigger release; fullscreen exits; resize while paused; two tabs")
         browser.close()
     result = {"result": "PASS", "checks": checks, "game_errors": errors, "dashboard_fixture_errors": dashboard_errors, "regressions": review, "artifacts": str(artifacts)}
     (artifacts / "browser-results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")

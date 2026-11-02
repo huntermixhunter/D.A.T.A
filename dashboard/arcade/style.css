@@ -181,11 +181,11 @@ h1 span:last-child { color: var(--orange); }
 .combo { display: flex; gap: 4px; }
 kbd { font: 11px var(--font-mono); padding: 2px 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 3px; color: var(--text); background: var(--panel2); white-space: nowrap; }
 .pad-note { margin: 4px 16px 12px; font-size: 11px; line-height: 1.5; color: var(--dim); }
-.threats { grid-area: threats; align-self: end; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.threats { grid-area: threats; align-self: end; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .threat { --cut: 8px; display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: color-mix(in srgb, var(--panel) 86%, transparent); border: 1px solid var(--line); clip-path: var(--chamfer); }
 .threat img { width: 64px; height: 52px; object-fit: contain; flex: none; }
 .threat h3 { margin: 0 0 3px; font-family: var(--font-main); font-size: 14px; letter-spacing: .18em; color: var(--orange); font-weight: 600; }
-.threat p { margin: 0; font-size: 11px; line-height: 1.45; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.threat p { margin: 0; font-size: 11px; line-height: 1.45; color: var(--text); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .mine-icon { width: 64px; height: 52px; flex: none; background: radial-gradient(circle at 50% 50%, var(--red) 0 4px, #2a0c10 5px 7px, #3d4148 8px 14px, transparent 15px), conic-gradient(from 0deg, transparent 0 8deg, #4b4f56 8deg 14deg, transparent 14deg 45deg, #4b4f56 45deg 51deg, transparent 51deg 90deg, #4b4f56 90deg 96deg, transparent 96deg 135deg, #4b4f56 135deg 141deg, transparent 141deg 180deg, #4b4f56 180deg 186deg, transparent 186deg 225deg, #4b4f56 225deg 231deg, transparent 231deg 270deg, #4b4f56 270deg 276deg, transparent 276deg 315deg, #4b4f56 315deg 321deg, transparent 321deg); border-radius: 50%; mask: radial-gradient(circle, #000 22px, transparent 23px); -webkit-mask: radial-gradient(circle, #000 22px, transparent 23px); }
 
 .hangar-screen { display: flex; justify-content: center; align-items: flex-start; padding: clamp(14px, 3vw, 34px); background: rgba(0, 0, 0, .55); }
@@ -255,6 +255,7 @@ body[data-state="menu"] .play-only, body[data-state="hangar"] .play-only { displ
 }
 @media (max-width: 1240px) {
   .threats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .boss-threat { grid-column: 1 / -1; }
   .hangar-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .readouts { gap: 14px; }
 }
@@ -331,20 +332,71 @@ body[data-state="menu"] .play-only, body[data-state="hangar"] .play-only { displ
   #touch-boost.held { border-color: var(--ftl-green); color: var(--ftl-green); }
   body:not([data-state="playing"]) .touch-controls { display: none; }
 }
-.reward-progress { border-left: 2px solid var(--purple); padding: 8px 12px; color: var(--purple); line-height: 1.6; font-size: 12px; }
-.victory-reward { --reward-accent: #b9a4f4; --reward-ice: #9bd4e0; display: grid; grid-template-columns: 72px 1fr; gap: 16px; padding: 18px; margin: 18px 0; border: 1px solid var(--reward-accent); background: #000; text-align: left; animation: reward-arrive .5s ease-out; }
-.victory-reward .reward-orbit { width: 72px; height: 72px; color: var(--reward-accent); }
-.victory-reward h3 { color: var(--reward-accent); font: 600 25px var(--font-main); letter-spacing: .12em; margin: 6px 0; }
-.victory-reward .reward-eyebrow { color: var(--reward-ice); font-size: 10px; letter-spacing: .14em; }
-.victory-reward .reward-actions { grid-column: 1 / -1; display: flex; gap: 12px; }
-.victory-reward .ghost.big { color: var(--reward-accent); border-color: var(--reward-accent); margin: 0; min-height: 44px; font-size: 14px; }
-.victory-reward #reward-equip-status { grid-column: 1 / -1; margin: 0; color: var(--reward-ice); font-size: 12px; }
-@keyframes reward-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+/* ---------- Difficulty ---------- */
+.difficulty { margin: -8px 0 24px; }
+.difficulty-label { display: block; font-family: var(--font-main); font-size: 11px; letter-spacing: .24em; color: var(--dim); }
+.difficulty-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.difficulty-options button {
+  --cut: 7px; clip-path: var(--chamfer); min-height: 38px; padding: 8px 16px 8px 18px; border: 0;
+  background: var(--panel2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong);
+  font-family: var(--font-main); font-size: 14px; letter-spacing: .18em; transition: background .15s, color .15s, box-shadow .15s;
+}
+.difficulty-options button:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--lightblue); }
+.difficulty-options button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--text); }
+.difficulty-options button[aria-checked="true"] { background: var(--lightblue); color: var(--on-accent); box-shadow: none; }
+.difficulty-options button[data-difficulty="veteran"][aria-checked="true"] { background: var(--orange); }
+.difficulty-options button[data-difficulty="ace"][aria-checked="true"] { background: var(--red); }
+.difficulty-options button[aria-checked="true"]:focus-visible { box-shadow: inset 0 0 0 2px var(--on-accent); }
+.difficulty-detail { margin: 8px 0 0; max-width: 470px; min-height: 18px; font-size: 12px; line-height: 1.5; color: var(--dim); }
+
+/* ---------- Dreadnought ---------- */
+.boss-bar {
+  position: absolute; top: 54px; left: 50%; transform: translateX(-50%); width: min(460px, 46%); min-width: 250px;
+  padding: 7px 12px 9px; background: color-mix(in srgb, var(--panel) 84%, transparent); border: 1px solid color-mix(in srgb, #ff5ad1 45%, var(--line));
+}
+.boss-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-family: var(--font-main); white-space: nowrap; }
+.boss-head strong { font-size: 14px; font-weight: 600; letter-spacing: .24em; color: #ff5ad1; }
+.boss-head span { overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: .16em; color: var(--dim); }
+.boss-meter { position: relative; height: 4px; margin-top: 5px; overflow: hidden; background: var(--panel2); }
+.boss-meter.hull { height: 9px; }
+.boss-meter b { position: absolute; inset: 0; display: block; transform-origin: left; transition: transform .12s linear; }
+.boss-meter.shield b { background: #b773ff; box-shadow: 0 0 8px rgba(183, 115, 255, .6); }
+.boss-meter.hull b { background: linear-gradient(90deg, #ff3b4a, #ff8a3d); box-shadow: 0 0 8px rgba(255, 74, 61, .5); }
+.boss-bar[data-phase="2"] { border-color: var(--red); animation: pulse-red 1s infinite; }
+.boss-bar[data-phase="2"] .boss-head span { color: var(--red); }
+.radar-key .key-boss { display: none; }
+.hud.boss-sector .radar-key .key-station, .hud.boss-sector .radar-key .key-core { display: none; }
+.hud.boss-sector .radar-key .key-boss { display: inline; }
+.k-boss { background: #ff5ad1; transform: rotate(45deg); }
+.boss-threat img { filter: hue-rotate(95deg) saturate(1.4) brightness(.92); }
+.boss-threat h3 { color: #ff5ad1; }
+
+/* ---------- Lasers: red from launch, blue after two weapon upgrades ---------- */
+#laser-name { color: #ff4d55; }
+.weapons[data-laser="blue"] #laser-name { color: #4d94ff; }
+.weapons[data-laser="red"] .charge b { background: #ff3f4a; box-shadow: 0 0 6px rgba(255, 63, 74, .5); }
+.weapons[data-laser="blue"] .charge b { background: #3d86ff; box-shadow: 0 0 6px rgba(61, 134, 255, .55); }
+.upgrade-card .laser-note { font-family: var(--font-main); font-size: 11px; letter-spacing: .18em; color: #4d94ff; }
+@media (max-width: 860px) {
+  .boss-bar { top: 46px; }
+}
 @media (max-width: 600px) {
   #upgrade-screen { align-items: flex-start; padding: 12px; }
-  .victory-reward { grid-template-columns: 1fr; text-align: center; }
-  .victory-reward .reward-orbit { margin: auto; }
-  .victory-reward .reward-actions { flex-direction: column; }
+  .boss-bar { top: 10px; left: 10px; transform: none; width: calc(100% - 140px); min-width: 0; }
+  .boss-head strong { font-size: 12px; letter-spacing: .16em; }
+  .boss-head span { display: none; }
+}
+/* Dashboard themes bring wider type, so the embedded top bar compacts sooner. Buttons keep their labels for assistive tech and tooltips. */
+:root[data-dashboard-theme] .tool-label { display: none; }
+:root[data-dashboard-theme] .ghost:not(.big) { padding: 6px 9px; }
+@media (max-width: 1400px) {
+  :root[data-dashboard-theme] .pill { font-size: 0; padding: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--green); }
+  :root[data-dashboard-theme] .pill[data-level="YELLOW"] { background: var(--yellow); }
+  :root[data-dashboard-theme] .pill[data-level="RED"] { background: var(--red); }
+}
+@media (max-width: 1080px) {
+  :root[data-dashboard-theme] .ftl-status b { display: none; }
+  :root[data-dashboard-theme] .hull-bar i { width: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }

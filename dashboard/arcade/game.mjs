@@ -1,4 +1,4 @@
-import { Game, HANGAR, UPGRADES, cleanProfile, purchase, hangarCost, clamp, REWARD_SECTOR, hasEventHorizon } from './engine.mjs';
+import { Game, HANGAR, UPGRADES, DIFFICULTIES, BOSS_EVERY, LASER_BLUE_AT, WEAPON_UPGRADES, cleanProfile, difficultyFor, purchase, hangarCost, clamp } from './engine.mjs';
 import { Renderer } from './renderer.mjs';
 
 const $ = id => document.getElementById(id);
@@ -198,6 +198,20 @@ class Sound {
       case 'exposed': this.tone(200, 900, .35, .06, 'sawtooth'); break;
       case 'deflect': if (!this.throttled('deflect', .08)) this.tone(2400, 1800, .05, .02, 'triangle'); break;
       case 'formation': this.tone(440, 440, .08, .04, 'square'); this.tone(440, 440, .08, .04, 'square', .12); break;
+      case 'boss':
+        for (let i = 0; i < 3; i++) { this.tone(196, 164, .34, .07, 'sawtooth', i * .48); this.tone(98, 82, .34, .06, 'square', i * .48); }
+        break;
+      case 'bossCharge': this.tone(150, 900, .9, .045, 'sawtooth'); this.hiss(.9, .05, 400, 3600, 'bandpass'); break;
+      case 'bossRing':
+        if (!this.sample('pulse', .75, 1.3)) { this.tone(900, 140, .35, .08); this.hiss(.4, .14, 4200, 300, 'bandpass'); }
+        break;
+      case 'bossShield': this.tone(1500, 90, 1.1, .08, 'sawtooth'); this.hiss(1.1, .2, 5200, 200, 'bandpass'); break;
+      case 'launch': if (!this.throttled('launch', .3)) { this.tone(150, 60, .16, .07, 'square'); this.tone(150, 60, .16, .07, 'square', .13); } break;
+      case 'bossDown':
+        if (!this.sample('explosion', 1, .58)) { this.hiss(2.2, .55, 2400, 40); this.tone(85, 20, 2, .22); }
+        this.hiss(1.6, .3, 1300, 45, 'lowpass', .9); this.tone(64, 18, 1.6, .2, 'sine', .9);
+        break;
+      case 'laser': [392, 523, 659, 880].forEach((f, i) => this.tone(f, f * 1.5, .16, .05, 'triangle', i * .08)); break;
       case 'condition': {
         if (event.level === 'GREEN') break;
         const red = event.level === 'RED', hi = red ? 880 : 700, lo = red ? 660 : 560;
@@ -207,10 +221,10 @@ class Sound {
       default: break;
     }
   }
-  say(text) {
+  say(text, urgent = false) {
     if (!this.enabled || !('speechSynthesis' in window)) return;
     const now = performance.now();
-    if (now - this.voiceAt < 1200) return;
+    if (!urgent && now - this.voiceAt < 1200) return;
     this.voiceAt = now;
     try {
       speechSynthesis.cancel();
@@ -224,7 +238,7 @@ class Sound {
 const embedded = new URLSearchParams(location.search).get('embedded') === '1' && window.parent !== window;
 let profileId = '', profile = cleanProfile(null), profileReady = !embedded;
 let game = new Game(), credited = 0, active = !embedded, screen = 'menu', raf = 0, lastTime = 0, redraw = false;
-let hudTime = 0, toastUntil = 0, formationNotice = -100, lastBank = 0, startingBest = 0, pendingClear = 0, pendingDeath = 0;
+let hudTime = 0, toastUntil = 0, toastPriorityUntil = 0, formationNotice = -100, launchNotice = -100, lastBank = 0, startingBest = 0, pendingClear = 0, pendingDeath = 0;
 let stillFrame = false, fireTap = false, leavingFullscreen = false;
 const keys = new Set();
 const touch = { x: 0, y: 0, boost: false, fire: false, pointer: null };
@@ -241,16 +255,17 @@ function notice(message) { $('storage-notice').textContent = message; $('storage
 function save() {
   if (!profileReady) return false;
   try { localStorage.setItem(storageKey(), JSON.stringify(profile)); return true; }
-  catch (_) { notice('Browser storage is unavailable. Upgrades, rewards, and records will last only for this visit.'); return false; }
+  catch (_) { notice('Browser storage is unavailable. Upgrades and records will last only for this visit.'); return false; }
 }
 
-function syncReward() {
-  const earned = hasEventHorizon(profile);
-  $('reward-progress').textContent = earned
-    ? 'EVENT HORIZON UNLOCKED / Dashboard theme'
-    : 'EVENT HORIZON / Clear Sector ' + REWARD_SECTOR + ' in one run to unlock. Best: ' + profile.clearedSector + '/' + REWARD_SECTOR + ' cleared.';
-  if (embedded) window.parent.postMessage({ type: 'data-arcade-progress', profile: profileId, clearedSector: profile.clearedSector }, location.origin);
+// Every run flies at the saved difficulty and knows how far the view reaches.
+function newGame() {
+  const flight = new Game({ hangar: profile.hangar, difficulty: profile.difficulty });
+  flight.viewRadius = renderer.viewRadius;
+  return flight;
 }
+function resizeView() { renderer.resize(); game.viewRadius = renderer.viewRadius; }
+
 function loadProfile(id) {
   profileId = id;
   profileReady = true;
@@ -260,12 +275,11 @@ function loadProfile(id) {
     if (text) raw = JSON.parse(text);
   } catch (_) { notice('Saved progress could not be read. This visit starts with a fresh hangar.'); }
   profile = cleanProfile(raw);
-  syncReward();
   audio.enabled = profile.sound;
-  game = new Game({ hangar: profile.hangar });
+  game = newGame();
   $('launch').disabled = false; $('hangar-launch').disabled = false; $('open-hangar').disabled = false;
   $('launch-note').textContent = 'Your ship flies at all times. Steer it, pull the trigger, and keep moving.';
-  updatePreferences(); renderHangar(); updateRecords(); updateHud(); wake();
+  updatePreferences(); renderDifficulty(); renderHangar(); updateRecords(); updateHud(); wake();
 }
 
 // Another tab may have banked or bought since this one loaded; start every write from the saved record.
@@ -275,7 +289,7 @@ function refreshProfile() {
     const text = localStorage.getItem(storageKey());
     if (text) {
       const saved = cleanProfile(JSON.parse(text));
-      profile = { ...saved, sound: profile.sound, clearedSector: Math.max(saved.clearedSector, profile.clearedSector) };
+      profile = { ...saved, sound: profile.sound, difficulty: profile.difficulty, clearedSector: Math.max(saved.clearedSector, profile.clearedSector) };
     }
   } catch (_) { /* Keep the in-memory profile. */ }
 }
@@ -288,10 +302,8 @@ function bank() {
   credited = game.salvage;
   profile.best = Math.max(profile.best, Math.floor(game.score));
   profile.sector = Math.max(profile.sector, game.wave);
-  const wasEarned = hasEventHorizon(profile);
   profile.clearedSector = Math.max(profile.clearedSector, game.clearedSector);
   save();
-  if (!wasEarned && hasEventHorizon(profile)) syncReward();
 }
 
 function updatePreferences() {
@@ -304,7 +316,37 @@ function updateRecords() {
   $('record-best').textContent = profile.best.toLocaleString();
   $('record-sector').textContent = String(profile.sector);
   $('record-runs').textContent = String(profile.runs);
-  syncReward();
+}
+
+// The title screen's difficulty selector, a keyboard and gamepad friendly radio group.
+// The buttons are built once and updated in place, so a click never drops keyboard focus.
+const difficultyButtons = DIFFICULTIES.map(level => {
+  const button = document.createElement('button');
+  button.type = 'button'; button.dataset.difficulty = level.id; button.textContent = level.name.toUpperCase();
+  button.setAttribute('role', 'radio'); button.title = level.detail;
+  button.addEventListener('click', () => setDifficulty(level.id));
+  return button;
+});
+$('difficulty-options').replaceChildren(...difficultyButtons);
+function renderDifficulty() {
+  const current = difficultyFor(profile.difficulty);
+  for (const button of difficultyButtons) {
+    const selected = button.dataset.difficulty === current.id;
+    button.setAttribute('aria-checked', String(selected));
+    button.tabIndex = selected ? 0 : -1; button.disabled = !profileReady;
+  }
+  $('difficulty-detail').textContent = current.detail;
+}
+function setDifficulty(id, focus = false) {
+  if (!profileReady || screen !== 'menu') return;
+  const level = difficultyFor(id);
+  if (level.id !== profile.difficulty) { refreshProfile(); profile.difficulty = level.id; save(); }
+  renderDifficulty();
+  if (focus) $('difficulty-options').querySelector('[aria-checked="true"]')?.focus({ preventScroll: true });
+}
+function stepDifficulty(step) {
+  const index = DIFFICULTIES.findIndex(level => level.id === profile.difficulty);
+  setDifficulty(DIFFICULTIES[clamp(index + step, 0, DIFFICULTIES.length - 1)].id, true);
 }
 
 function renderHangar() {
@@ -363,7 +405,10 @@ function clearInput() {
   $('weapons').classList.remove('firing');
 }
 
-function toast(message, tone = '', seconds = 2.5) {
+function toast(message, tone = '', seconds = 2.5, priority = false) {
+  const now = performance.now();
+  if (!priority && now < toastPriorityUntil) return;
+  if (priority) toastPriorityUntil = now + seconds * 1000;
   const node = $('toast');
   node.textContent = message;
   node.className = 'toast visible' + (tone ? ' ' + tone : '');
@@ -372,55 +417,56 @@ function toast(message, tone = '', seconds = 2.5) {
 
 function launch() {
   if (!profileReady || !['menu', 'hangar', 'dead'].includes(screen)) return;
-  bank(); game = new Game({ hangar: profile.hangar }); credited = 0; lastBank = 0; pendingClear = pendingDeath = 0;
+  bank(); game = newGame(); credited = 0; lastBank = 0; pendingClear = pendingDeath = 0;
   renderer.reset(); refreshProfile();
-  formationNotice = -100; startingBest = profile.best; profile.runs++; save(); clearInput();
+  formationNotice = launchNotice = -100; toastPriorityUntil = 0; startingBest = profile.best; profile.runs++; save(); clearInput();
   audio.unlock(); game.start(); showScreen('playing');
   toast('BREAK THE SIX CANNONS. THEN DESTROY THE CORE.', '', 4.5);
   audio.say('Blast off!');
 }
 function pause(focus = true) {
   if (game.mode !== 'playing') return;
-  game.pause(); clearInput(); bank(); audio.suspend(); showScreen('paused', focus);
+  game.pause(); clearInput(); bank(); audio.suspend();
+  $('pause-meta').textContent = 'FLIGHT ON HOLD / ' + game.difficulty.name.toUpperCase();
+  showScreen('paused', focus);
 }
 function resume() {
   if (!active || document.hidden || game.mode !== 'paused') return;
   clearInput(); audio.unlock(); game.resume(); showScreen('playing');
 }
-function goHangar() {
-  bank(); clearInput(); audio.suspend(); game = new Game({ hangar: profile.hangar }); credited = 0; pendingClear = pendingDeath = 0;
-  renderer.reset(); showScreen('hangar');
+// Leave a run for the hangar or the title screen, banking everything earned.
+function leaveRun(next) {
+  bank(); clearInput(); audio.suspend(); game = newGame(); credited = 0; pendingClear = pendingDeath = 0;
+  renderer.reset(); showScreen(next);
 }
+function goHangar() { leaveRun('hangar'); }
 function firePulse() {
   if (game.mode !== 'playing') return;
-  if (!game.pulse()) toast('NO PULSE CHARGES. CLEAR A SECTOR TO RECHARGE.', 'warn', 2);
+  // The player asked for a pulse, so the answer shows through any callout.
+  if (!game.pulse()) toast('NO PULSE CHARGES. CLEAR A SECTOR TO RECHARGE.', 'warn', 2, true);
 }
 
 function showUpgrades() {
+  const boss = game.bossSector, nextBoss = (game.wave + 1) % BOSS_EVERY === 0;
   $('clear-label').textContent = 'SECTOR ' + String(game.wave).padStart(2, '0') + ' CLEAR';
-  const victory = game.clearedSector === REWARD_SECTOR;
-  $('victory-reward').hidden = !victory;
-  $('upgrade-title').textContent = victory ? 'First sector cleared. Event Horizon unlocked.' : 'Choose one system upgrade';
-  $('upgrade-detail').textContent = victory
-    ? 'Sector 1 cleared. Choose an upgrade to continue your patrol, or return to the hangar.'
-    : 'Hull repaired by 25. Shields restored. The next sector is waiting.';
-  $('equip-reward').hidden = !embedded;
-  $('reward-equip-status').textContent = embedded
-    ? 'Available in Settings > Appearance for this profile in this browser.'
-    : 'This reward belongs to your standalone save. Play inside the dashboard to earn its theme for your dashboard profile.';
-  $('equip-reward').disabled = false;
-  $('equip-reward').textContent = 'EQUIP EVENT HORIZON';
+  $('upgrade-title').textContent = boss ? 'Dreadnought destroyed. Choose one system upgrade' : 'Choose one system upgrade';
+  $('upgrade-detail').textContent = (boss ? 'Hull fully repaired. Shields restored.' : 'Hull repaired by 25. Shields restored.')
+    + (nextBoss ? ' A dreadnought guards the next sector.' : ' The next sector is waiting.');
   $('upgrade-choices').replaceChildren();
   for (const id of game.choices) {
     const upgrade = UPGRADES.find(item => item.id === id) || { id: 'repair', name: 'Field service', tag: 'SUPPORT', icon: 'shield', detail: 'Fully repair your hull and bank 60 extra salvage.', max: 0 };
+    const blue = WEAPON_UPGRADES.includes(id) && game.laser === 'red' && game.weaponLevel + 1 >= LASER_BLUE_AT;
     const button = document.createElement('button');
     button.type = 'button'; button.className = 'upgrade-card'; button.dataset.choice = id;
-    button.innerHTML = icon(upgrade.icon) + '<span class="eyebrow">' + upgrade.tag + (upgrade.max ? ' / LEVEL ' + (game.upgrades[id] + 1) + ' OF ' + upgrade.max : '') + '</span><strong>' + upgrade.name.toUpperCase() + '</strong><span class="description">' + upgrade.detail + '</span><span class="choose">INSTALL AND JUMP</span>';
+    button.innerHTML = icon(upgrade.icon) + '<span class="eyebrow">' + upgrade.tag + (upgrade.max ? ' / LEVEL ' + (game.upgrades[id] + 1) + ' OF ' + upgrade.max : '') + '</span><strong>' + upgrade.name.toUpperCase() + '</strong><span class="description">' + upgrade.detail + '</span>'
+      + (blue ? '<span class="laser-note">UPGRADES YOUR CANNONS TO BLUE LASERS</span>' : '') + '<span class="choose">INSTALL AND JUMP</span>';
     button.addEventListener('click', () => {
+      const laser = game.laser;
       if (!active || !game.chooseUpgrade(id)) return;
-      renderer.reset(); clearInput(); audio.unlock(); showScreen('playing');
+      renderer.reset(); clearInput(); audio.unlock(); toastPriorityUntil = 0; showScreen('playing');
       toast(upgrade.name.toUpperCase() + ' INSTALLED', 'good', 3);
-      audio.say('Blast off!');
+      // A dreadnought warning or the blue laser callout speaks for this jump instead.
+      if (!game.boss && game.laser === laser) audio.say('Blast off!');
     });
     $('upgrade-choices').append(button);
   }
@@ -433,6 +479,7 @@ function showGameOver() {
   $('final-score').textContent = Math.floor(game.score).toLocaleString();
   $('final-sector').textContent = game.wave;
   $('final-salvage').textContent = game.salvage.toLocaleString();
+  $('gameover-meta').textContent = 'FLIGHT RECORD / ' + game.difficulty.name.toUpperCase();
   showScreen('dead');
 }
 
@@ -464,10 +511,18 @@ function updateHud() {
   pulseCells.forEach((cell, i) => cell.classList.toggle('on', i < p.pulses));
   $('sys-pulse').classList.toggle('empty', p.pulses <= 0);
   $('condition').dataset.level = game.condition; $('condition').textContent = 'CONDITION ' + game.condition;
-  const left = game.remaining;
-  $('objective').textContent = left ? 'DESTROY ' + left + (left === 1 ? ' STATION' : ' STATIONS') : 'SECTOR CLEAR';
+  const left = game.remaining, boss = game.boss && !game.boss.dead ? game.boss : null;
+  const batteries = boss ? boss.guns.filter(gun => gun.hp > 0).length : 0;
+  $('objective').textContent = boss ? (boss.phase === 1 ? 'DESTROY ' + batteries + (batteries === 1 ? ' BATTERY' : ' BATTERIES') : 'DESTROY THE HULL')
+    : left ? 'DESTROY ' + left + (left === 1 ? ' STATION' : ' STATIONS') : 'SECTOR CLEAR';
   $('combo').textContent = 'CHAIN x' + game.multiplier;
-  $('radar-bases').textContent = left + (left === 1 ? ' STATION' : ' STATIONS');
+  $('radar-bases').textContent = game.bossSector ? 'BOSS' : left + (left === 1 ? ' STATION' : ' STATIONS');
+  $('play-hud').classList.toggle('boss-sector', game.bossSector);
+  updateBossBar(boss, inFlight);
+  if ($('weapons').dataset.laser !== game.laser) {
+    $('weapons').dataset.laser = game.laser;
+    $('laser-name').textContent = game.laser === 'blue' ? 'BLUE LASERS' : 'RED LASERS';
+  }
   const mods = [['rapid', 'RAPID'], ['spread', 'SPLIT'], ['power', 'HEAVY']].filter(([id]) => game.upgrades[id]);
   $('weapon-mods').innerHTML = mods.length ? mods.map(([id, name]) => '<span>' + name + ' +' + game.upgrades[id] + '</span>').join('') : '<span class="none">STANDARD LOADOUT</span>';
   $('touch-pulse-count').textContent = p.pulses;
@@ -475,9 +530,25 @@ function updateHud() {
   $('touch-boost').style.setProperty('--energy', (p.energy / 100).toFixed(3));
 }
 
+function updateBossBar(boss, inFlight) {
+  const bar = $('boss-bar');
+  bar.hidden = !boss || !inFlight;
+  if (bar.hidden) return;
+  const live = boss.guns.filter(gun => gun.hp > 0).length, hull = clamp(boss.hp / boss.maxHp, 0, 1);
+  const shield = boss.guns.reduce((sum, gun) => sum + Math.max(0, gun.hp), 0) / boss.guns.reduce((sum, gun) => sum + gun.maxHp, 0);
+  bar.dataset.phase = String(boss.phase);
+  $('boss-name').textContent = 'DREADNOUGHT' + (boss.level > 1 ? ' MK ' + boss.level : '');
+  $('boss-state').textContent = boss.phase === 1 ? 'SHIELD UP / ' + live + (live === 1 ? ' BATTERY' : ' BATTERIES') : 'SHIELD DOWN / HULL ' + Math.ceil(hull * 100) + '%';
+  $('boss-shield').style.transform = 'scaleX(' + shield.toFixed(3) + ')';
+  $('boss-hull').style.transform = 'scaleX(' + hull.toFixed(3) + ')';
+  $('boss-hull-meter').setAttribute('aria-valuenow', String(Math.ceil(hull * 100)));
+}
+
 function consumeEvents() {
   for (const event of game.drainEvents()) {
     renderer.event(event); audio.play(event);
+    // Once the ship is lost, no callout talks over the death sequence.
+    if (game.mode === 'dead' && event.type !== 'death') continue;
     switch (event.type) {
       case 'formation':
         if (game.time - formationNotice > 14) { toast('FORMATION INBOUND', 'warn', 2.2); audio.say('Battle station!'); formationNotice = game.time; }
@@ -489,7 +560,17 @@ function consumeEvents() {
       case 'exposed': toast('CORE EXPOSED. FINISH IT.', 'alert', 2.4); break;
       case 'leader': toast('FORMATION LEADER DOWN', 'good', 1.8); break;
       case 'base': if (game.remaining) toast((event.direct ? 'DIRECT HIT. ' : '') + 'STATION DESTROYED / ' + game.remaining + ' LEFT', 'good', 2.4); break;
-      case 'clear': bank(); clearInput(); pendingClear = 1.5; toast('SECTOR CLEAR', 'good', 1.5); break;
+      case 'boss': toast('WARNING / DREADNOUGHT SIGHTED', 'alert', 3.4, true); audio.say('Warning! Dreadnought sighted!', true); break;
+      case 'bossShield': toast('SHIELD DOWN. HIT THE HULL.', 'alert', 2.6, true); audio.say('Shields down!', true); break;
+      case 'launch': if (game.time - launchNotice > 12) { toast('FIGHTERS LAUNCHING', 'warn', 1.8); launchNotice = game.time; } break;
+      case 'bossDown': audio.say('Dreadnought destroyed!', true); break;
+      case 'laser': toast('BLUE LASERS ONLINE', 'good', 3, true); audio.say('Blue lasers online!'); break;
+      case 'clear':
+        bank(); clearInput();
+        // Let the dreadnought's final explosion play out before the upgrade screen.
+        pendingClear = event.boss ? 2.6 : 1.5;
+        toast(event.boss ? 'DREADNOUGHT DESTROYED' : 'SECTOR CLEAR', 'good', pendingClear, event.boss);
+        break;
       case 'death': bank(); clearInput(); pendingDeath = 1.7; break;
       default: break;
     }
@@ -497,7 +578,7 @@ function consumeEvents() {
 }
 
 // ---------- input ----------
-const padHeld = { pulse: false, start: false, confirm: false, dir: 0 };
+const padHeld = { pulse: false, start: false, confirm: false, back: false, dir: 0, side: 0 };
 function upgradeCards() { return [...$('upgrade-choices').querySelectorAll('.upgrade-card')]; }
 function moveUpgradeFocus(dir) {
   const cards = upgradeCards(), index = cards.indexOf(document.activeElement);
@@ -520,10 +601,12 @@ function pollPad() {
   }
   pad.fire = down(0) || down(5);
   pad.boost = down(1) || (gp.buttons[7]?.value || 0) > .35;
-  const pulse = down(2) || down(3), start = down(9), confirm = down(0) || start;
+  const pulse = down(2) || down(3), start = down(9), confirm = down(0) || start, back = down(1);
   const dir = pad.x > .5 || pad.y > .5 ? 1 : pad.x < -.5 || pad.y < -.5 ? -1 : 0;
+  const side = Math.abs(pad.x) > .5 && Math.abs(pad.x) >= Math.abs(pad.y) ? Math.sign(pad.x) : 0;
   if (pulse && !padHeld.pulse) firePulse();
   if (screen === 'upgrade' && dir && dir !== padHeld.dir) moveUpgradeFocus(dir);
+  if (screen === 'menu' && side && side !== padHeld.side) stepDifficulty(side);
   if (start && !padHeld.start && game.mode === 'playing') pause();
   else if (confirm && !padHeld.confirm) {
     // A or Start: launch from the title or game-over screen, resume from pause, install an upgrade.
@@ -531,7 +614,9 @@ function pollPad() {
     else if (screen === 'menu' || screen === 'dead') launch();
     else if (screen === 'upgrade') chooseFocusedUpgrade();
   }
-  padHeld.pulse = pulse; padHeld.start = start; padHeld.confirm = confirm; padHeld.dir = dir;
+  // B on the game-over screen returns to the title, where the stick chooses the difficulty.
+  else if (back && !padHeld.back && screen === 'dead') leaveRun('menu');
+  padHeld.pulse = pulse; padHeld.start = start; padHeld.confirm = confirm; padHeld.back = back; padHeld.dir = dir; padHeld.side = side;
   return true;
 }
 function readInput() {
@@ -604,7 +689,7 @@ function wake() {
 function setActive(value) {
   active = !!value;
   if (!active) { pause(false); bank(); clearInput(); audio.suspend(); cancelAnimationFrame(raf); raf = 0; }
-  else { renderer.resize(); redraw = true; wake(); }
+  else { resizeView(); redraw = true; wake(); }
 }
 
 // ---------- fullscreen ----------
@@ -624,7 +709,7 @@ function syncFullscreen() {
   $('fullscreen').setAttribute('aria-pressed', String(on));
   $('fullscreen').querySelector('[data-icon]').innerHTML = icon(on ? 'collapse' : 'expand');
   $('fullscreen').querySelector('.tool-label').textContent = on ? 'EXIT FULL' : 'FULLSCREEN';
-  renderer.resize(); redraw = true; wake();
+  resizeView(); redraw = true; wake();
   // In fullscreen the browser takes Escape to exit, so an exit the game did not ask for pauses the run.
   if (!on && !leavingFullscreen && game.mode === 'playing') pause();
   leavingFullscreen = false;
@@ -646,10 +731,18 @@ $('pause').addEventListener('click', () => game.mode === 'paused' ? resume() : p
 $('resume').addEventListener('click', resume);
 $('return-hangar').addEventListener('click', goHangar);
 $('gameover-hangar').addEventListener('click', goHangar);
-$('victory-hangar').addEventListener('click', goHangar);
-$('equip-reward').addEventListener('click', () => {
-  if (!embedded || !active || !hasEventHorizon(profile)) return;
-  window.parent.postMessage({ type: 'data-arcade-equip-theme', profile: profileId }, location.origin);
+$('difficulty-options').addEventListener('keydown', event => {
+  // Enter launches from a focused level, as it does everywhere else on the title screen.
+  if ((event.code === 'Enter' || event.code === 'NumpadEnter') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault(); event.stopPropagation();
+    if (!event.repeat) launch();
+    return;
+  }
+  const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.code];
+  if (!step && event.code !== 'Home' && event.code !== 'End') return;
+  event.preventDefault(); event.stopPropagation();
+  if (event.code === 'Home' || event.code === 'End') setDifficulty(DIFFICULTIES[event.code === 'Home' ? 0 : DIFFICULTIES.length - 1].id, true);
+  else stepDifficulty(step);
 });
 $('fullscreen').addEventListener('click', toggleFullscreen);
 $('sound').addEventListener('click', () => {
@@ -689,14 +782,14 @@ document.addEventListener('visibilitychange', () => {
   else { redraw = true; wake(); }
 });
 window.addEventListener('pagehide', () => { bank(); clearInput(); audio.suspend(); cancelAnimationFrame(raf); raf = 0; });
-new ResizeObserver(() => { renderer.resize(); redraw = true; wake(); }).observe($('stage'));
+new ResizeObserver(() => { resizeView(); redraw = true; wake(); }).observe($('stage'));
 new ResizeObserver(() => { renderer.resizeRadar(); redraw = true; wake(); }).observe($('radar'));
 renderer.ready.then(ok => { if (!ok) notice('Some ship artwork could not load. Flight silhouettes stand in until it returns.'); redraw = true; wake(); });
 window.addEventListener('gamepadconnected', () => { if (['paused', 'menu', 'dead', 'upgrade'].includes(screen)) wake(); });
 // Re-render crisply when the window moves to a screen with a different pixel density.
 (function watchDensity() {
   const query = window.matchMedia?.('(resolution: ' + (devicePixelRatio || 1) + 'dppx)');
-  query?.addEventListener?.('change', () => { renderer.resize(); redraw = true; wake(); watchDensity(); }, { once: true });
+  query?.addEventListener?.('change', () => { resizeView(); redraw = true; wake(); watchDensity(); }, { once: true });
 })();
 window.addEventListener('storage', event => {
   if (!profileReady || event.key !== storageKey()) return;
@@ -764,12 +857,7 @@ if (embedded) {
       setActive(event.data.active !== false);
     }
     if (event.data?.type === 'data-arcade-visibility') setActive(event.data.active === true);
-    if (event.data?.type === 'data-arcade-theme-equipped' && event.data.profile === profileId) {
-      $('equip-reward').disabled = true;
-      $('equip-reward').textContent = 'EVENT HORIZON EQUIPPED';
-      $('reward-equip-status').textContent = 'Your dashboard now wears Event Horizon. Your run is ready when you are.';
-    }
   });
   window.parent.postMessage({ type: 'data-arcade-ready' }, location.origin);
 } else loadProfile('solo');
-renderHangar(); updatePreferences(); updateRecords(); updateHud(); wake();
+renderDifficulty(); renderHangar(); updatePreferences(); updateRecords(); updateHud(); wake();

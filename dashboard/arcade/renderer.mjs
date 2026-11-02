@@ -1,4 +1,4 @@
-import { WORLD, TAU, FORTRESS, delta, distance, clamp } from './engine.mjs';
+import { WORLD, TAU, FORTRESS, BOSS, CAMERA_LEAD, delta, distance, clamp } from './engine.mjs';
 
 const VERSION = 2;
 const asset = name => new URL('./assets/' + name + '?v=' + VERSION, import.meta.url).href;
@@ -11,6 +11,11 @@ const ART = {
   gunner: { file: 'manta.webp', width: 112, flame: 'green', engines: [[-.322, -.0823, .6, .06], [-.322, .0713, .6, .06]] },
   fortress: { file: 'fortress.webp', width: 480, pivotY: .4793 },
 };
+// The dreadnought reuses the gunship's engine layout at its own scale.
+const BOSS_ART = { width: BOSS.width, flame: 'pink', engines: ART.gunner.engines };
+// The view spans about 2,000 world units across a widescreen playfield, 25% further than before.
+export const VIEW_SPAN = 2000;
+export const zoomFor = (w, h) => clamp(Math.min(w, h * 1.78) / VIEW_SPAN, .34, 2.4);
 const FORTRESS_SOURCE = 1254;
 const FORTRESS_SCALE = ART.fortress.width / FORTRESS_SOURCE;
 const CORE_SOURCE = { x: 627, y: 601 };
@@ -19,7 +24,10 @@ const PALETTE = {
   white: [255, 255, 255], cyan: [120, 222, 255], blue: [86, 158, 255], orange: [255, 150, 60],
   amber: [255, 196, 107], red: [255, 74, 61], green: [125, 255, 122], violet: [183, 115, 255],
   ember: [255, 110, 40], pink: [255, 90, 120], ftl: [110, 240, 138],
+  // Player lasers: red from launch, blue once enough weapon upgrades are installed.
+  crimson: [255, 38, 46], azure: [52, 128, 255], magenta: [255, 80, 200],
 };
+const laserColor = laser => laser === 'blue' ? 'azure' : laser === 'red' ? 'crimson' : 'cyan';
 const rgba = (name, a) => { const [r, g, b] = PALETTE[name]; return `rgba(${r},${g},${b},${a})`; };
 const canvas2d = (w, h) => {
   const c = document.createElement('canvas');
@@ -34,10 +42,11 @@ const hash = n => { const f = Math.sin(n * 127.1 + 311.7) * 43758.5453; return f
 // stay crisp at any zoom instead of shimmering from one-step downscaling.
 class Sprite {
   constructor(src) {
-    this.image = new Image();
-    this.image.decoding = 'async';
     this.levels = [];
     this.aspect = 1;
+    if (typeof src !== 'string') { this.image = src; this.build(); this.ready = Promise.resolve(true); return; }
+    this.image = new Image();
+    this.image.decoding = 'async';
     this.ready = new Promise(resolve => {
       this.image.onload = () => { this.build(); resolve(true); };
       this.image.onerror = () => resolve(false);
@@ -45,7 +54,7 @@ class Sprite {
     this.image.src = src;
   }
   build() {
-    let source = this.image, w = this.image.naturalWidth, h = this.image.naturalHeight;
+    let source = this.image, w = this.image.naturalWidth || this.image.width, h = this.image.naturalHeight || this.image.height;
     this.aspect = h / w;
     this.levels = [{ canvas: source, w }];
     while (w > 40) {
@@ -105,11 +114,11 @@ function smokeTexture(size = 64) {
 }
 
 // FTL-style shield bubble: clear center, bright rim.
-function bubbleTexture(size = 256) {
+function bubbleTexture(size = 256, body = '70,150,255', mid = '100,185,255', rim = '175,228,255') {
   const c = canvas2d(size, size), g = c.getContext('2d'), r = size / 2;
   const grad = g.createRadialGradient(r, r, 0, r, r, r);
-  grad.addColorStop(0, 'rgba(70,150,255,0)'); grad.addColorStop(.6, 'rgba(70,150,255,.04)');
-  grad.addColorStop(.85, 'rgba(100,185,255,.2)'); grad.addColorStop(.95, 'rgba(175,228,255,.62)'); grad.addColorStop(1, 'rgba(175,228,255,0)');
+  grad.addColorStop(0, `rgba(${body},0)`); grad.addColorStop(.6, `rgba(${body},.04)`);
+  grad.addColorStop(.85, `rgba(${mid},.2)`); grad.addColorStop(.95, `rgba(${rim},.62)`); grad.addColorStop(1, `rgba(${rim},0)`);
   g.fillStyle = grad; g.fillRect(0, 0, size, size);
   return c;
 }
@@ -265,16 +274,19 @@ export class Renderer {
     this.deepStars.src = asset('stars.webp');
     this.ready = Promise.all(Object.values(this.sprites).map(sprite => sprite.ready)).then(list => list.every(Boolean));
     this.sprites.fortress.ready.then(ok => { if (ok) this.buildFortressDamage(); });
+    this.sprites.gunner.ready.then(ok => { if (ok) this.buildDreadnought(); });
     const glows = Object.fromEntries(Object.keys(PALETTE).map(name => [name, glowTexture(name)]));
     this.tex = {
       glow: glows, smoke: smokeTexture(), bubble: bubbleTexture(), cog: cogTexture(), repair: repairTexture(),
-      bolt: { cyan: boltTexture('cyan'), orange: boltTexture('orange'), green: boltTexture('green', 96, 40), white: boltTexture('white') },
-      flame: { cyan: flameTexture('cyan'), green: flameTexture('green'), orange: flameTexture('orange') },
+      bossBubble: bubbleTexture(256, '150,70,255', '185,110,255', '232,190,255'),
+      bolt: { cyan: boltTexture('cyan'), orange: boltTexture('orange'), green: boltTexture('green', 96, 40), white: boltTexture('white'),
+        crimson: boltTexture('crimson'), azure: boltTexture('azure') },
+      flame: { cyan: flameTexture('cyan'), green: flameTexture('green'), orange: flameTexture('orange'), pink: flameTexture('pink') },
       mine: mineTextures(), rocks: Array.from({ length: 8 }, (_, i) => rockTexture(i * 17.3 + 4)),
     };
     this.particles = []; this.popups = []; this.scheduled = []; this.wrecks = [];
     this.flashes = new Map();
-    this.clock = 0; this.shake = 0; this.hurt = 0; this.shieldFlash = 0; this.alarm = 0; this.alarmColor = 'red';
+    this.clock = 0; this.shake = 0; this.hurt = 0; this.shieldFlash = 0; this.bossShieldFlash = 0; this.alarm = 0; this.alarmColor = 'red';
     this.look = { x: 0, y: 0 }; this.cam = { x: WORLD / 2, y: WORLD / 2 };
     this.travel = { x: 0, y: 0 };
     this.shakeX = 0; this.shakeY = 0;
@@ -290,7 +302,7 @@ export class Renderer {
     this.w = Math.max(1, box.width); this.h = Math.max(1, box.height);
     this.dpr = Math.min(devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(this.w * this.dpr); this.canvas.height = Math.round(this.h * this.dpr);
-    this.zoom = clamp(Math.min(this.w, this.h * 1.78) / 1600, .42, 2.4);
+    this.zoom = zoomFor(this.w, this.h);
     if (this.starDpr !== this.dpr) {
       this.starDpr = this.dpr;
       this.starTiles = STAR_LAYERS.map((spec, i) => spec.tile ? dustTile(spec, this.dpr, i + 1) : null);
@@ -306,11 +318,13 @@ export class Renderer {
   }
 
   get viewport() { return { w: this.w / this.zoom, h: this.h / this.zoom }; }
+  // Distance from the ship to the far corner of the view, in world units.
+  get viewRadius() { return Math.hypot(this.w, this.h) / this.zoom / 2; }
 
   reset() {
     this.particles = []; this.popups = []; this.scheduled = []; this.wrecks = [];
     this.flashes.clear();
-    this.shake = 0; this.hurt = 0; this.shieldFlash = 0; this.alarm = 0;
+    this.shake = 0; this.hurt = 0; this.shieldFlash = 0; this.bossShieldFlash = 0; this.alarm = 0;
     this.look = { x: 0, y: 0 };
   }
 
@@ -346,6 +360,25 @@ export class Renderer {
       return { canvas, x: toWorld(x0) - ART.fortress.width / 2, y: toWorld(y0) - ART.fortress.width * ART.fortress.pivotY,
         w: toWorld(x1 - x0), h: toWorld(y1 - y0) };
     });
+  }
+
+  // The dreadnought is the gunship artwork recolored toward crimson, with a charred copy for its wreck.
+  buildDreadnought() {
+    const img = this.sprites.gunner.image, w = img.naturalWidth, h = img.naturalHeight;
+    const hull = canvas2d(w, h), g = hull.getContext('2d');
+    g.drawImage(img, 0, 0);
+    g.globalCompositeOperation = 'color'; g.fillStyle = 'rgba(200,24,64,.66)'; g.fillRect(0, 0, w, h);
+    g.globalCompositeOperation = 'destination-in'; g.drawImage(img, 0, 0);
+    this.dreadnought = new Sprite(hull);
+    const wreck = canvas2d(w, h), r = wreck.getContext('2d');
+    r.drawImage(hull, 0, 0);
+    r.globalCompositeOperation = 'source-atop';
+    r.fillStyle = 'rgba(14,9,7,.8)'; r.fillRect(0, 0, w, h);
+    for (let i = 0; i < 60; i++) {
+      r.fillStyle = `rgba(255,${90 + hash(i * 2.2) * 80},30,${.2 + hash(i * 4.4) * .4})`;
+      r.fillRect(hash(i * 7.7) * w, hash(i * 8.8) * h, 2, 2);
+    }
+    this.dreadnoughtWreck = wreck;
   }
 
   // ---------- events ----------
@@ -408,7 +441,7 @@ export class Renderer {
         for (const sign of [1, -1]) {
           const d = sign > 0 ? 74 : 69;
           this.emitParticle({ type: 'glow', x: x + Math.cos(event.angle) * d * sign, y: y + Math.sin(event.angle) * d * sign, vx: 0, vy: 0,
-            size: 26, grow: 0, life: .07, max: .07, color: 'cyan', alpha: .9, follow: true, offset: d * sign });
+            size: 26, grow: 0, life: .07, max: .07, color: laserColor(event.laser), alpha: .9, follow: true, offset: d * sign });
         }
         break;
       case 'enemyShot':
@@ -419,18 +452,47 @@ export class Renderer {
         for (let i = 0; i < 6; i++) {
           const a = rand(0, TAU), v = rand(80, 260);
           this.emitParticle({ type: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, size: 1.6, life: rand(.1, .28), max: .28,
-            color: event.kind === 'rock' ? 'amber' : pick(['cyan', 'white']), alpha: .9, drag: 3 });
+            color: event.kind === 'rock' ? 'amber' : pick([laserColor(event.laser), 'white']), alpha: .9, drag: 3 });
         }
         this.emitParticle({ type: 'glow', x, y, vx: 0, vy: 0, size: 18, grow: 10, life: .1, max: .1, color: 'white', alpha: .7 });
         break;
       case 'deflect':
-        this.emitParticle({ type: 'ring', x, y, radius: 22, life: .25, max: .25, color: 'cyan', width: 1.5 });
+        if (event.kind === 'shield') this.bossShieldFlash = 1;
+        this.emitParticle({ type: 'ring', x, y, radius: 22, life: .25, max: .25, color: event.kind === 'shield' ? 'violet' : 'cyan', width: 1.5 });
         for (let i = 0; i < 5; i++) {
           const a = rand(0, TAU), v = rand(150, 320);
           this.emitParticle({ type: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, size: 1.4, life: .2, max: .2, color: 'white', alpha: .8, drag: 3 });
         }
         break;
       case 'podHit': this.flashes.set('p' + event.base + ':' + event.index, .12); break;
+      case 'gunHit': this.flashes.set('g' + event.index, .12); break;
+      case 'bossHit': this.flashes.set('boss', .08); break;
+      case 'bossRing':
+        this.emitParticle({ type: 'ring', x, y, radius: 300, life: .5, max: .5, color: 'magenta', width: 4 });
+        this.emitParticle({ type: 'glow', x, y, vx: 0, vy: 0, size: 240, grow: 120, life: .3, max: .3, color: 'magenta', alpha: .85 });
+        break;
+      case 'bossShield':
+        // The shield collapses outward in a violet flash.
+        this.emitParticle({ type: 'ring', x, y, radius: 420, life: .8, max: .8, color: 'violet', width: 6 });
+        this.emitParticle({ type: 'ring', x, y, radius: 300, life: .6, max: .6, color: 'white', width: 2 });
+        this.emitParticle({ type: 'glow', x, y, vx: 0, vy: 0, size: 520, grow: 200, life: .4, max: .4, color: 'violet', alpha: .8 });
+        if (!this.reduced) this.shake = Math.max(this.shake, 10);
+        break;
+      case 'launch':
+        this.emitParticle({ type: 'glow', x, y, vx: 0, vy: 0, size: 110, grow: 60, life: .3, max: .3, color: 'pink', alpha: .85 });
+        break;
+      case 'bossDown': {
+        this.wrecks.push({ kind: 'boss', x, y, rot: event.angle, age: 0, life: 2.4 });
+        const c = Math.cos(event.angle), s = Math.sin(event.angle);
+        for (let i = 0; i < 20; i++) {
+          const part = BOSS.hull[i % BOSS.hull.length], a = rand(0, TAU), r = rand(0, part.r);
+          const ox = part.x + Math.cos(a) * r, oy = part.y + Math.sin(a) * r;
+          this.scheduled.push({ t: i * .07 + rand(0, .05), x: x + ox * c - oy * s, y: y + ox * s + oy * c, size: rand(44, 82) });
+        }
+        this.scheduled.push({ t: 1.55, x, y, size: 260, final: true });
+        this.popup(x, y, 'DREADNOUGHT DESTROYED  +' + event.points.toLocaleString(), '#ff5ad1', true);
+        break;
+      }
       case 'coreHit': this.burst(x, y, 10); break;
       case 'explosion':
         if (event.kind === 'rock') this.dust(x, y, event.size);
@@ -505,7 +567,7 @@ export class Renderer {
   }
 
   flames(key, thrust, seed = 0) {
-    const spec = ART[key], w = spec.width, c = this.ctx, tex = this.tex.flame[spec.flame];
+    const spec = typeof key === 'string' ? ART[key] : key, w = spec.width, c = this.ctx, tex = this.tex.flame[spec.flame];
     const flicker = this.reduced ? 1 : 1 + Math.sin(this.clock * 53 + seed) * .07 + Math.sin(this.clock * 31 + seed * 2) * .05;
     for (const [fx, fy, length, height] of spec.engines) {
       const len = w * (.12 + thrust * .3) * length * flicker, hgt = w * height * (.9 + thrust * .25);
@@ -643,18 +705,103 @@ export class Renderer {
     const c = this.ctx;
     for (const wreck of this.wrecks) {
       wreck.age += dt;
-      if (!this.charred || !this.place(wreck.x, wreck.y, 300, wreck.rot)) continue;
-      const t = wreck.age / wreck.life, w = ART.fortress.width, scale = 1 + t * .05;
+      const boss = wreck.kind === 'boss', art = boss ? this.dreadnoughtWreck : this.charred;
+      if (!art || !this.place(wreck.x, wreck.y, 300, wreck.rot)) continue;
+      const t = wreck.age / wreck.life, scale = 1 + t * .05;
       c.globalAlpha = clamp(1 - t * t, 0, 1);
-      c.drawImage(this.charred, -w / 2 * scale, -w * ART.fortress.pivotY * scale, w * scale, w * scale);
+      if (boss) {
+        const w = BOSS.width, h = w * art.height / art.width;
+        c.drawImage(art, -w / 2 * scale, -h / 2 * scale, w * scale, h * scale);
+      } else {
+        const w = ART.fortress.width;
+        c.drawImage(art, -w / 2 * scale, -w * ART.fortress.pivotY * scale, w * scale, w * scale);
+      }
       c.globalAlpha = 1;
       if (Math.random() < dt * 30 * (1 - t)) {
-        const a = rand(0, TAU), r = rand(0, 170);
+        const a = rand(0, TAU), r = rand(0, boss ? 220 : 170);
         this.emitParticle({ type: 'smoke', x: wreck.x + Math.cos(a) * r, y: wreck.y + Math.sin(a) * r, vx: rand(-20, 20), vy: rand(-20, 20),
           size: rand(40, 70), grow: 60, life: rand(1, 1.8), max: 1.8, alpha: .45 });
       }
     }
     this.wrecks = this.wrecks.filter(wreck => wreck.age < wreck.life);
+  }
+
+  drawBoss(game) {
+    const boss = game.boss, c = this.ctx, w = BOSS.width;
+    if (!boss || boss.dead || !this.place(boss.x, boss.y, w * .8, boss.angle)) return;
+    const enraged = boss.phase === 2, sprite = this.dreadnought;
+    c.globalCompositeOperation = 'lighter';
+    this.flames(BOSS_ART, enraged ? 1.15 : .7, 11);
+    c.globalCompositeOperation = 'source-over';
+    const h = w * (sprite ? sprite.aspect : .676);
+    if (sprite) c.drawImage(sprite.pick(w * this.zoom * this.dpr), -w / 2, -h / 2, w, h);
+    else {
+      c.fillStyle = '#4a1f33';
+      c.beginPath(); c.moveTo(230, 0); c.lineTo(-180, -150); c.lineTo(-120, 0); c.lineTo(-180, 150); c.closePath(); c.fill();
+    }
+    const flash = this.flashes.get('boss') || 0;
+    if (flash > 0 && sprite) {
+      c.globalCompositeOperation = 'lighter'; c.globalAlpha = Math.min(1, flash * 5);
+      c.drawImage(sprite.pick(w * this.zoom * this.dpr), -w / 2, -h / 2, w, h);
+      c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+    }
+    for (const gun of boss.guns) this.drawBattery(boss, gun);
+
+    // The core brightens and a ring closes in on it as the plasma burst charges.
+    const core = BOSS.core, beat = .5 + .5 * Math.sin(this.clock * (enraged ? 9 : 3) + boss.id), charge = boss.charge;
+    c.globalCompositeOperation = 'lighter';
+    c.globalAlpha = clamp((enraged ? .75 : .35) + beat * .25 + charge * .6, 0, 1);
+    const size = (enraged ? 150 : 90) + beat * 30 + charge * 170;
+    c.drawImage(this.tex.glow.red, core.x - size / 2, core.y - size / 2, size, size);
+    if (charge > 0 || enraged) {
+      c.globalAlpha = clamp(charge + (enraged ? .35 : 0), 0, 1) * (.6 + beat * .4);
+      c.drawImage(this.tex.glow.white, core.x - 20, core.y - 20, 40, 40);
+    }
+    c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+    if (charge > 0) {
+      c.strokeStyle = `rgba(255,80,200,${.35 + charge * .6})`; c.lineWidth = 3; c.setLineDash([10, 8]);
+      c.beginPath(); c.arc(core.x, core.y, 44 + (1 - charge) * 230, 0, TAU); c.stroke(); c.setLineDash([]);
+    }
+    if (!enraged) {
+      const s = BOSS.shield, pulse = .5 + .5 * Math.sin(this.clock * 2.2 + boss.id);
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = clamp(.3 + pulse * .12 + this.bossShieldFlash * .7, 0, 1);
+      c.drawImage(this.tex.bossBubble, -s.rx, -s.ry, s.rx * 2, s.ry * 2);
+      c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  // A battery mount with a barrel that tracks the ship, or a burned-out socket once destroyed.
+  drawBattery(boss, gun) {
+    const c = this.ctx, spec = BOSS.guns[gun.index], r = BOSS.gun;
+    c.save();
+    c.translate(spec.x, spec.y);
+    if (gun.hp > 0) {
+      // The gradient is in the mount's local space, so one copy serves every battery on every frame.
+      if (!this.batteryMetal) {
+        this.batteryMetal = c.createRadialGradient(-r * .3, -r * .3, r * .1, 0, 0, r * .8);
+        this.batteryMetal.addColorStop(0, '#6a6d75'); this.batteryMetal.addColorStop(.6, '#2c2e35'); this.batteryMetal.addColorStop(1, '#121317');
+      }
+      c.fillStyle = this.batteryMetal; c.beginPath(); c.arc(0, 0, r * .78, 0, TAU); c.fill();
+      c.lineWidth = 2; c.strokeStyle = 'rgba(255,90,140,.6)'; c.stroke();
+      const health = clamp(gun.hp / gun.maxHp, 0, 1);
+      c.lineWidth = 3; c.strokeStyle = 'rgba(255,190,90,.85)';
+      c.beginPath(); c.arc(0, 0, r * .98, -Math.PI / 2 - boss.angle, -Math.PI / 2 - boss.angle + health * TAU); c.stroke();
+      c.rotate(gun.aim - boss.angle);
+      c.fillStyle = '#1b1c21'; c.fillRect(0, -6, r * 1.3, 12);
+      c.fillStyle = '#41444c'; c.fillRect(r * .95, -7.5, r * .42, 15);
+      c.globalCompositeOperation = 'lighter';
+      const flash = this.flashes.get('g' + gun.index) || 0;
+      c.globalAlpha = clamp(.55 + .25 * Math.sin(this.clock * 6 + gun.index) + flash * 5, 0, 1);
+      c.drawImage(this.tex.glow.red, -22, -22, 44, 44);
+    } else {
+      c.fillStyle = 'rgba(12,8,7,.88)'; c.beginPath(); c.arc(0, 0, r * .8, 0, TAU); c.fill();
+      c.globalCompositeOperation = 'lighter';
+      const flicker = .35 + .3 * Math.sin(this.clock * 9 + gun.index * 2) + .15 * Math.sin(this.clock * 23 + gun.index);
+      c.globalAlpha = clamp(flicker, 0, 1) * .7;
+      c.drawImage(this.tex.glow.ember, -28, -28, 56, 56);
+    }
+    c.restore();
   }
 
   drawPickups(game) {
@@ -726,7 +873,7 @@ export class Renderer {
         continue;
       }
       if (!this.place(shot.x, shot.y, 40, shot.angle)) continue;
-      if (shot.owner === 'player') c.drawImage(this.tex.bolt.cyan, -46 * .62, -7, 46, 14);
+      if (shot.owner === 'player') c.drawImage(shot.color === 'blue' ? this.tex.bolt.azure : this.tex.bolt.crimson, -52 * .62, -6.5, 52, 13);
       else c.drawImage(this.tex.bolt.orange, -36 * .62, -7, 36, 14);
     }
     c.globalCompositeOperation = 'source-over';
@@ -789,7 +936,7 @@ export class Renderer {
         if (!this.place(part.x, part.y, 30, Math.atan2(part.vy, part.vx))) continue;
         const len = clamp(speed * .045, 4, 26);
         c.globalAlpha = part.alpha * t;
-        c.drawImage(this.tex.bolt[part.color === 'cyan' ? 'cyan' : part.color === 'white' ? 'white' : 'orange'], -len * .62, -part.size * 1.5, len, part.size * 3);
+        c.drawImage(this.tex.bolt[part.color] || this.tex.bolt.orange, -len * .62, -part.size * 1.5, len, part.size * 3);
       } else if (part.type === 'ring') {
         if (!this.place(part.x, part.y, part.radius + 20)) continue;
         const r = part.radius * Math.sqrt(1 - t);
@@ -815,20 +962,21 @@ export class Renderer {
     c.globalAlpha = 1;
   }
 
-  // Off-screen station markers, clamped to the playfield edge.
+  // Off-screen station and dreadnought markers, clamped to the playfield edge.
   drawMarkers(game) {
     const c = this.ctx, margin = 34;
-    const bases = game.bases.filter(base => !base.dead).sort((a, b) => distance(a, game.player) - distance(b, game.player));
+    const targets = game.bases.filter(base => !base.dead).sort((a, b) => distance(a, game.player) - distance(b, game.player)).slice(0, 4)
+      .map(base => ({ x: base.x, y: base.y, edge: 60, label: '', color: base.pods.every(pod => pod.hp <= 0) ? '#ff4a3d' : '#6ef08a' }));
+    if (game.boss && !game.boss.dead) targets.push({ x: game.boss.x, y: game.boss.y, edge: BOSS.width * .45 * this.zoom, label: 'BOSS ', color: '#ff5ad1' });
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    for (const base of bases.slice(0, 4)) {
-      const s = this.toScreen(base.x, base.y);
-      if (s.x > -60 && s.x < this.w + 60 && s.y > -60 && s.y < this.h + 60) continue;
+    for (const target of targets) {
+      const s = this.toScreen(target.x, target.y), edge = target.edge;
+      if (s.x > -edge && s.x < this.w + edge && s.y > -edge && s.y < this.h + edge) continue;
       const angle = Math.atan2(s.y - this.h / 2, s.x - this.w / 2);
       const rx = this.w / 2 - margin, ry = this.h / 2 - margin - 40;
       const t = Math.min(rx / (Math.abs(Math.cos(angle)) || 1e-3), ry / (Math.abs(Math.sin(angle)) || 1e-3));
       const x = this.w / 2 + Math.cos(angle) * t, y = this.h / 2 + 20 + Math.sin(angle) * t;
-      const exposed = base.pods.every(pod => pod.hp <= 0);
-      const color = exposed ? '#ff4a3d' : '#6ef08a';
+      const color = target.color;
       c.save(); c.translate(x, y); c.rotate(angle);
       c.fillStyle = color; c.globalAlpha = .9;
       c.beginPath(); c.moveTo(10, 0); c.lineTo(-4, -7); c.lineTo(-1, 0); c.lineTo(-4, 7); c.closePath(); c.fill();
@@ -836,8 +984,8 @@ export class Renderer {
       c.font = '11px "Share Tech Mono", ui-monospace, monospace'; c.textBaseline = 'middle';
       c.textAlign = x < this.w / 2 ? 'left' : 'right';
       c.fillStyle = color; c.globalAlpha = .85;
-      const range = distance(base, game.player);
-      c.fillText((range / 1000).toFixed(1) + 'K', x + (x < this.w / 2 ? 14 : -14), y);
+      const range = distance(target, game.player);
+      c.fillText(target.label + (range / 1000).toFixed(1) + 'K', x + (x < this.w / 2 ? 14 : -14), y);
       c.globalAlpha = 1;
     }
   }
@@ -860,6 +1008,7 @@ export class Renderer {
     }
     this.hurt = Math.max(0, this.hurt - dt * 2.2);
     this.shieldFlash = Math.max(0, this.shieldFlash - dt * 2.8);
+    this.bossShieldFlash = Math.max(0, this.bossShieldFlash - dt * 3.5);
     this.alarm = Math.max(0, this.alarm - dt * .9);
   }
 
@@ -882,6 +1031,14 @@ export class Renderer {
       const blink = exposed && Math.sin(this.clock * 8) < 0;
       c.fillStyle = exposed ? (blink ? '#5a1a14' : '#ff4a3d') : '#6ef08a';
       c.fillRect(s.x - u * 1.6, s.y - u * 1.6, u * 3.2, u * 3.2);
+    }
+    const boss = game.boss;
+    if (boss && !boss.dead) {
+      const s = point(boss), r = u * 3.2;
+      c.globalAlpha = .65 + .35 * Math.sin(this.clock * 6);
+      c.fillStyle = boss.phase === 2 ? '#ff4a3d' : '#ff5ad1';
+      c.beginPath(); c.moveTo(s.x, s.y - r); c.lineTo(s.x + r, s.y); c.lineTo(s.x, s.y + r); c.lineTo(s.x - r, s.y); c.closePath(); c.fill();
+      c.globalAlpha = 1;
     }
     for (const enemy of game.enemies) {
       const s = point(enemy);
@@ -916,7 +1073,7 @@ export class Renderer {
     const p = game.player;
     if (scene === 'play') {
       const ease = 1 - Math.exp(-dt * 2.5);
-      this.look.x += (p.vx * .24 - this.look.x) * ease; this.look.y += (p.vy * .24 - this.look.y) * ease;
+      this.look.x += (p.vx * CAMERA_LEAD - this.look.x) * ease; this.look.y += (p.vy * CAMERA_LEAD - this.look.y) * ease;
       const next = { x: p.x + this.look.x, y: p.y + this.look.y };
       this.travel.x += delta(next.x, this.cam.x); this.travel.y += delta(next.y, this.cam.y);
       this.cam = next;
@@ -936,13 +1093,32 @@ export class Renderer {
     this.drawMines(game);
     for (const base of game.bases) if (!base.dead) this.drawBase(base);
     this.drawWrecks(dt);
+    this.drawBoss(game);
+    // Damage smoke rises only in flight, so the game-over screen can settle and stop animating.
+    const live = game.mode === 'playing';
     for (const base of game.bases) {
-      if (base.dead || !this.place(base.x, base.y, 300)) continue;
+      if (!live || base.dead || !this.place(base.x, base.y, 300)) continue;
       for (const pod of base.pods) {
         if (pod.hp <= 0 && Math.random() < dt * 1.6) {
           this.emitParticle({ type: 'smoke', x: pod.x + rand(-14, 14), y: pod.y + rand(-14, 14), vx: rand(-12, 12), vy: rand(-12, 12),
             size: rand(18, 30), grow: 34, life: rand(1, 1.6), max: 1.6, alpha: .35 });
         }
+      }
+    }
+    const boss = game.boss;
+    if (live && boss && !boss.dead && this.place(boss.x, boss.y, 420)) {
+      for (const gun of boss.guns) {
+        if (gun.hp <= 0 && Math.random() < dt * 2) {
+          this.emitParticle({ type: 'smoke', x: gun.x + rand(-12, 12), y: gun.y + rand(-12, 12), vx: rand(-14, 14), vy: rand(-14, 14),
+            size: rand(20, 34), grow: 36, life: rand(1, 1.6), max: 1.6, alpha: .38 });
+        }
+      }
+      // With the shield down the hull burns.
+      if (boss.phase === 2 && Math.random() < dt * 7) {
+        const part = pick(boss.hull), a = rand(0, TAU), r = rand(0, part.r * .8);
+        const x = part.x + Math.cos(a) * r, y = part.y + Math.sin(a) * r;
+        this.emitParticle({ type: 'glow', x, y, vx: 0, vy: 0, size: rand(30, 60), grow: 20, life: .35, max: .35, color: pick(['ember', 'orange']), alpha: .8 });
+        this.emitParticle({ type: 'smoke', x, y, vx: rand(-18, 18), vy: rand(-18, 18), size: rand(26, 44), grow: 40, life: rand(1, 1.8), max: 1.8, alpha: .36 });
       }
     }
     this.drawPickups(game);

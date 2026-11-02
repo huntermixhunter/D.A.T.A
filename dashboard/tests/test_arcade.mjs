@@ -1,12 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, WORLD, delta, distance, wrap, angleDiff, cleanProfile, purchase, hangarCost, UPGRADES, REWARD_SECTOR, hasEventHorizon } from '../arcade/engine.mjs';
+import { Game, WORLD, delta, distance, wrap, angleDiff, cleanProfile, purchase, hangarCost, UPGRADES, DIFFICULTIES, DEFAULT_DIFFICULTY,
+  BOSS_EVERY, LASER_BLUE_AT, SPAWN_RADIUS, CAMERA_LEAD, SHIP } from '../arcade/engine.mjs';
+import { VIEW_SPAN, zoomFor } from '../arcade/renderer.mjs';
 
 function seeded() {
   let seed = 123456;
   return () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 }
 function game() { const g = new Game({ random: seeded() }); g.start(); return g; }
+// A run that starts in a chosen sector at a chosen difficulty.
+function sector(difficulty, wave) { const g = new Game({ random: seeded(), difficulty }); g.wave = wave; g.start(); return g; }
 // Move a station together with its pods and barrels.
 function place(base, x, y) {
   const dx = delta(x, base.x), dy = delta(y, base.y);
@@ -24,55 +28,226 @@ function quiet(g) {
     for (const pod of base.pods) pod.shotTimer = 1e8;
   });
 }
+// Hold the dreadnought's weapons and keep the player out of harm's way.
+function calm(g) {
+  g.enemies = []; g.rocks = []; g.mines = []; g.spawnTimer = 1e8; g.player.invulnerable = 1e9;
+  const boss = g.boss; boss.ringTimer = boss.launchTimer = boss.coreTimer = 1e9;
+  for (const gun of boss.guns) gun.timer = 1e9;
+}
+// Fire one player round along +x so it passes through the target point.
+function strike(g, target, damage = 1) {
+  const x = wrap(target.x - 330), y = target.y;
+  g.shots.push({ x, y, oldX: x, oldY: y, vx: 1000, vy: 0, stepX: 0, stepY: 0, life: .8, owner: 'player', damage, kind: 'bolt', color: 'red', angle: 0, dead: false });
+  g.updateShots(.4);
+  g.shots = g.shots.filter(shot => !shot.dead);
+}
 function advance(g, seconds, input = {}) { for (let n = 0; n < Math.round(seconds * 60); n++) g.step(1 / 60, input); }
 function clearBases(g) { for (const base of g.bases) { for (const pod of base.pods) g.hitBase(base, pod, 100); g.hitBase(base, null, 100); } g.step(.016); }
 const volleys = g => g.drainEvents().filter(event => event.type === 'shot').length;
+const LEVELS = ['cadet', 'pilot', 'veteran', 'ace'];
+const g0 = difficulty => new Game({ difficulty });
 
-test('Event Horizon unlocks on the first sector clear and allows endless continuation', () => {
-  assert.equal(REWARD_SECTOR, 1);
-  const g = game();
-  for (let sector = 1; sector <= REWARD_SECTOR; sector++) {
-    assert.equal(g.wave, sector);
-    assert.equal(hasEventHorizon({ clearedSector: g.clearedSector, sector: g.wave }), false);
-    quiet(g); clearBases(g);
-    assert.equal(g.clearedSector, sector);
-    assert.equal(hasEventHorizon({ clearedSector: g.clearedSector }), sector === REWARD_SECTOR);
-    const salvage = g.salvage;
-    g.finishSector();
-    assert.equal(g.salvage, salvage, 'a completed sector cannot grant duplicate salvage');
-    assert.ok(g.chooseUpgrade(g.choices[0]));
-  }
-  assert.equal(g.wave, 2);
-  assert.equal(g.mode, 'playing');
-  assert.equal(g.clearedSector, 1);
-  quiet(g); clearBases(g);
-  assert.equal(g.clearedSector, 2);
-  assert.equal(hasEventHorizon({ clearedSector: g.clearedSector }), true);
+test('difficulty defaults to Pilot, saves with the profile, and rejects unknown levels', () => {
+  assert.deepEqual(DIFFICULTIES.map(level => level.id), LEVELS);
+  assert.equal(DEFAULT_DIFFICULTY, 'pilot');
+  assert.equal(cleanProfile(null).difficulty, 'pilot');
+  assert.equal(cleanProfile({ difficulty: 'ace' }).difficulty, 'ace');
+  assert.equal(cleanProfile(JSON.parse(JSON.stringify(cleanProfile({ difficulty: 'veteran' })))).difficulty, 'veteran');
+  for (const bad of ['godmode', 'ACE', '', 7, { id: 'ace' }, null]) assert.equal(cleanProfile({ difficulty: bad }).difficulty, 'pilot');
+  assert.equal(new Game().difficulty.id, 'pilot');
+  assert.equal(new Game({ difficulty: 'nope' }).difficulty.id, 'pilot');
 });
 
-test('death in Sector 1 does not unlock Event Horizon and new runs reset completion', () => {
+test('Pilot keeps the opening sector exactly as before', () => {
   const g = game();
-  for (let i = 1; i < REWARD_SECTOR; i++) {
-    quiet(g); clearBases(g); g.chooseUpgrade(g.choices[0]);
-  }
-  g.player.invulnerable = 0;
-  g.damagePlayer(1e6);
-  assert.equal(g.mode, 'dead');
-  assert.equal(hasEventHorizon({ sector: g.wave, clearedSector: g.clearedSector }), false);
-  assert.equal(game().clearedSector, 0);
+  assert.equal(g.threat, 0); assert.equal(g.bases.length, 3); assert.equal(g.boss, null);
+  assert.ok(g.bases.every(base => base.maxHp === 10 && base.pods.every(pod => pod.maxHp === 3)));
+  assert.equal(g.makeEnemy('chaser', 0, 0, 0).hp, 1); assert.equal(g.makeEnemy('gunner', 0, 0, 0).hp, 2);
+  assert.equal(g.enemyDamage(14), 14); assert.equal(g.enemyDamage(28), 28);
+  assert.equal(g.cannonSpeed, 299); assert.equal(g.plasmaSpeed, 338); assert.equal(g.pace, 250);
+  assert.equal(g.maxEnemies, 24); assert.equal(g.addScore(100), 100);
 });
 
-test('reward survives save and purchase; old records migrate only when clearance is provable', () => {
-  assert.equal(hasEventHorizon(null), false);
-  assert.equal(hasEventHorizon({ sector: 1 }), false);
-  assert.equal(hasEventHorizon({ sector: 2 }), true);
-  assert.equal(hasEventHorizon({ sector: 10 }), true);
-  assert.equal(hasEventHorizon({ sector: 11 }), true);
-  assert.equal(hasEventHorizon({ clearedSector: '1' }), false);
-  assert.equal(hasEventHorizon({ clearedSector: Infinity }), false);
-  const profile = cleanProfile({ clearedSector: 1, sector: 1, salvage: 1000 });
-  assert.ok(purchase(profile, 'armor'));
-  assert.equal(hasEventHorizon(cleanProfile(JSON.parse(JSON.stringify(profile)))), true);
+test('harder difficulties field tougher, faster, deadlier enemies and pay out more, with the same ship', () => {
+  for (const wave of [1, 4, 9, 14]) {
+    const games = LEVELS.map(id => sector(id, wave));
+    for (let i = 1; i < games.length; i++) {
+      const [easier, harder] = [games[i - 1], games[i]];
+      assert.ok(harder.enemyDamage(14) > easier.enemyDamage(14), 'damage rises with difficulty in sector ' + wave);
+      assert.ok(harder.pace > easier.pace, 'fighters fly faster');
+      assert.ok(harder.cannonSpeed > easier.cannonSpeed, 'cannon rounds travel faster');
+      assert.ok(harder.bases[0].pods[0].maxHp >= easier.bases[0].pods[0].maxHp, 'pods are at least as tough');
+      assert.ok(harder.bases[0].maxHp > easier.bases[0].maxHp, 'cores are tougher');
+      assert.ok(harder.bases.length >= easier.bases.length, 'at least as many stations');
+      assert.ok(harder.maxEnemies >= easier.maxEnemies, 'more fighters can be active');
+    }
+  }
+  const ships = LEVELS.map(id => new Game({ difficulty: id, hangar: { armor: 2, cannons: 1 } }));
+  for (const ship of ships) {
+    assert.equal(ship.maxHull, ships[1].maxHull); assert.equal(ship.maxShield, ships[1].maxShield);
+    assert.equal(ship.speed, ships[1].speed); assert.equal(ship.fireDelay, ships[1].fireDelay);
+  }
+  const scores = LEVELS.map(id => new Game({ difficulty: id }).addScore(100));
+  assert.deepEqual(scores, [75, 100, 150, 200]);
+  const salvage = LEVELS.map(id => { const g = new Game({ difficulty: id }); g.reward(100); return g.salvage; });
+  assert.deepEqual(salvage, [100, 100, 125, 150]);
+});
+
+test('every difficulty keeps escalating deep into the patrol', () => {
+  for (const id of LEVELS) {
+    const early = sector(id, 2), late = sector(id, 14), later = sector(id, 24);
+    assert.ok(late.pace > early.pace && later.pace >= late.pace, id + ' fighters speed up to a cap the boost can still escape');
+    assert.ok(later.pace < g0(id).speed * 1.9, id + ' boost outruns the fastest fighters');
+    for (const [a, b] of [[early, late], [late, later]]) {
+      assert.ok(b.enemyDamage(14) > a.enemyDamage(14), id + ' damage keeps rising');
+      assert.ok(b.bases[0].maxHp > a.bases[0].maxHp, id + ' cores keep toughening');
+      assert.ok(b.bases[0].pods[0].maxHp > a.bases[0].pods[0].maxHp, id + ' pods keep toughening');
+      assert.ok(b.makeEnemy('chaser', 0, 0, 0).hp >= a.makeEnemy('chaser', 0, 0, 0).hp, id + ' fighters do not soften');
+    }
+  }
+  // Pilot no longer flattens out: Sector 14 is far tougher than the opening.
+  const pilot = sector('pilot', 14);
+  assert.ok(pilot.bases[0].pods[0].maxHp >= 9 && pilot.bases[0].maxHp >= 50, 'late stations take real firepower');
+  assert.ok(pilot.enemyDamage(14) >= 20 && pilot.makeEnemy('chaser', 0, 0, 0).hp >= 5);
+  assert.ok(pilot.pace > 390, 'late fighters outrun the old speed cap');
+});
+
+test('every fifth sector is a dreadnought fight instead of stations', () => {
+  assert.equal(BOSS_EVERY, 5);
+  for (const wave of [1, 2, 4, 6, 9, 11, 14]) {
+    const g = sector('pilot', wave);
+    assert.equal(g.boss, null, 'no dreadnought in sector ' + wave); assert.ok(g.bases.length >= 3);
+  }
+  for (const wave of [5, 10, 15]) {
+    const g = sector('pilot', wave), events = g.drainEvents();
+    assert.ok(g.boss, 'dreadnought in sector ' + wave); assert.equal(g.bases.length, 0); assert.equal(g.remaining, 1);
+    assert.equal(g.boss.level, wave / 5); assert.equal(g.boss.guns.length, wave === 5 ? 4 : 6); assert.equal(g.boss.phase, 1);
+    assert.ok(distance(g.boss, g.player) >= 1490, 'it arrives from beyond the view');
+    assert.ok(events.some(event => event.type === 'boss' && event.level === wave / 5));
+    assert.equal(g.condition, 'GREEN'); g.step(1 / 60); assert.equal(g.condition, 'YELLOW', 'a dreadnought raises the alert');
+  }
+  const first = sector('pilot', 5).boss, second = sector('pilot', 10).boss, aceFirst = sector('ace', 5).boss;
+  assert.ok(second.maxHp > first.maxHp && second.guns[0].maxHp > first.guns[0].maxHp, 'later dreadnoughts are tougher');
+  assert.ok(aceFirst.maxHp > first.maxHp && aceFirst.guns[0].maxHp > first.guns[0].maxHp, 'harder difficulties build tougher ones');
+});
+
+test('batteries power the dreadnought shield; the hull only takes damage once they fall', () => {
+  const g = sector('pilot', 5), boss = g.boss; calm(g);
+  boss.angle = 0; g.placeBoss(boss); g.drainEvents();
+  const hp = boss.hp;
+  strike(g, boss);
+  assert.equal(boss.hp, hp, 'the shield deflects hull hits');
+  assert.ok(g.drainEvents().some(event => event.type === 'deflect' && event.kind === 'shield'));
+  for (const gun of boss.guns.slice(0, -1)) g.hitGun(boss, gun, 1e3);
+  strike(g, boss);
+  assert.equal(boss.phase, 1); assert.equal(boss.hp, hp, 'one battery still holds the shield');
+  const last = boss.guns.at(-1), gunHp = last.hp;
+  strike(g, last, 2);
+  assert.equal(last.hp, gunHp - 2, 'shots that reach a battery damage it');
+  g.hitGun(boss, last, 1e3); g.drainEvents();
+  g.step(1 / 60);
+  assert.equal(boss.phase, 2); assert.equal(g.condition, 'RED');
+  strike(g, boss, 5);
+  assert.equal(boss.hp, hp - 5, 'the exposed hull takes damage');
+  g.player.x = wrap(boss.x + 150); g.player.y = boss.y; g.player.pulses = 1;
+  assert.ok(g.pulse()); assert.equal(boss.hp, hp - 17, 'a pulse hits the exposed hull');
+  const score = g.score, salvage = g.salvage;
+  g.damageBoss(boss, 1e6);
+  assert.equal(boss.dead, true); assert.equal(g.bossKills, 1);
+  assert.ok(g.drainEvents().some(event => event.type === 'bossDown'));
+  g.step(1 / 60);
+  assert.equal(g.mode, 'upgrade'); assert.equal(g.remaining, 0); assert.equal(g.clearedSector, 5);
+  assert.ok(g.score - score >= 5000, 'a dreadnought is worth at least 5,000');
+  assert.ok(g.salvage - salvage >= 400, 'and pays out a large salvage bonus');
+  g.player.hull = 7;
+  assert.ok(g.chooseUpgrade(g.choices[0]));
+  assert.equal(g.player.hull, g.maxHull, 'destroying a dreadnought earns a full repair');
+  assert.equal(g.wave, 6); assert.equal(g.boss, null); assert.ok(g.bases.length >= 3);
+});
+
+test('the dreadnought charges before each plasma ring, fires its batteries, and launches fighters', () => {
+  const g = sector('pilot', 5), boss = g.boss; calm(g);
+  // Far enough away that the ring cannot reach the ship during the check.
+  g.player.x = wrap(boss.x + 2200); g.player.y = boss.y;
+  boss.ringTimer = .001;
+  g.step(1 / 60);
+  assert.ok(g.drainEvents().some(event => event.type === 'bossCharge'), 'the charge-up is announced');
+  assert.ok(boss.charge > 0); assert.equal(g.shots.length, 0, 'no plasma until the charge completes');
+  advance(g, .5);
+  assert.equal(g.shots.length, 0, 'still charging');
+  advance(g, .5);
+  const ring = g.drainEvents().find(event => event.type === 'bossRing');
+  assert.ok(ring, 'the ring fires once charged');
+  const plasma = g.shots.filter(shot => shot.owner === 'enemy' && shot.kind === 'plasma');
+  assert.equal(plasma.length, ring.count); assert.equal(ring.count, 18);
+  assert.equal(boss.charge, 0); assert.ok(boss.ringTimer > 2);
+
+  g.shots = []; boss.ringTimer = 1e9; boss.launchTimer = .001;
+  g.step(1 / 60);
+  assert.equal(g.enemies.length, 3, 'a level-one dreadnought launches three fighters');
+  assert.ok(g.drainEvents().some(event => event.type === 'launch'));
+  assert.ok(g.enemies.every(enemy => distance(enemy, boss) < 260), 'from its rear bay');
+
+  g.enemies = []; boss.launchTimer = 1e9;
+  g.player.x = wrap(boss.x + 600); g.player.y = boss.y;
+  for (const gun of boss.guns) gun.timer = .001;
+  g.step(1 / 60);
+  assert.equal(g.shots.filter(shot => shot.kind === 'cannon').length, 4, 'every battery fires when in range');
+});
+
+test('ramming the dreadnought bounces the ship and hurts', () => {
+  const g = sector('pilot', 5), boss = g.boss; calm(g); g.player.invulnerable = 0;
+  boss.angle = 0; g.placeBoss(boss);
+  g.player.x = wrap(boss.x - 230); g.player.y = boss.y; g.player.angle = 0; g.player.vx = g.speed; g.player.vy = 0;
+  const hull = g.player.hull + g.player.shield;
+  advance(g, .4, { x: 1 });
+  assert.ok(g.player.hull + g.player.shield < hull, 'the collision hurts');
+  assert.ok(distance(g.player, boss) > 130, 'the ship is pushed back out');
+});
+
+test('cannons fire red lasers until two weapon upgrades are installed, then blue', () => {
+  assert.equal(LASER_BLUE_AT, 2);
+  const g = game(); quiet(g);
+  g.step(1 / 60, { fire: true });
+  assert.ok(g.shots.length >= 2 && g.shots.every(shot => shot.color === 'red'));
+  assert.equal(g.drainEvents().find(event => event.type === 'shot').laser, 'red');
+  assert.equal(new Game({ hangar: { cannons: 4 } }).laser, 'red', 'every run starts red, whatever the hangar');
+  const install = id => { g.mode = 'upgrade'; g.choices = [id]; assert.ok(g.chooseUpgrade(id)); quiet(g); };
+  install('rapid');
+  assert.equal(g.laser, 'red', 'one weapon upgrade is not enough');
+  install('hull');
+  assert.equal(g.laser, 'red', 'defense upgrades do not count');
+  assert.ok(!g.drainEvents().some(event => event.type === 'laser'));
+  install('power');
+  assert.equal(g.laser, 'blue');
+  assert.deepEqual(g.drainEvents().filter(event => event.type === 'laser').map(event => event.color), ['blue']);
+  advance(g, .5);
+  g.step(1 / 60, { fire: true });
+  const shots = g.shots.filter(shot => shot.owner === 'player');
+  assert.ok(shots.length >= 2 && shots.every(shot => shot.color === 'blue'));
+  assert.ok(g.shots.every(shot => shot.owner === 'player' || shot.color === ''), 'enemy fire keeps its own colors');
+});
+
+test('the zoomed-out view sees further, and fighters still spawn beyond its corners', () => {
+  assert.equal(VIEW_SPAN, 2000);
+  for (const [w, h] of [[1920, 1018], [1440, 838], [1280, 738], [1000, 638], [390, 790], [320, 790]]) {
+    const zoom = zoomFor(w, h), oldZoom = Math.min(Math.max(Math.min(w, h * 1.78) / 1600, .42), 2.4);
+    const reach = Math.hypot(w, h) / zoom / 2, g = new Game();
+    g.viewRadius = reach;
+    assert.ok(w / zoom > w / oldZoom * 1.15, 'more of the sector is visible at ' + w + 'x' + h);
+    // The camera can run ahead of the ship by its full-boost look-ahead, and the widest fighter is 112 across.
+    const clears = () => g.spawnRadius >= reach + g.speed * SHIP.boost * CAMERA_LEAD + 56;
+    assert.ok(clears(), 'spawns stay beyond the corners while boosting at ' + w + 'x' + h);
+    g.upgrades.engine = 3;
+    assert.ok(clears(), 'a fully upgraded drive pushes the ring out with the camera at ' + w + 'x' + h);
+    assert.ok(g.spawnRadius >= SPAWN_RADIUS, 'the ring never shrinks below the standard radius');
+  }
+  const g = game(); quiet(g);
+  for (let i = 0; i < 30; i++) g.spawnEnemies();
+  assert.ok(g.enemies.length > 0 && g.enemies.every(enemy => distance(enemy, g.player) >= SPAWN_RADIUS - 1));
+  g.enemies = []; g.viewRadius = 1600;
+  g.spawnEnemies();
+  assert.ok(g.enemies.every(enemy => distance(enemy, g.player) >= 1739), 'an ultrawide view pushes the spawn ring out');
 });
 
 test('flight never stops, steering is frame-rate independent, and the sector wraps', () => {
@@ -293,6 +468,25 @@ test('maxed equipment always has a usable field-service choice', () => {
 test('a simultaneous lethal hit and last-base destruction cannot revive the run', () => {
   const g = game(); quiet(g); g.player.invulnerable = 0; g.damagePlayer(1000);
   clearBases(g); assert.equal(g.mode, 'dead'); assert.deepEqual(g.choices, []);
+});
+
+test('a lethal hit on the tick the dreadnought falls ends the run without clearing the sector', () => {
+  for (const bossFirst of [false, true]) {
+    const g = sector('pilot', 5), boss = g.boss; calm(g);
+    for (const gun of boss.guns) g.hitGun(boss, gun, 1e3);
+    g.step(1 / 60); g.drainEvents();
+    assert.equal(boss.phase, 2);
+    g.player.invulnerable = 0;
+    if (bossFirst) g.damageBoss(boss, 1e6);
+    g.damagePlayer(1e4);
+    if (!bossFirst) g.damageBoss(boss, 1e6);
+    g.step(1 / 60);
+    const events = g.drainEvents().map(event => event.type), order = bossFirst ? 'dreadnought first' : 'ship first';
+    assert.equal(g.mode, 'dead', order); assert.equal(boss.dead, true, order);
+    assert.ok(events.includes('death') && events.includes('bossDown'), order);
+    assert.ok(!events.includes('clear'), 'no sector clear once the ship is lost (' + order + ')');
+    assert.equal(g.clearedSector, 0, order); assert.deepEqual(g.choices, [], order);
+  }
 });
 
 test('long play stays finite, limits pursuers, and raises the condition', () => {
