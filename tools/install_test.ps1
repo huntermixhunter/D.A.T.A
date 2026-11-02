@@ -101,7 +101,48 @@ if (Test-Path $py) {
 }
 
 # --- 7. cleanup ---
+# Remove the throwaway install AND what the installer registered for it: a per-user
+# Apps & features entry and a "DATA Daemon" Start Menu group, both pointing into
+# $testDir. Never run the test install's uninstaller to do this. Its [UninstallRun]
+# step executes stop_data.bat, which force-kills whatever listens on ports 7777 and
+# 7766, and on a development machine that is the live bridge. Matching is by the
+# unique test folder name, so a real DATA install is never touched. Cleanup is
+# best effort and can never turn a passing gate into a failure.
+function Remove-TestRegistration([string]$leaf) {
+    $removed = 0
+    $uninstRoot = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+    foreach ($k in @(Get-ChildItem $uninstRoot -ErrorAction SilentlyContinue)) {
+        try {
+            $loc = (Get-ItemProperty $k.PSPath -ErrorAction Stop).InstallLocation
+            if ($loc -and $loc.TrimEnd('\') -like "*\$leaf") {
+                Remove-Item $k.PSPath -Recurse -Force -ErrorAction Stop
+                $removed++
+            }
+        } catch {}
+    }
+    $programs = [Environment]::GetFolderPath("Programs")
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($lnk in @(Get-ChildItem $programs -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue)) {
+        try {
+            $target = $shell.CreateShortcut($lnk.FullName).TargetPath
+            if ($target -and $target -like "*\$leaf\*") {
+                Remove-Item $lnk.FullName -Force -ErrorAction Stop
+                $removed++
+                $dir = $lnk.DirectoryName
+                if ($dir -ne $programs -and -not (Get-ChildItem $dir -Force -ErrorAction SilentlyContinue)) {
+                    Remove-Item $dir -Force -ErrorAction Stop
+                }
+            }
+        } catch {}
+    }
+    return $removed
+}
+
 Write-Host "  [..] Cleaning up test install..."
+try {
+    $cleaned = Remove-TestRegistration (Split-Path $testDir -Leaf)
+    if ($cleaned) { Write-Host "       removed $cleaned Apps & features / Start Menu registration(s) left by the test install" }
+} catch { Write-Host "       cleanup warning: $($_.Exception.Message)" -ForegroundColor DarkYellow }
 try { Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue } catch {}
 try { Remove-Item -Force "$testDir.log" -ErrorAction SilentlyContinue } catch {}
 
