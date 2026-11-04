@@ -19,3 +19,9 @@ numpy>=1.24
 # STT — faster-whisper (CTranslate2), CPU int8. Tiny/base models are plenty
 # for conversational English and keep latency near 1 second per utterance.
 faster-whisper>=1.0
+# PyAV 19 removed the metadata_errors argument that faster-whisper 1.2.1
+# passes to av.open(), so every transcription failed with a TypeError while
+# the imports still succeeded. Verified 2026-11-04: the speak-then-transcribe
+# round trip passes on av 17.1.0 and 18.1.0 and fails on 19.0.2. Lift this
+# cap once a faster-whisper release supports PyAV 19.
+av<19
