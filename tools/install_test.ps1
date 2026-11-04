@@ -98,6 +98,40 @@ if (Test-Path $py) {
     # --- 6. voice stack baked (Conversation Mode works on a fresh install) ---
     $voice = & $py -c "import faster_whisper; print('voice-ok')" 2>&1
     Check "voice stack (faster_whisper) baked in" ($voice -match "voice-ok")
+
+    # --- 6b. audio actually decodes through faster-whisper (catches PyAV drift) ---
+    #     Importing is not enough. faster-whisper 1.2.1 passes metadata_errors= to
+    #     av.open(), which PyAV 19 removed, so every transcription failed with a
+    #     TypeError while all the checks above still passed. This decodes a
+    #     generated half-second WAV through faster-whisper's own decoder: no model
+    #     files, no network. The probe reports failure on stdout and the call runs
+    #     with a relaxed error preference, so a traceback can never abort the gate
+    #     before cleanup.
+    $decodeProbe = Join-Path $testDir "decode_probe.py"
+    $decodeCode = @'
+import io, wave
+try:
+    import numpy as np
+    from faster_whisper.audio import decode_audio
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes((np.sin(np.arange(8000) * 0.05) * 8000).astype("<i2").tobytes())
+    buf.seek(0)
+    audio = decode_audio(buf, sampling_rate=16000)
+    print("decode-ok" if 7000 < audio.size < 9000 else "decode-fail: got %d samples" % audio.size)
+except Exception as e:
+    print("decode-fail: %s: %s" % (type(e).__name__, e))
+'@
+    [IO.File]::WriteAllText($decodeProbe, $decodeCode)
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $decode = (& $py $decodeProbe 2>&1 | Out-String).Trim()
+    $ErrorActionPreference = $prevEap
+    Check "audio decodes through faster-whisper (PyAV compatible)" ($decode -match "decode-ok")
+    if ($decode -notmatch "decode-ok") { Write-Host "       $decode" -ForegroundColor DarkYellow }
 }
 
 # --- 7. cleanup ---
