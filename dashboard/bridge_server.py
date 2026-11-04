@@ -3862,8 +3862,11 @@ def _load_soul(mode: str = "api") -> str:
         f"send several. Only use it when the Captain wants panes to coordinate, or "
         f"when you genuinely need another pane to do something.\n\n"
         f"## RECALLING PAST CONVERSATIONS — search_history\n"
-        f"You only see the last 20 turns of the active project pane verbatim. Every turn "
-        f"older than that — and every turn from every OTHER pane — lives in the permanent "
+        f"Your short-term memory is the 'Recent conversation' block at the top of each "
+        f"message: this pane's latest turns within about 12,000 characters, your most "
+        f"recent reply nearly whole and older replies cut to their endings, so their "
+        f"opening narration is trimmed. Anything older or trimmed, plus every turn from "
+        f"every OTHER pane, lives in the permanent "
         f"`conversation_archive.jsonl` and the searchable `recall_index.db`. The dashboard "
         f"calls this combined store the **Memory Banks** (a hub inside the **Neural "
         f"Matrix** view). When the Captain references something you don't remember, or asks "
@@ -3876,9 +3879,9 @@ def _load_soul(mode: str = "api") -> str:
         f"**Resuming a session - default to a CROSS-PANE search.** When the user asks to "
         f"'pick up where we left off', 'continue', 'resume', 'pull up our previous convos', "
         f"'what were we working on', or any variant, ALWAYS run `search_history` with "
-        f"`scope='all'` FIRST, before answering from the visible 20 turns and before ever "
-        f"claiming you don't remember. The live context shows only the last 20 turns of the "
-        f"CURRENT pane, and the user's active thread is very often in a DIFFERENT pane. "
+        f"`scope='all'` FIRST, before answering from the recent turns you can see and before "
+        f"ever claiming you don't remember. The live context shows only the CURRENT pane's "
+        f"recent turns, and the user's active thread is very often in a DIFFERENT pane. "
         f"Search broadly, then present the distinct threads for the user to pick.\n\n"
         f"**CLI-mode escape hatch**: if no `search_history` tool is registered in your "
         f"current toolset (i.e. you are running through the Claude Code CLI, Codex CLI, or "
@@ -6046,6 +6049,13 @@ EMBED_DIMS         = 768
 EMBED_HOST         = "127.0.0.1"
 EMBED_PORT         = 11434
 EMBED_API          = f"http://{EMBED_HOST}:{EMBED_PORT}/api/embeddings"
+# nomic-embed-text has a HARD 2048-token window (architecture context 2048; a
+# larger num_ctx in the Modelfile is clamped and an options override is ignored
+# on /api/embeddings). Dense rows - code, JSON, log lines, file paths - tokenize
+# at ~2.5 chars/token, so the old 8000-char slice overflowed and Ollama answered
+# HTTP 500 "the input length exceeds the context length". Measured: 8000 chars
+# of prose embed fine, 8000 chars of source code fail, 5000 pass.
+EMBED_MAX_CHARS    = 5000   # ~2000 tokens even at a pessimistic 2.5 chars/token
 _recall_lock       = threading.Lock()
 _embed_unavailable_logged = False   # noisy-log guard
 
@@ -6059,6 +6069,21 @@ _embed_unavailable_logged = False   # noisy-log guard
 _EMBED_FAIL_THRESHOLD = 3       # consecutive failures before the breaker opens
 _EMBED_COOLDOWN_SEC   = 300     # stay open 5 min, then allow one probe
 _EMBED_TIMEOUT_SEC    = 5       # was 12 - an embed that slow is not worth waiting on
+# A COLD model load must never be cut off mid-load. When the client disconnects
+# while Ollama is still loading, Ollama aborts the load ("client connection
+# closed before llama-server finished loading, aborting load"), so a 5s budget
+# can fail every call on a slow load and trip the breaker while Ollama is
+# healthy. An aborted GPU load has also been seen to crash the next model to
+# run on that GPU. Steady-state embeds keep the tight 5s budget; only calls
+# made before the first success since startup may wait out the load.
+_EMBED_COLD_TIMEOUT_SEC = 60
+# Keep the embed model loaded between uses. Ollama's default keep_alive is 5
+# minutes, so without this the model cold-loads again after every short idle
+# gap, and each reload is another chance to be cut off mid-load. The model is
+# small (about 0.4 GB), and Ollama still unloads an idle model when another
+# model needs the memory.
+_EMBED_KEEP_ALIVE       = "8h"
+_embed_warm             = False  # True once one embed has returned since startup
 _REBUILD_EMBED_BUDGET_SEC = 600  # cap time spent embedding in any one rebuild
 _embed_fail_count     = 0
 _embed_breaker_until  = 0.0     # monotonic deadline; 0 = closed
@@ -6114,7 +6139,7 @@ def _embed_note_success() -> None:
 def _embed_text(text: str) -> bytes | None:
     """Embed via Ollama. Returns packed float32 bytes, or None on failure
     (caller should log+continue - embedding is an enhancement, not required)."""
-    global _embed_unavailable_logged
+    global _embed_unavailable_logged, _embed_warm
     if not text or not text.strip():
         return None
     # Breaker open => do not touch the network at all. This is the difference
@@ -6131,29 +6156,61 @@ def _embed_text(text: str) -> bytes | None:
             _embed_unavailable_logged = True
         _embed_note_failure()
         return None
-    try:
-        body = json.dumps({"model": EMBED_MODEL, "prompt": text[:8000]}).encode()
-        req  = urllib.request.Request(EMBED_API, data=body,
-                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=_EMBED_TIMEOUT_SEC) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        vec = data.get("embedding") or []
-        if len(vec) != EMBED_DIMS:
+    # A context overflow is NOT an outage. Counting it as one was the bug: three
+    # long code or log rows in a row tripped the circuit breaker, which then
+    # skipped embeddings, and semantic search with them, for the next 300s
+    # while Ollama was healthy the whole time. Shrink and retry on overflow;
+    # only real transport errors count toward the breaker.
+    payload = text[:EMBED_MAX_CHARS]
+    for _ in range(4):
+        try:
+            body = json.dumps({"model": EMBED_MODEL, "prompt": payload,
+                               "keep_alive": _EMBED_KEEP_ALIVE}).encode()
+            req  = urllib.request.Request(EMBED_API, data=body,
+                                          headers={"Content-Type": "application/json"})
+            _tmo = _EMBED_TIMEOUT_SEC if _embed_warm else _EMBED_COLD_TIMEOUT_SEC
+            with urllib.request.urlopen(req, timeout=_tmo) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            vec = data.get("embedding") or []
+            if len(vec) != EMBED_DIMS:
+                _embed_note_failure()
+                return None
+            out = _struct.pack(f"{EMBED_DIMS}f", *vec)
+            _embed_warm = True
+            _embed_note_success()
+            return out
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "replace")
+            except Exception:
+                pass
+            if e.code == 500 and "context length" in detail and len(payload) > 500:
+                payload = payload[: len(payload) // 2]
+                log.info(f"[RECALL] embed payload over the window; retrying at "
+                         f"{len(payload)} chars")
+                continue
+            if not _embed_unavailable_logged:
+                log.warning(
+                    f"[RECALL] embeddings unavailable ({e}); falling back to "
+                    f"keyword-only. Run `ollama pull {EMBED_MODEL}` to enable "
+                    f"semantic search."
+                )
+                _embed_unavailable_logged = True
             _embed_note_failure()
             return None
-        out = _struct.pack(f"{EMBED_DIMS}f", *vec)
-        _embed_note_success()
-        return out
-    except Exception as e:
-        if not _embed_unavailable_logged:
-            log.warning(
-                f"[RECALL] embeddings unavailable ({e}); falling back to "
-                f"keyword-only. Run `ollama pull {EMBED_MODEL}` to enable "
-                f"semantic search."
-            )
-            _embed_unavailable_logged = True
-        _embed_note_failure()
-        return None
+        except Exception as e:
+            if not _embed_unavailable_logged:
+                log.warning(
+                    f"[RECALL] embeddings unavailable ({e}); falling back to "
+                    f"keyword-only. Run `ollama pull {EMBED_MODEL}` to enable "
+                    f"semantic search."
+                )
+                _embed_unavailable_logged = True
+            _embed_note_failure()
+            return None
+    _embed_note_failure()
+    return None
 
 
 def _unpack_embedding(blob: bytes) -> list[float] | None:
@@ -7500,19 +7557,108 @@ def ask_hermes(message: str, project_path: str = "") -> str:
         _set_status("idle")
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# SHORT-TERM MEMORY: the "Recent conversation" block
+# ══════════════════════════════════════════════════════════════════════════
+# Every CLI turn is a fresh, stateless subprocess, so this pane's recent turns
+# reach the model only as text pasted at the top of the prompt. Until
+# 2026-11-03 all three prompt builders used a flat rule carried over from the
+# first build: the last 12 messages, each cut to its FIRST 600 characters.
+# That kept the wrong end of Data's replies. A stored reply opens with the
+# step-by-step narration and ends with the actual answer (plus any
+# ask_options question). On measured real pane histories 76% of stored
+# replies lost their conclusion (63% of their text on average), and a
+# clicked option arrived without the question it answered.
+#
+# The budget below keeps the latest reply nearly whole and older replies by
+# their ending. Measured cost: the whole block tops out near 3K tokens, about
+# 5% of the ~62K-token context every model call already carries, and one
+# avoided archive lookup (a full extra model call) pays for many turns of it.
+# The Claude, Codex and Gemini runners all send the prompt over stdin, so the
+# bigger block never meets the 32,767-char Windows command-line cap.
+HISTORY_CHAR_BUDGET = 12000  # whole block, filled newest-first (~3K tokens)
+HISTORY_LAST_REPLY  = 6000   # Data's latest reply: what "continue", "yes" or an option click answers
+HISTORY_LAST_ASK    = 2000   # the Captain's message that reply answered
+HISTORY_OLDER_REPLY = 1000   # older replies keep their ending, where the conclusion is
+HISTORY_OLDER_ASK   = 500    # older Captain messages keep their opening and closing
+
+
+def _history_clip_tail(text: str, limit: int) -> str:
+    """Keep the END of a reply (its conclusion), starting at the first clean
+    sentence or word boundary so the excerpt never opens mid-word."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    cut = len(text) - limit
+    window = text[cut:cut + 300]
+    stops = [window.find(s) + len(s) for s in ("\n", ". ", "? ", "! ")
+             if window.find(s) != -1]
+    if stops:
+        cut += min(stops)
+    elif window.find(" ") != -1:
+        cut += window.find(" ") + 1
+    return "[...earlier part trimmed...] " + text[cut:].lstrip()
+
+
+def _history_clip_middle(text: str, limit: int) -> str:
+    """Keep the opening and the closing of a Captain message. A long message
+    is usually a paste, and the actual instruction sits at one end or the
+    other ("fix this:" + log, or log + "what broke?")."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    head_n = int(limit * 0.7)
+    tail_n = limit - head_n
+    head = text[:head_n]
+    sp = head.rfind(" ", max(0, head_n - 80))
+    if sp > 0:
+        head = head[:sp]
+    tail = text[-tail_n:]
+    sp = tail.find(" ", 0, 80)
+    if sp != -1:
+        tail = tail[sp + 1:]
+    return head.rstrip() + " [...middle trimmed...] " + tail.lstrip()
+
+
+def _recent_conversation_block(history=None) -> str:
+    """Short-term memory for one stateless CLI turn: this pane's latest turns,
+    the newest kept most completely, within HISTORY_CHAR_BUDGET. Turns are
+    taken newest-first so the budget always lands on the most recent context.
+    Returns "" when the pane has no history yet."""
+    if history is None:
+        history = conversation_history
+    msgs = [m for m in history[-MAX_HISTORY:]
+            if isinstance(m, dict) and isinstance(m.get("content"), str)
+            and m["content"].strip()]
+    picked, used, replies, asks = [], 0, 0, 0
+    for m in reversed(msgs):
+        if m.get("role") == "user":
+            limit = HISTORY_LAST_ASK if asks == 0 else HISTORY_OLDER_ASK
+            line = "Captain: " + _history_clip_middle(m["content"], limit)
+            asks += 1
+        else:
+            limit = HISTORY_LAST_REPLY if replies == 0 else HISTORY_OLDER_REPLY
+            line = "Data: " + _history_clip_tail(m["content"], limit)
+            replies += 1
+        if picked and used + len(line) > HISTORY_CHAR_BUDGET:
+            break
+        picked.append(line)
+        used += len(line) + 1
+    if not picked:
+        return ""
+    return ("Recent conversation (oldest first; long replies keep their ending, "
+            "full text is in the memory banks):\n" + "\n".join(reversed(picked)))
+
+
+def _with_recent_conversation(message: str) -> str:
+    """The Captain's message with the short-term memory block in front of it."""
+    block = _recent_conversation_block()
+    return f"{block}\n\nCaptain: {message}" if block else message
+
+
 def ask_hermes_cli(message: str, project_path: str = "") -> str:
     """Non-streaming CLI mode — used by /chat. /chat_stream uses ask_hermes_cli_stream."""
-    context_lines = []
-    for turn in conversation_history[-12:]:
-        role = "Captain" if turn["role"] == "user" else "Data"
-        content = turn.get("content", "")
-        if isinstance(content, str) and content:
-            context_lines.append(f"{role}: {content[:600]}")
-
-    if context_lines:
-        prompt = "Recent conversation:\n" + "\n".join(context_lines) + f"\n\nCaptain: {message}"
-    else:
-        prompt = message
+    prompt = _with_recent_conversation(message)
 
     active_path = project_path or _project_path
     if active_path:
@@ -7594,17 +7740,7 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     parses events line by line, and fires real SSE updates as tools execute.
     """
     global _session_turns
-    context_lines = []
-    for turn in conversation_history[-12:]:
-        role = "Captain" if turn["role"] == "user" else "Data"
-        content = turn.get("content", "")
-        if isinstance(content, str) and content:
-            context_lines.append(f"{role}: {content[:600]}")
-
-    if context_lines:
-        prompt = "Recent conversation:\n" + "\n".join(context_lines) + f"\n\nCaptain: {message}"
-    else:
-        prompt = message
+    prompt = _with_recent_conversation(message)
 
     active_path = project_path or _project_path
     if active_path:
@@ -7927,16 +8063,7 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
 
 def _build_history_prompt(message: str, project_path: str = "") -> str:
     """Shared helper: build a single-prompt string with recent history + active project for non-Claude CLIs."""
-    context_lines = []
-    for turn in conversation_history[-12:]:
-        role = "Captain" if turn["role"] == "user" else "Data"
-        content = turn.get("content", "")
-        if isinstance(content, str) and content:
-            context_lines.append(f"{role}: {content[:600]}")
-    if context_lines:
-        prompt = "Recent conversation:\n" + "\n".join(context_lines) + f"\n\nCaptain: {message}"
-    else:
-        prompt = message
+    prompt = _with_recent_conversation(message)
     active_path = project_path or _project_path
     if active_path:
         prompt = f"[Active project: {active_path}]\n\n{prompt}"
