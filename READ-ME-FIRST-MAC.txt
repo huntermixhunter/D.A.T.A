@@ -48,8 +48,9 @@ On recent macOS versions, right-click > Open does not override this block.
 If Open Anyway is missing, another included file is blocked, or the launcher
 still will not open, use step 4.
 
-A Terminal window opens and the dashboard starts in your browser. Keep that
-Terminal window open while using DATA. If no browser tab opens, visit:
+A Terminal window opens and the dashboard starts in its own window (Chrome or
+Edge app mode; if neither is installed, your browser). Keep that Terminal
+window open while using DATA. If no window opens, visit:
 http://localhost:7777
 
 4. ONE COPY-AND-PASTE COMMAND IF STARTUP IS BLOCKED

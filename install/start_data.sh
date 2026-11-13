@@ -20,10 +20,8 @@ if [ "${1:-}" = --check ]; then
     exec "$PYTHON" -c 'import sys, ssl, sqlite3, psutil; print("DATA runtime OK:", sys.executable)'
 fi
 cd "$ROOT/dashboard"
-(
-    sleep 2
-    if command -v open >/dev/null 2>&1; then open http://localhost:7777
-    elif command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:7777
-    fi
-) &
+# Opens the dashboard in its own app window once the bridge answers (Chrome or
+# Edge app mode; falls back to the default browser). Runs in the background
+# while the supervisor below holds this Terminal.
+"$PYTHON" app_window.py >/dev/null 2>&1 &
 exec "$PYTHON" supervisor.py

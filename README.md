@@ -129,9 +129,11 @@ When the installer finishes, you'll have a **DATA** icon on your desktop:
 
 ![DATA desktop icon](dashboard/assets/icon-256.png)
 
-**Double-click it** to start DATA — it launches the bridge and opens the dashboard
-at **http://localhost:7777** automatically. The same mark appears on your browser
-tab and in the taskbar while DATA is running. If you skipped the Windows
+**Double-click it** to start DATA. It launches the bridge and opens the dashboard
+in its own window automatically (Chrome or Edge app mode with a separate profile,
+so no tabs or address bar; it falls back to your browser at **http://localhost:7777**
+if neither is installed). The same mark appears on the window and in the taskbar
+while DATA is running. Set `DATA_APP_WINDOW=0` to use a normal browser tab instead. If you skipped the Windows
 shortcut, use `start_data.bat`. The Mac DMG uses `Start DATA.command`;
 Mac source ZIP and Linux installs use `bash start_data.sh`.
 

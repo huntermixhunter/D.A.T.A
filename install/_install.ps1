@@ -144,8 +144,8 @@ title DATA-LaunchControl
 cd /d "%~dp0dashboard"
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :7777 ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :7766 ^| findstr LISTENING') do taskkill /PID %%a /F >nul 2>&1
-start "" http://localhost:7777
 start "DATA" $pythonw supervisor.py
+start "" $pythonw app_window.py
 "@
 Set-Content -Path "$root\start_data.bat" -Value $launcher -Encoding ascii
 Write-Host "  [OK] Launcher written: start_data.bat (windowless - no console stays open)"
