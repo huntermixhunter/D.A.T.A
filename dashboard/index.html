@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="forum.css?v=embedded-20261030" />
   <link rel="stylesheet" href="offline_maps.css?v=1">
   <link rel="stylesheet" href="usage_meter.css?v=1">
+  <link rel="stylesheet" href="pane_status.css?v=1">
   <link rel="stylesheet" href="crew-deck/host.css?v=1">
   <link rel="stylesheet" href="arcade/host.css?v=1">
 </head>
@@ -60,6 +61,13 @@
           <span class="captain-caret"> ▾</span>
         </button>
         <div class="captain-menu" id="captain-menu" hidden></div>
+      </div>
+      <!-- Chat window status summary (pane_status.js): counts the windows that
+           need you, are done, or are working. Click to jump to the one that
+           needs you; the bell switches background alerts on and off. -->
+      <div class="header-panes" id="pane-status-summary" data-attention="0">
+        <button type="button" class="pss-label"></button>
+        <button type="button" class="pss-bell"></button>
       </div>
       <div class="header-status">
         <span class="status-dot blink"></span>
@@ -1435,6 +1443,7 @@
     });
   </script>
   <script src="app.js?v=release-1.0.63"></script>
+  <script src="pane_status.js?v=1"></script>
   <script src="advanced_tools.js?v=sidebar-defaults-20261030"></script>
   <script src="skill_search.js?v=1"></script>
   <script src="remote_access.js?v=1"></script>

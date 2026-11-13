@@ -11032,6 +11032,8 @@ class Handler(BaseHTTPRequestHandler):
             "/offline_maps.js": ("offline_maps.js", "application/javascript; charset=utf-8"),
             "/offline_maps.css": ("offline_maps.css", "text/css; charset=utf-8"),
             "/usage_meter.css": ("usage_meter.css", "text/css; charset=utf-8"),
+            "/pane_status.js": ("pane_status.js", "application/javascript; charset=utf-8"),
+            "/pane_status.css": ("pane_status.css", "text/css; charset=utf-8"),
             "/offline_archive.js": ("offline_archive.js", "application/javascript; charset=utf-8"),
             "/":             ("index.html", "text/html; charset=utf-8"),
             "/index.html":   ("index.html", "text/html; charset=utf-8"),

@@ -676,6 +676,7 @@ document.addEventListener('keydown', (e) => {
         }).catch(() => {});
         ws.isThinking = false;
         ws.abortController = null;
+        globalThis.PaneStatus?.stopped(globalThis.PaneStatus.keyForWs(_lastActiveWsId));
         // Strip the "thinking" indicator from this pane's chat window.
         const winEl = document.getElementById(`chat-win-ws${_lastActiveWsId}`);
         if (winEl) removeThinkingFromPane(winEl);
@@ -766,6 +767,7 @@ let isThinking = false;
 let _abortController = null;
 
 function stopData() {
+  if (isThinking) globalThis.PaneStatus?.stopped('main');
   if (_abortController) _abortController.abort();
   // Target only the main pane's bridge subprocess. The bridge now tracks
   // procs per-project so this won't kill workspace pane requests.
@@ -1803,6 +1805,7 @@ async function _dispatchChatMessage(text, attachments) {
   const speakReply = _autoSpeakNextReply;
   _autoSpeakNextReply = false;
   isThinking = true;
+  globalThis.PaneStatus?.start('main');
   _abortController = new AbortController();
   // Keep the send button visible while thinking — relabel it QUEUE so the
   // Captain can stack follow-ups (Enter or click) mid-turn instead of only
@@ -1820,6 +1823,7 @@ async function _dispatchChatMessage(text, attachments) {
   let streamEnded = false;   // set true when the `done` (or `error`) SSE event arrives
   let serverError = '';      // text from an `error` event, if any
   let loginInfo = null;      // `needs_login` payload when the CLI is signed out
+  let caughtError = '';      // fetch/stream exception text, for the status badge
 
   // IDLE WATCHDOG (heartbeat-driven) — mirrors the project-pane path. A healthy
   // stream is NEVER silent: tokens, thinking lines, and a `: keepalive` SSE
@@ -1960,6 +1964,7 @@ async function _dispatchChatMessage(text, attachments) {
     if (loginInfo) _renderLoginNeededCard(_mainConsoleCtx(), loginInfo);
 
   } catch (e) {
+    caughtError = (e && e.message) || String(e || 'request failed');
     clearInterval(_streamTimerInterval); _streamTimerInterval = null;
     if (speakReply) _speakStreamEnd();
     thoughtEl.remove();
@@ -1989,6 +1994,19 @@ async function _dispatchChatMessage(text, attachments) {
   isThinking = false;
   _abortController = null;
   _inFlightUserBubble = null;
+  // Status badge. A queued follow-up keeps the window WORKING, since the next
+  // dispatch starts right away.
+  if (!_messageQueue.length) {
+    const psError = watchdogFired ? 'The connection went silent and was aborted'
+      : serverError ? serverError
+      : caughtError ? (streamMsg ? `Interrupted: ${caughtError}` : 'No reply arrived (bridge offline or request failed)')
+      : (!streamMsg && !loginInfo) ? 'The reply ended with no text'
+      : '';
+    globalThis.PaneStatus?.finish('main',
+      loginInfo ? { needs: 'The model is signed out. Sign in to continue.' }
+      : psError ? { error: psError }
+      : { text: _streamAccum || '' });
+  }
   const _sendBtnDone = document.getElementById('send-btn');
   _sendBtnDone.textContent = 'TRANSMIT';
   _sendBtnDone.title = '';
@@ -9262,6 +9280,7 @@ function _setMainPaneProject(wsId, name, path) {
   header.classList.remove('hidden');
   _populateWindowProviderSelect(wsId);
   _populateWindowEffortSelect(wsId);
+  globalThis.PaneStatus?.refreshAll();   // the rebuilt header lost its status badge
 
   // Announce in main chat
   const winEl = document.getElementById('chat-window');
@@ -9391,6 +9410,7 @@ function closeProjectWorkspace(wsId) {
     ws.abortController = null;
   }
   _workspaces.delete(wsId);
+  if (!ws?.isMain) globalThis.PaneStatus?.remove(`ws${wsId}`);
 
   const graph = document.getElementById(`ws-graph-${wsId}`);
   if (graph) { stopFileGraph(graph); _fileGraphStates.delete(graph); }
@@ -9424,6 +9444,7 @@ function closeProjectWorkspace(wsId) {
       _populateMainProviderSelect();
       _populateMainEffortSelect();
       _applyPaneStyleUI('main');
+      globalThis.PaneStatus?.refreshAll();   // the rebuilt header lost its status badge
     }
     _mainProjectSet = false;
     fetch(`${API_BASE}/project`, {
@@ -9491,6 +9512,9 @@ async function sendProjectMessage(wsId) {
 
   if (input) input.value = '';
   ws.isThinking = true;
+  const psKey = globalThis.PaneStatus?.keyForWs(wsId);
+  globalThis.PaneStatus?.start(psKey);
+  let psOutcome = null;   // status-badge outcome, settled in the finally block
   // Esc routes to whoever was last interacted with; sending counts.
   _lastActiveWsId = wsId;
   // Per-window abort controller so Esc on this pane only cancels THIS fetch.
@@ -9558,10 +9582,12 @@ async function sendProjectMessage(wsId) {
       try { const j = await res.json(); if (j && j.error) errMsg = j.error; } catch {}
       appendMessageToPane(winEl, 'data', errMsg, ws.crew);
       playDataSound('error');
+      psOutcome = { error: errMsg };
     } else if (!res.ok || !res.body) {
       removeThinkingFromPane(winEl);
       appendMessageToPane(winEl, 'data', offlineResponse(text), ws.crew);
       playDataSound('error');
+      psOutcome = { error: `Bridge returned HTTP ${res.status}` };
     } else {
       // Stream the SSE response. Every chunk (event OR `: keepalive`) resets
       // the idle watchdog. Token events accumulate into one final bubble so
@@ -9611,6 +9637,10 @@ async function sendProjectMessage(wsId) {
       }
       appendMessageToPane(winEl, 'data', finalText, ws.crew);
       if (loginInfo) _renderLoginNeededCard(_paneConsoleCtx(wsId), loginInfo);
+      psOutcome = loginInfo ? { needs: 'The model is signed out. Sign in to continue.' }
+        : serverError ? { error: serverError }
+        : answer ? { text: answer }
+        : { error: 'The reply ended with no text' };
       if (streamDone && answer) {
         playDataSound('receive');
         addLog(`[${ws.name}] ${crewLabel(ws.crew)} responded`);
@@ -9628,6 +9658,8 @@ async function sendProjectMessage(wsId) {
       : offlineResponse(text);
     appendMessageToPane(winEl, 'data', msg, ws.crew);
     playDataSound('error');
+    psOutcome = { error: watchdogFired ? 'Worker stalled with no output and was aborted'
+                                       : 'No reply arrived (bridge offline or request failed)' };
     if (watchdogFired) addLog(`[${ws.name}] Worker went silent — aborted by idle watchdog`);
   } finally {
     // GUARANTEED cleanup — runs on success, error, abort, and watchdog fire.
@@ -9636,6 +9668,7 @@ async function sendProjectMessage(wsId) {
     if (idleTimer) clearTimeout(idleTimer);
     ws.isThinking = false;
     ws.abortController = null;
+    globalThis.PaneStatus?.finish(psKey, psOutcome || { error: 'The reply ended with no text' });
     fetchVitals();
   }
 }
@@ -9824,6 +9857,7 @@ function _renderAskOptions(payload) {
   chatWin.appendChild(card);
   if (wasPinned) chatWin.scrollTop = chatWin.scrollHeight;
   addLog(`Asking: ${question.substring(0, 40)}…`);
+  globalThis.PaneStatus?.ask(globalThis.PaneStatus.keyForWs(targetIsMain ? null : targetWsId), question);
 }
 
 function _answerAskOptions(card, choice, wsId, isMain) {
