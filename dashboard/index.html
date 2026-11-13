@@ -779,6 +779,13 @@
                 <button type="button" class="settings-opt" data-rail="right" onclick="toggleRail('right')">RIGHT SIDEBAR</button>
               </div>
 
+              <h3 class="settings-h">Window</h3>
+              <p class="settings-sub">Fill the whole screen with the dashboard and hide the taskbar. Press Esc or F11 to leave fullscreen.</p>
+              <div class="settings-opt-row" id="settings-fullscreen-row">
+                <button type="button" class="settings-opt" id="settings-fullscreen-btn" aria-pressed="false" onclick="toggleFullscreenMode()">FULLSCREEN</button>
+              </div>
+              <p class="settings-sub" id="settings-fullscreen-status" role="status" aria-live="polite"></p>
+
               <h3 class="settings-h">Left sidebar</h3>
               <p class="settings-sub">Choose what appears in the left sidebar. Changes apply immediately and are saved for this profile in this browser.</p>
               <fieldset class="settings-view-group">
@@ -1430,6 +1437,42 @@
 
     _railPaint();
     document.addEventListener('DOMContentLoaded', _railPaint);
+
+    // Fullscreen
+    // Settings > View can take the whole screen. Browsers only allow this
+    // from a click, so it is never restored automatically on the next launch.
+    function _fullscreenPaint() {
+      var btn = document.getElementById('settings-fullscreen-btn');
+      if (!btn) return;
+      var root = document.documentElement;
+      var supported = !!(document.fullscreenEnabled && root.requestFullscreen);
+      var on = !!document.fullscreenElement;
+      btn.disabled = !supported;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+      btn.textContent = on ? 'EXIT FULLSCREEN' : 'FULLSCREEN';
+      var status = document.getElementById('settings-fullscreen-status');
+      if (status && !supported) status.textContent = 'Fullscreen is not available here. Press F11 instead.';
+    }
+
+    function toggleFullscreenMode() {
+      var status = document.getElementById('settings-fullscreen-status');
+      var p = document.fullscreenElement
+        ? document.exitFullscreen()
+        : document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+      if (p && typeof p.catch === 'function') {
+        p.catch(function () {
+          if (status) status.textContent = 'Fullscreen was blocked. Press F11 instead.';
+        });
+      }
+    }
+
+    document.addEventListener('fullscreenchange', function () {
+      var status = document.getElementById('settings-fullscreen-status');
+      if (status) status.textContent = '';
+      _fullscreenPaint();
+    });
+    document.addEventListener('DOMContentLoaded', _fullscreenPaint);
 
     // Ctrl+Alt+Left / Ctrl+Alt+Right fold the matching rail. Ignored while a
     // field has focus, so it can never swallow a keystroke in the chat box.
