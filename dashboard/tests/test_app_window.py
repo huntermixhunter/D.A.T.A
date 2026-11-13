@@ -182,6 +182,98 @@ class WaitTests(unittest.TestCase):
         self.assertFalse(app_window.wait_for_bridge("http://127.0.0.1:9/", 0.2))
 
 
+class WindowModeTests(unittest.TestCase):
+    """Settings > Window: app window (default) or a normal browser tab."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        patcher = mock.patch.object(app_window, "profile_root",
+                                    side_effect=lambda name: d / name / "app-window")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        env = mock.patch.dict(app_window.os.environ, {"DATA_APP_WINDOW": "1"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_defaults_to_app_window(self):
+        self.assertEqual(app_window.load_mode("DATA"), "app")
+
+    def test_choice_is_saved_per_dashboard(self):
+        app_window.save_mode("DATA", "browser")
+        self.assertEqual(app_window.load_mode("DATA"), "browser")
+        self.assertEqual(app_window.load_mode("LCARS"), "app")
+        app_window.save_mode("DATA", "app")
+        self.assertEqual(app_window.load_mode("DATA"), "app")
+
+    def test_unknown_mode_is_refused(self):
+        with self.assertRaises(ValueError):
+            app_window.save_mode("DATA", "kiosk")
+
+    def test_damaged_file_falls_back_to_default(self):
+        for text in ("not json", "[]", '{"mode": "kiosk"}', ""):
+            path = app_window.mode_file("DATA")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            self.assertEqual(app_window.load_mode("DATA"), "app", text)
+
+    def test_browser_choice_opens_a_tab(self):
+        app_window.save_mode("DATA", "browser")
+        with mock.patch.object(app_window.webbrowser, "open") as opened, \
+             mock.patch.object(app_window, "open_app_window") as app:
+            result = app_window.open_dashboard("http://localhost:7777/", "DATA")
+        opened.assert_called_once_with("http://localhost:7777/")
+        app.assert_not_called()
+        self.assertIn("browser", result)
+
+    def test_app_choice_opens_the_app_window(self):
+        with mock.patch.object(app_window, "open_app_window", return_value="app window") as app, \
+             mock.patch.object(app_window.webbrowser, "open") as opened:
+            app_window.open_dashboard("http://localhost:7777/", "DATA")
+        app.assert_called_once_with("http://localhost:7777/", "DATA")
+        opened.assert_not_called()
+
+    def test_handler_reports_state(self):
+        h = _FakeHandler({"Origin": None})
+        with mock.patch.object(app_window, "find_browser", return_value=("chrome", "c")):
+            app_window.handle_window_mode(h, "GET", b"", "DATA")
+        self.assertEqual(h.replies, [(200, {"mode": "app", "app_available": True,
+                                            "forced_browser": False})])
+
+    def test_handler_saves_and_can_open_now(self):
+        h, opener = _FakeHandler(), mock.Mock(return_value="browser")
+        with mock.patch.object(app_window, "find_browser", return_value=None):
+            app_window.handle_window_mode(h, "POST", b'{"mode": "browser", "open_now": true}',
+                                          "DATA", opener)
+        opener.assert_called_once_with("http://localhost:7777/", "DATA")
+        code, reply = h.replies[0]
+        self.assertEqual(code, 200)
+        self.assertEqual((reply["mode"], reply["opened"], reply["app_available"]),
+                         ("browser", "browser", False))
+        self.assertEqual(app_window.load_mode("DATA"), "browser")
+
+    def test_handler_saves_without_opening(self):
+        h, opener = _FakeHandler(), mock.Mock()
+        app_window.handle_window_mode(h, "POST", b'{"mode": "browser"}', "DATA", opener)
+        opener.assert_not_called()
+        self.assertEqual(h.replies[0][0], 200)
+
+    def test_handler_rejects_bad_input_and_remote_callers(self):
+        for body in (b"", b"nope", b"[]", b'{"mode": "kiosk"}'):
+            h = _FakeHandler()
+            app_window.handle_window_mode(h, "POST", body, "DATA")
+            self.assertEqual(h.replies[0][0], 400, body)
+        for method in ("GET", "POST"):
+            h, opener = _FakeHandler(peer="100.64.0.7"), mock.Mock()
+            app_window.handle_window_mode(h, method, b'{"mode": "browser", "open_now": true}',
+                                          "DATA", opener)
+            self.assertEqual(h.replies[0][0], 403)
+            opener.assert_not_called()
+        self.assertEqual(app_window.load_mode("DATA"), "app")
+
+
 class DiscoveryTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "win32", "Windows discovery")
     def test_windows_finds_an_installed_browser_or_none(self):

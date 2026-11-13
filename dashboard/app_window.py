@@ -7,8 +7,9 @@ its own browser profile so it never mixes with the user's everyday browsing.
 App mode keeps the full browser engine, so speech recognition (wake word and
 dictation), the microphone, notifications, and downloads all keep working.
 
-If no Chromium-based browser is installed, or DATA_APP_WINDOW=0 is set, it
-falls back to opening the dashboard in the default browser as before.
+If the user picked "Browser tab" in Settings > Window, no Chromium-based
+browser is installed, or DATA_APP_WINDOW=0 is set, it opens the dashboard in
+the default browser instead, as older versions did.
 
 Usage:
     python app_window.py [--name DATA] [--port 7777] [--wait 45]
@@ -184,9 +185,56 @@ def app_url(url: str) -> str:
     return url + ("&" if "?" in url else "?") + "window=app"
 
 
+# ── Window mode: app window (default) or a normal browser tab ───────────────
+# Settings > Window lets the user go back to opening the dashboard in a normal
+# browser tab, as older versions did. The choice is stored per user beside the
+# app window's profile (outside the install folder, so it survives updates)
+# and read here every time the launcher runs.
+
+WINDOW_MODES = ("app", "browser")
+DEFAULT_MODE = "app"
+
+
+def env_forces_browser() -> bool:
+    """DATA_APP_WINDOW=0 always wins over the saved setting."""
+    return os.environ.get("DATA_APP_WINDOW", "1").strip().lower() in ("0", "false", "no", "off")
+
+
+def mode_file(name: str) -> Path:
+    return profile_root(name).parent / "window.json"
+
+
+def load_mode(name: str) -> str:
+    """The saved window mode, or the default when unset or unreadable."""
+    try:
+        data = json.loads(mode_file(name).read_text(encoding="utf-8"))
+    except Exception:
+        return DEFAULT_MODE
+    mode = data.get("mode") if isinstance(data, dict) else None
+    return mode if mode in WINDOW_MODES else DEFAULT_MODE
+
+
+def save_mode(name: str, mode: str) -> None:
+    if mode not in WINDOW_MODES:
+        raise ValueError(f"unknown window mode: {mode!r}")
+    path = mode_file(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps({"mode": mode}), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def open_dashboard(url: str, name: str) -> str:
+    """Open the dashboard the way the user chose in Settings."""
+    if load_mode(name) == "browser" and not env_forces_browser():
+        webbrowser.open(url)
+        return "browser (Settings: browser tab)"
+    return open_app_window(url, name)
+
+
 def open_app_window(url: str, name: str) -> str:
     """Open `url` in an app window. Returns which path was taken."""
-    if os.environ.get("DATA_APP_WINDOW", "1").strip().lower() in ("0", "false", "no", "off"):
+    if env_forces_browser():
         webbrowser.open(url)
         return "browser (DATA_APP_WINDOW is off)"
 
@@ -306,6 +354,58 @@ def handle_open_external(handler, body: bytes, opener=webbrowser.open) -> None:
         handler._json({"error": "No default browser could be started."}, 500)
 
 
+def handle_window_mode(handler, method: str, body: bytes, name: str,
+                       opener=None) -> None:
+    """GET or POST /window-mode for Settings > Window.
+
+    GET  -> {"mode", "app_available", "forced_browser"}
+    POST {"mode": "app"|"browser", "open_now": bool} saves the choice and, when
+    open_now is set, opens the dashboard that way straight away. Both change
+    how this computer launches programs, so they are held to the same
+    local-dashboard check as /open-external.
+    """
+    if local_dashboard_request(handler):
+        handler._json({"error": "Window settings can only be changed on the computer "
+                                "the dashboard is installed on.", "forbidden": True}, 403)
+        return
+
+    def state() -> dict:
+        return {
+            "mode": load_mode(name),
+            "app_available": find_browser() is not None,
+            "forced_browser": env_forces_browser(),
+        }
+
+    if method == "GET":
+        handler._json(state())
+        return
+
+    try:
+        data = json.loads(body or b"{}")
+    except Exception:
+        data = None
+    mode = data.get("mode") if isinstance(data, dict) else None
+    if mode not in WINDOW_MODES:
+        handler._json({"error": "Mode must be app or browser."}, 400)
+        return
+    try:
+        save_mode(name, mode)
+    except Exception as exc:
+        handler._json({"error": f"Could not save the setting: {exc}"}, 500)
+        return
+
+    result = state()
+    if data.get("open_now"):
+        url = f"http://localhost:{handler.server.server_address[1]}/"
+        try:
+            result["opened"] = (opener or open_dashboard)(url, name)
+        except Exception:
+            handler._json({"error": "Saved, but the new window could not be opened.",
+                           **result}, 500)
+            return
+    handler._json({"ok": True, **result})
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--name", default="DATA", help="profile folder name (DATA or LCARS)")
@@ -317,7 +417,7 @@ def main(argv: list[str] | None = None) -> int:
     # Open even if the bridge is slow to start; the window can be refreshed
     # with Ctrl+R once the bridge is up.
     wait_for_bridge(url, args.wait)
-    print(open_app_window(url, args.name))
+    print(open_dashboard(url, args.name))
     return 0
 
 

@@ -786,6 +786,18 @@
               </div>
               <p class="settings-sub" id="settings-fullscreen-status" role="status" aria-live="polite"></p>
 
+              <div id="settings-winmode">
+                <p class="settings-sub">Open the dashboard in its own app window, or in a tab of your normal web browser as older versions did. Your choice is used every time the dashboard starts.</p>
+                <div class="settings-opt-row" id="settings-winmode-row">
+                  <button type="button" class="settings-opt" data-winmode="app" aria-pressed="false" onclick="settingsSetWindowMode('app')">APP WINDOW</button>
+                  <button type="button" class="settings-opt" data-winmode="browser" aria-pressed="false" onclick="settingsSetWindowMode('browser')">BROWSER TAB</button>
+                </div>
+                <div class="settings-opt-row" id="settings-winmode-now-row" style="display:none">
+                  <button type="button" class="settings-opt" id="settings-winmode-now" onclick="settingsSwitchWindowNow()">SWITCH NOW</button>
+                </div>
+                <p class="settings-sub" id="settings-winmode-status" role="status" aria-live="polite"></p>
+              </div>
+
               <h3 class="settings-h">Left sidebar</h3>
               <p class="settings-sub">Choose what appears in the left sidebar. Changes apply immediately and are saved for this profile in this browser.</p>
               <fieldset class="settings-view-group">
@@ -1534,6 +1546,122 @@
       document.addEventListener('click', onLinkClick);
       document.addEventListener('auxclick', onLinkClick);
     })();
+
+    // Window mode
+    // Settings > Window picks how the launcher opens the dashboard: its own
+    // app window (the default) or a tab in the normal browser. The choice is
+    // saved by the bridge (app_window.py) because the launcher reads it before
+    // any page exists. SWITCH NOW opens the other kind straight away.
+    var _winMode = { mode: null, appAvailable: true, forced: false };
+
+    function _winIsLocal() {
+      return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+    }
+
+    function _winCurrent() {
+      try { return sessionStorage.getItem('data-app-window') === '1' ? 'app' : 'browser'; }
+      catch (e) { return 'browser'; }
+    }
+
+    function _winFetch(payload) {
+      var opts = { headers: { 'X-Data-Request': '1' } };
+      if (payload) {
+        opts.method = 'POST';
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(payload);
+      }
+      return fetch('/window-mode', opts).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (!r.ok) throw new Error(d.error || ('Request failed (' + r.status + ').'));
+          return d;
+        });
+      });
+    }
+
+    function _winTake(d) {
+      _winMode.mode = d.mode;
+      _winMode.appAvailable = d.app_available !== false;
+      _winMode.forced = !!d.forced_browser;
+    }
+
+    // The app window is only possible with a Chromium browser and without
+    // DATA_APP_WINDOW=0; otherwise the launcher always opens a browser tab.
+    function _winAppBlocked() {
+      return _winMode.forced || !_winMode.appAvailable;
+    }
+
+    function _winPaint(msg) {
+      var box = document.getElementById('settings-winmode');
+      if (!box) return;
+      var local = _winIsLocal();
+      var ready = local && !!_winMode.mode;
+      box.querySelectorAll('[data-winmode]').forEach(function (b) {
+        var on = b.getAttribute('data-winmode') === _winMode.mode;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', String(on));
+        b.disabled = !ready || (b.getAttribute('data-winmode') === 'app' && _winAppBlocked());
+      });
+      var nowRow = document.getElementById('settings-winmode-now-row');
+      var nowBtn = document.getElementById('settings-winmode-now');
+      var canSwitch = ready && _winMode.mode !== _winCurrent()
+        && !(_winMode.mode === 'app' && _winAppBlocked());
+      if (nowRow) nowRow.style.display = canSwitch ? '' : 'none';
+      if (nowBtn) {
+        nowBtn.disabled = false;
+        nowBtn.textContent = _winMode.mode === 'app' ? 'OPEN APP WINDOW NOW' : 'OPEN BROWSER TAB NOW';
+      }
+      var status = document.getElementById('settings-winmode-status');
+      if (!status) return;
+      if (msg != null) { status.textContent = msg; return; }
+      if (!local) {
+        status.textContent = 'You can change this on the computer the dashboard is installed on.';
+      } else if (_winMode.forced) {
+        status.textContent = 'DATA_APP_WINDOW=0 is set on this computer, so the dashboard always opens in a browser tab.';
+      } else if (!_winMode.appAvailable) {
+        status.textContent = 'The app window needs Google Chrome, Microsoft Edge, or Brave. None was found, so the dashboard opens in a browser tab.';
+      } else {
+        status.textContent = '';
+      }
+    }
+
+    function settingsSetWindowMode(mode) {
+      if (!_winIsLocal() || mode === _winMode.mode) { _winPaint(); return; }
+      _winFetch({ mode: mode }).then(function (d) {
+        _winTake(d);
+        var next = mode === 'app'
+          ? 'Saved. The dashboard will open in its own app window from now on.'
+          : 'Saved. The dashboard will open in a browser tab from now on.';
+        _winPaint(next);
+      }).catch(function (err) {
+        _winPaint('Could not save: ' + err.message);
+      });
+    }
+
+    function settingsSwitchWindowNow() {
+      var want = _winMode.mode;
+      var nowBtn = document.getElementById('settings-winmode-now');
+      if (nowBtn) nowBtn.disabled = true;
+      _winFetch({ mode: want, open_now: true }).then(function (d) {
+        _winTake(d);
+        var opened = String(d.opened || '');
+        if (want === 'app' && opened.indexOf('app window') === -1) {
+          _winPaint('The app window could not start, so the dashboard opened in a browser tab instead.');
+          return;
+        }
+        _winPaint('Opened. You can close this ' + (_winCurrent() === 'app' ? 'window' : 'tab') + '.');
+        // Give the new window a moment to appear, then close this one. Browsers
+        // only let a page close itself in some cases; the message covers the rest.
+        setTimeout(function () { try { window.close(); } catch (e) {} }, 1500);
+      }).catch(function (err) {
+        _winPaint('Could not switch: ' + err.message);
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      if (!_winIsLocal()) { _winPaint(); return; }
+      _winFetch(null).then(function (d) { _winTake(d); _winPaint(); })
+        .catch(function () { _winPaint('Restart the dashboard to use this setting.'); });
+    });
 
     // Ctrl+Alt+Left / Ctrl+Alt+Right fold the matching rail. Ignored while a
     // field has focus, so it can never swallow a keystroke in the chat box.

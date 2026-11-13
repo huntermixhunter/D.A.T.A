@@ -11155,6 +11155,12 @@ class Handler(BaseHTTPRequestHandler):
         if skill_search.handle_http(self):
             return
 
+        # ── /window-mode: Settings > Window, app window or browser tab ──
+        if path == "/window-mode":
+            import app_window
+            app_window.handle_window_mode(self, "GET", b"", "DATA")
+            return
+
         if path == "/status":
             with _status_lock:
                 self._json(dict(_agent_status))
@@ -12046,6 +12052,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/open-external":
             import app_window
             app_window.handle_open_external(self, body)
+            return
+
+        # ── /window-mode: Settings > Window, app window or browser tab ──
+        if path == "/window-mode":
+            import app_window
+            app_window.handle_window_mode(self, "POST", body, "DATA")
             return
 
         # ── In-chat console (sign-in / setup commands) ───────
