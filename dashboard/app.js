@@ -10913,13 +10913,21 @@ function _renderUsage(u) {
   const fo = document.getElementById('usage-failover');
   if (!rows || !u) return;
   rows.innerHTML = _usageProviderHtml('CLAUDE', u.claude) + _usageProviderHtml('CODEX', u.codex);
+  // Pairing named from the Settings choice: default model -> backup model.
+  const famName = _llmFamilyLabel;
+  const defName = famName(u.default_family), bakName = famName(u.backup_family);
+  const limited = u.limited || {};
   let line;
   if (!u.enabled) {
     line = '<div><span class="usage-state dim">FAILOVER OFF</span></div>';
-  } else if (u.claude && u.claude.limited) {
-    line = '<div><span class="usage-state warn">FAILOVER</span>Claude limited, sending to Codex</div>';
-  } else if (u.codex && u.codex.limited) {
-    line = '<div><span class="usage-state warn">FAILOVER</span>Codex limited, sending to Claude</div>';
+  } else if (u.default && !u.backup_target) {
+    line = `<div><span class="usage-state dim">NO BACKUP</span>Pick a backup for ${escapeHtml(defName)} in Settings</div>`;
+  } else if (u.default_family && limited[u.default_family]) {
+    line = `<div><span class="usage-state warn">FAILOVER</span>${escapeHtml(defName)} limited, sending to ${escapeHtml(bakName)}</div>`;
+  } else if (u.backup_family && limited[u.backup_family]) {
+    line = `<div><span class="usage-state warn">FAILOVER ON</span>${escapeHtml(defName)} &rarr; ${escapeHtml(bakName)} (backup limited)</div>`;
+  } else if (u.default) {
+    line = `<div><span class="usage-state ok">FAILOVER ON</span>${escapeHtml(defName)} &rarr; ${escapeHtml(bakName)}</div>`;
   } else {
     line = '<div><span class="usage-state ok">FAILOVER ON</span>Claude &harr; Codex</div>';
   }
@@ -10939,10 +10947,20 @@ function _renderUsage(u) {
   const st = document.getElementById('failover-settings-status');
   if (st) {
     const codex = u.codex || {};
-    st.textContent = codex.signed_in === false
-      ? 'Codex is signed out, so Claude has nowhere to fail over to. Run "codex login" in a terminal once.'
-      : '';
+    const choice = u.backup || 'auto';
+    let msg = '';
+    if (u.default && !u.backup_target) {
+      msg = `${defName} has no automatic partner, so failover cannot help it yet. Pick a backup model above.`;
+    } else if (choice !== 'auto' && _llmFamily(choice) === u.default_family) {
+      msg = 'Your backup shares the default model\'s account and would run out at the same time, so Automatic is used instead. Pick a different backup above.';
+    } else if (u.backup_family === 'codex' && codex.signed_in === false) {
+      msg = 'Codex is signed out, so it cannot take over yet. Run "codex login" in a terminal once.';
+    }
+    st.textContent = msg;
   }
+  // Keep the Backup LLM row in step when the choice changes elsewhere.
+  document.querySelectorAll('#settings-backup-row .settings-opt').forEach(b =>
+    b.classList.toggle('active', b.dataset.backup === (u.backup || 'auto')));
 }
 
 async function fetchUsage() {
@@ -11664,15 +11682,63 @@ function settingsSetCompute(c) { _sttPost({ compute_type: c }); }
 // ── Default LLM ─────────────────────────────────────────────
 async function _settingsLoadModel() {
   try {
-    const d = await (await fetch(`${API_BASE}/providers`)).json();
+    const [d, u] = await Promise.all([
+      fetch(`${API_BASE}/providers`).then(r => r.json()),
+      fetch(`${API_BASE}/usage`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
     const row = document.getElementById('settings-model-row');
     if (!row) return;
     row.innerHTML = (d.providers || []).map(p =>
       `<button class="settings-opt${p.id === d.active ? ' active' : ''}" ${p.available ? '' : 'disabled'} data-prov="${p.id}" onclick="settingsSetModel('${p.id}')" title="${(p.model || '')}${p.available ? '' : ' — not installed'}">${(p.label || p.id).toUpperCase()}</button>`).join('');
+    _settingsRenderBackup(d.providers || [], d.active, u);
   } catch (e) { addLog(`Providers load failed: ${e.message || e}`); }
 }
 async function settingsSetModel(id) {
   if (typeof setProvider === 'function') { await setProvider(id); }
+  _settingsLoadModel();
+  fetchUsage();   // the failover line names the default model
+}
+
+// ── Backup LLM (usage-limit failover target) ────────────────
+// Families share one account, so a backup in the default's family would run
+// out at the same moment. Mirrors provider_failover.family().
+function _llmFamily(id) {
+  id = id || '';
+  for (const f of ['claude', 'codex', 'gemini', 'ollama']) {
+    if (id.startsWith(f)) return f;
+  }
+  return null;
+}
+function _llmFamilyLabel(f) {
+  return ({ claude: 'Claude', codex: 'Codex', gemini: 'Gemini', ollama: 'Ollama' })[f] || f || '';
+}
+
+function _settingsRenderBackup(providers, active, u) {
+  const row = document.getElementById('settings-backup-row');
+  if (!row) return;
+  const choice = (u && u.backup) || 'auto';
+  const defFam = _llmFamily(active);
+  const auto = `<button class="settings-opt${choice === 'auto' ? ' active' : ''}" data-backup="auto" onclick="settingsSetBackup('auto')" title="Claude and Codex cover each other, matching speed tiers">AUTOMATIC</button>`;
+  row.innerHTML = auto + providers.filter(p => _llmFamily(p.id)).map(p => {
+    const same = _llmFamily(p.id) === defFam;
+    const why = !p.available ? ' (not installed)' : same ? ' (same account as the default model)' : '';
+    return `<button class="settings-opt${p.id === choice ? ' active' : ''}" ${p.available && !same ? '' : 'disabled'} data-backup="${p.id}" onclick="settingsSetBackup('${p.id}')" title="${escapeHtml((p.model || '') + why)}">${escapeHtml((p.label || p.id).toUpperCase())}</button>`;
+  }).join('');
+}
+
+async function settingsSetBackup(id) {
+  try {
+    const res = await fetch(`${API_BASE}/failover`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backup: id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    _renderUsage(data);
+    addLog(`Backup LLM → ${id === 'auto' ? 'automatic' : id}`);
+  } catch (e) {
+    addLog(`Backup LLM change failed: ${e.message || e}`);
+  }
   _settingsLoadModel();
 }
 

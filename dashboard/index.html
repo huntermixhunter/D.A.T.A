@@ -893,8 +893,12 @@
               <p class="settings-sub">Model the main channel uses for new messages.</p>
               <div class="settings-opt-row" id="settings-model-row"></div>
 
+              <h3 class="settings-h">Backup LLM</h3>
+              <p class="settings-sub">Takes over when the default model runs out of its usage limit or daily quota. Automatic pairs Claude and Codex with each other. A local Ollama model has no limits, so it is a dependable backup for any service. Models that share the default's account are greyed out, because they run out at the same time.</p>
+              <div class="settings-opt-row" id="settings-backup-row"></div>
+
               <h3 class="settings-h usage-settings-h">Usage-limit failover</h3>
-              <p class="settings-sub">When Claude hits its usage limit, Codex finishes that reply and answers later messages until Claude resets, then everything switches back. It works the other way too. It never hands work to a service that is signed out or whose last reading shows 100%, so it never pushes you onto paid credits.</p>
+              <p class="settings-sub">When the default model hits its limit, the backup finishes that reply and answers later messages until the limit resets, then everything switches back. It never hands work to Claude or Codex while that service is signed out or its last reading shows 100%, so it never pushes you onto paid credits.</p>
               <label class="usage-toggle">
                 <input type="checkbox" id="failover-toggle" onchange="setFailover(this.checked)">
                 <span>Failover on</span>

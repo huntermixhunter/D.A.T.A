@@ -8371,6 +8371,7 @@ def ask_gemini_cli_stream(message: str, project_path: str, send_sse) -> None:
         return
 
     gemini_auth_failed = False
+    gemini_handed_off = False
     if was_killed:
         msg = "Aborted, Captain."
         if not final_text:
@@ -8383,11 +8384,15 @@ def ask_gemini_cli_stream(message: str, project_path: str, send_sse) -> None:
         if final_text.strip():
             send_sse('token', "\n\n")
         final_text = _emit_login_needed(send_sse, "gemini")
+    elif not final_text.strip() and _failover.claim_limit_text(stderr):
+        # Gemini hit its quota and the backup model is taking the turn over,
+        # so this runner writes no history for it.
+        gemini_handed_off = True
     elif not final_text.strip():
         fallback = stderr or "Gemini returned no output, Captain."
         send_sse('token', fallback); final_text = fallback
 
-    if not was_killed and not gemini_auth_failed:
+    if not was_killed and not gemini_auth_failed and not gemini_handed_off:
         conversation_history.append({"role": "user",      "content": message})
         conversation_history.append({"role": "assistant", "content": final_text.strip()})
         if len(conversation_history) > MAX_HISTORY:
@@ -8690,10 +8695,10 @@ def _provider_runner(provider_id: str):
 
 def _run_turn_with_failover(provider_id: str, message: str, project_path: str,
                             sse, announce: bool = True) -> str:
-    """Run one turn through provider_failover: a Claude or Codex turn that hits
-    its usage limit is finished by the partner CLI, and later turns route
-    around the limit until it resets. Other providers run unchanged. Returns
-    the provider id that answered last."""
+    """Run one turn through provider_failover: a Claude, Codex or Gemini turn
+    that hits its usage limit is finished by the backup model chosen in
+    Settings (or the automatic partner), and later turns route around the
+    limit until it resets. Returns the provider id that answered last."""
     def _set_provider(pid):
         prev = getattr(_provider_override, "id", None)
         _provider_override.id = pid
@@ -8705,7 +8710,8 @@ def _run_turn_with_failover(provider_id: str, message: str, project_path: str,
         provider_available=_provider_available,
         history=conversation_history,
         save_history=lambda: _save_history(conversation_history),
-        announce=announce)
+        announce=announce,
+        default_provider=ACTIVE_PROVIDER)
 
 
 def dispatch(message: str, project_path: str = "", pane_id: str = "") -> str:
@@ -11397,7 +11403,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/usage":
             # Subscription usage meter + failover state (cached; the poller
             # and every Claude turn keep it current).
-            self._json(_failover.snapshot())
+            self._json(_failover.snapshot(ACTIVE_PROVIDER))
 
         elif path == "/agents":
             # Editable per-officer personality files (~/.claude/agents/*.md),
@@ -13020,16 +13026,34 @@ class Handler(BaseHTTPRequestHandler):
             # get_usage control request, no tokens; Codex via session files).
             _failover.refresh_claude(_provider_executable("claude-cli") or None)
             _failover.refresh_codex(_provider_executable("codex") or None)
-            self._json(_failover.snapshot())
+            self._json(_failover.snapshot(ACTIVE_PROVIDER))
 
         elif path == "/failover":
-            # Settings switch. Body: {"enabled": true|false}.
-            if not isinstance(data.get("enabled"), bool):
+            # Settings. Body: {"enabled": true|false} and/or
+            # {"backup": "auto" | <provider id>}.
+            if "enabled" not in data and "backup" not in data:
+                self._json({"error": "send enabled and/or backup"}, 400)
+                return
+            if "enabled" in data and not isinstance(data.get("enabled"), bool):
                 self._json({"error": "enabled must be true or false"}, 400)
                 return
-            _failover.set_enabled(data["enabled"])
-            log.info(f"[FAILOVER] switched {'on' if data['enabled'] else 'off'}")
-            self._json(_failover.snapshot())
+            if "backup" in data:
+                backup = data.get("backup")
+                if backup != _failover.BACKUP_AUTO:
+                    if backup not in PROVIDERS or not _failover.family(backup):
+                        self._json({"error": "backup must be auto or a Claude, Codex, "
+                                             "Gemini or Ollama model"}, 400)
+                        return
+                    if not _provider_available(backup):
+                        self._json({"error": f"{backup} is not installed",
+                                    "install_hint": PROVIDERS[backup].get("install_hint", "")}, 400)
+                        return
+                _failover.set_backup(backup)
+                log.info(f"[FAILOVER] backup model -> {backup}")
+            if "enabled" in data:
+                _failover.set_enabled(data["enabled"])
+                log.info(f"[FAILOVER] switched {'on' if data['enabled'] else 'off'}")
+            self._json(_failover.snapshot(ACTIVE_PROVIDER))
 
         elif path == "/llm/install":
             # kind='ollama' → pull a local model;  kind='cli' → install a connector

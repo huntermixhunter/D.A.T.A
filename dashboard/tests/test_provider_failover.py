@@ -42,7 +42,8 @@ class _Fresh(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
-        pf._state.update({"enabled": True, "limited": {}, "last_failover": None})
+        pf._state.update({"enabled": True, "limited": {}, "last_failover": None,
+                          "backup": pf.BACKUP_AUTO})
         pf._meter.update({"claude": {}, "codex": {}})
         pf.init(self.tmp / "state.json")
         p = mock.patch.object(pf, "refresh_async", lambda *a, **k: None)
@@ -331,6 +332,134 @@ class Routing(_Fresh):
         self.assertTrue(pf.limited_until("codex"))
 
 
+# ── backup model chosen in Settings ─────────────────────────────────────────
+
+GEMINI_QUOTA = ("Error: You have reached your daily gemini-2.5-pro quota limit. "
+                "Please retry in 2 hours.")
+
+
+class Multi:
+    """Stand-in bridge with one runner per family. `scripts` maps a family to
+    'limit' (fails with that family's limit text and writes no history) or a
+    reply string."""
+
+    LIMITS = {"claude": LIMIT, "codex": "You've hit your usage limit. Try again in 3 hours.",
+              "gemini": GEMINI_QUOTA}
+
+    def __init__(self, **scripts):
+        self.scripts, self.events, self.history, self.calls = scripts, [], [], []
+        self.pinned = None
+
+    def runner(self, pid):
+        fam = pf.family(pid)
+
+        def run(message, project, sse):
+            self.calls.append((pid, self.pinned, message))
+            reply = self.scripts.get(fam, f"{fam} reply")
+            if reply == "limit":
+                pf.claim_limit_text(self.LIMITS[fam])
+            else:
+                sse("token", reply)
+                self.history += [{"role": "user", "content": message},
+                                 {"role": "assistant", "content": reply}]
+            sse("meta", "{}")
+            sse("done", "")
+        return run
+
+    def run(self, pid, default=None, available=lambda p: True):
+        def set_provider(p):
+            prev, self.pinned = self.pinned, p
+            return prev
+        return pf.run_turn(pid, "Fix the bug", "", lambda e, t: self.events.append((e, t)),
+                           runner_for=self.runner, set_provider=set_provider,
+                           provider_available=available, history=self.history,
+                           save_history=lambda: None, default_provider=default or pid)
+
+    def text(self):
+        return "".join(t for e, t in self.events if e == "token")
+
+
+class Backup(_Fresh):
+    def test_automatic_keeps_the_tier_table(self):
+        self.assertEqual(pf.backup_choice(), "auto")
+        self.assertEqual(pf.backup_for("claude-cli-sonnet", "claude-cli-sonnet"), "codex-sol")
+        self.assertEqual(pf.backup_for("codex", "claude-cli"), "claude-cli")
+        self.assertIsNone(pf.backup_for("gemini", "gemini"))
+
+    def test_chosen_backup_wins_for_any_family(self):
+        pf.set_backup("ollama")
+        for pid in ("claude-cli", "claude-cli-haiku", "codex-sol", "gemini"):
+            self.assertEqual(pf.backup_for(pid, pid), "ollama", pid)
+
+    def test_window_already_on_the_backup_falls_back_to_the_default(self):
+        pf.set_backup("codex")
+        self.assertEqual(pf.backup_for("codex-sol", "claude-cli"), "claude-cli")
+        self.assertEqual(pf.backup_for("codex-sol", "gemini"), "gemini")
+
+    def test_backup_sharing_the_default_account_uses_automatic(self):
+        pf.set_backup("claude-cli-haiku")
+        self.assertEqual(pf.backup_for("claude-cli", "claude-cli"), "codex")
+        snap = pf.snapshot("claude-cli")
+        self.assertEqual((snap["backup"], snap["backup_target"]), ("claude-cli-haiku", "codex"))
+
+    def test_choice_is_validated_and_survives_restart(self):
+        with self.assertRaises(ValueError):
+            pf.set_backup("hermes")
+        pf.set_backup("gemini")
+        pf._state["backup"] = pf.BACKUP_AUTO
+        pf.init(self.tmp / "state.json")
+        self.assertEqual(pf.backup_choice(), "gemini")
+        (self.tmp / "state.json").write_text(json.dumps({"backup": "bogus"}), encoding="utf-8")
+        pf.init(self.tmp / "state.json")
+        self.assertEqual(pf.backup_choice(), "auto")
+
+    def test_snapshot_names_the_pairing(self):
+        pf.set_backup("ollama-small")
+        snap = pf.snapshot("gemini")
+        self.assertEqual((snap["default"], snap["default_family"]), ("gemini", "gemini"))
+        self.assertEqual((snap["backup_target"], snap["backup_family"]), ("ollama-small", "ollama"))
+        self.assertNotIn("default", pf.snapshot())   # older callers keep the old shape
+
+    def test_claude_limit_hands_off_to_chosen_local_model(self):
+        pf.set_backup("ollama")
+        h = Multi(claude="limit", ollama="Ollama finished it.")
+        self.assertEqual(h.run("claude-cli"), "ollama")
+        self.assertEqual([c[0] for c in h.calls], ["claude-cli", "ollama"])
+        self.assertIn("Ollama is picking up from here", h.text())
+        self.assertEqual(h.history[-1]["content"], "Ollama finished it.")
+        h2 = Multi(ollama="Still Ollama.")
+        self.assertEqual(h2.run("claude-cli"), "ollama")   # routed until the reset
+        self.assertIn("so Ollama is answering", h2.text())
+
+    def test_gemini_quota_hands_off_and_records_reset(self):
+        pf.set_backup("claude-cli")
+        _claude_ready()
+        h = Multi(gemini="limit", claude="Claude finished it.")
+        self.assertEqual(h.run("gemini"), "claude-cli")
+        self.assertIn("Gemini hit its quota limit", h.text())
+        until = pf.limited_until("gemini")
+        self.assertAlmostEqual(until - time.time(), 7200, delta=60)
+
+    def test_gemini_without_a_backup_explains_why(self):
+        h = Multi(gemini="limit")
+        self.assertEqual(h.run("gemini"), "gemini")
+        self.assertIn("Failover skipped: no backup model is set", h.text())
+
+    def test_uninstalled_chosen_backup_is_skipped(self):
+        pf.set_backup("ollama")
+        h = Multi(claude="limit")
+        h.run("claude-cli", available=lambda p: not p.startswith("ollama"))
+        self.assertIn("Ollama is not installed", h.text())
+
+    def test_gemini_patterns(self):
+        for text in (GEMINI_QUOTA, "Usage limit reached for all Pro models.",
+                     "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests'",
+                     '[API Error: {"status": "RESOURCE_EXHAUSTED"}]'):
+            self.assertIsNotNone(pf.match_limit(text, "gemini"), text)
+        self.assertIsNone(pf.match_limit("Here is how API quotas work.", "gemini"))
+        self.assertIsNone(pf.match_limit(GEMINI_QUOTA, "ollama"))
+
+
 # ── bridge + UI wiring (static checks; the bridge is not started) ───────────
 
 class Wiring(unittest.TestCase):
@@ -348,7 +477,9 @@ class Wiring(unittest.TestCase):
 
     def test_runner_hooks_present(self):
         for hook in ('elif etype == "rate_limit_event"', "_failover.claim_rate_event(",
-                     "_failover.handing_off()", "_failover.claim_limit_text("):
+                     "_failover.handing_off()", "_failover.claim_limit_text(",
+                     "_failover.claim_limit_text(stderr)", "not gemini_handed_off",
+                     "default_provider=ACTIVE_PROVIDER", "_failover.set_backup(backup)"):
             self.assertIn(hook, self.bridge)
 
     def test_routes_and_static_css(self):
@@ -362,10 +493,11 @@ class Wiring(unittest.TestCase):
         self.assertIn("provider_failover_state.json", self.gitignore)
 
     def test_ui_pieces(self):
-        for needle in ('id="usage-meter"', 'id="usage-rows"', 'id="failover-toggle"', "usage_meter.css"):
+        for needle in ('id="usage-meter"', 'id="usage-rows"', 'id="failover-toggle"', "usage_meter.css",
+                       'id="settings-backup-row"'):
             self.assertIn(needle, self.html)
         for fn in ("function fetchUsage", "function refreshUsage", "function setFailover",
-                   "setInterval(fetchUsage"):
+                   "setInterval(fetchUsage", "function settingsSetBackup", "function _llmFamily("):
             self.assertIn(fn, self.app)
 
     def test_never_reads_claude_credentials(self):

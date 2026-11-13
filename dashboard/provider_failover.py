@@ -63,7 +63,11 @@ FALLBACK = {
     "codex-mini":         "claude-cli-haiku",
 }
 
-FAMILY_LABEL = {"claude": "Claude", "codex": "Codex"}
+FAMILY_LABEL = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini", "ollama": "Ollama"}
+
+# Settings choice for the backup model. "auto" uses FALLBACK above; any other
+# value is a provider id the user picked in Settings.
+BACKUP_AUTO = "auto"
 
 CLAUDE_POLL_SECS = 300      # get_usage refresh while idle
 CODEX_POLL_SECS = 60        # session-file scan (cheap)
@@ -77,6 +81,10 @@ def family(provider_id: str) -> str | None:
         return "claude"
     if pid.startswith("codex"):
         return "codex"
+    if pid.startswith("gemini"):
+        return "gemini"
+    if pid.startswith("ollama"):
+        return "ollama"   # local and free: never limited, so a safe backup
     return None
 
 
@@ -96,6 +104,15 @@ _CODEX_LIMIT_RE = re.compile(r"You(?:'|’)ve hit your usage limit|usage_limit_r
 _RESETS_RE = re.compile(
     r"resets\s+(?P<when>[^()·\n]+?)\s*(?:\((?P<tz>[A-Za-z_]+/[A-Za-z_/+\-]+|UTC)\))?\s*(?:$|[·\n\"])",
     re.I)
+# Gemini CLI quota errors (only ever checked against a turn that produced no
+# reply, so a reply that talks about quotas never trips failover):
+#   You have reached your daily gemini-2.5-pro quota limit
+#   Usage limit reached for all Pro models.
+#   Quota exceeded for quota metric 'Gemini 2.5 Pro Requests' ...
+#   [API Error: ... RESOURCE_EXHAUSTED ...]
+_GEMINI_LIMIT_RE = re.compile(
+    r"reached your daily [^\n]{0,60}?quota|usage limit reached for all|quota exceeded for quota metric"
+    r"|RESOURCE_EXHAUSTED", re.I)
 _TRY_AGAIN_AT_RE = re.compile(r"try again at (?P<when>[^\n]+?)\.?\s*$", re.I)
 _TRY_AGAIN_IN_RE = re.compile(r"try again in (?P<span>[0-9 a-z,]+)", re.I)
 
@@ -191,6 +208,12 @@ def match_limit(text: str, fam: str, now: float | None = None) -> dict | None:
             if secs:
                 resets_at = now + secs
         return {"kind": "usage", "resets_at": resets_at, "label": "usage limit"}
+    if fam == "gemini":
+        if not _GEMINI_LIMIT_RE.search(text):
+            return None
+        span = _TRY_AGAIN_IN_RE.search(text) or re.search(r"retry in (?P<span>[0-9 a-z,.]+)", text, re.I)
+        secs = _parse_span(span.group("span")) if span else None
+        return {"kind": "quota", "resets_at": now + secs if secs else None, "label": "quota limit"}
     return None
 
 
@@ -203,6 +226,7 @@ _state = {
     # family -> {"until": epoch, "kind": str, "since": epoch}
     "limited": {},
     "last_failover": None,
+    "backup": BACKUP_AUTO,
 }
 _meter = {"claude": {}, "codex": {}}
 
@@ -216,8 +240,10 @@ def init(state_file: Path) -> None:
         with _lock:
             _state["enabled"] = bool(data.get("enabled", True))
             _state["limited"] = {k: v for k, v in (data.get("limited") or {}).items()
-                                 if k in ("claude", "codex") and isinstance(v, dict)}
+                                 if k in FAMILY_LABEL and isinstance(v, dict)}
             _state["last_failover"] = data.get("last_failover")
+            backup = data.get("backup") or BACKUP_AUTO
+            _state["backup"] = backup if backup == BACKUP_AUTO or family(backup) else BACKUP_AUTO
     except FileNotFoundError:
         pass
     except Exception as e:
@@ -245,6 +271,38 @@ def set_enabled(on: bool) -> None:
     with _lock:
         _state["enabled"] = bool(on)
     _save()
+
+
+def backup_choice() -> str:
+    return _state.get("backup") or BACKUP_AUTO
+
+
+def set_backup(choice: str) -> None:
+    """Save the Settings choice: BACKUP_AUTO or a provider id. The bridge
+    checks the id against its provider list before calling this."""
+    choice = choice or BACKUP_AUTO
+    if choice != BACKUP_AUTO and not family(choice):
+        raise ValueError(f"cannot fail over to {choice!r}")
+    with _lock:
+        _state["backup"] = choice
+    _save()
+
+
+def backup_for(provider_id: str, default_provider: str | None = None) -> str | None:
+    """Which provider takes a turn over when `provider_id` hits its limit.
+
+    A backup picked in Settings wins, unless it shares the limited provider's
+    account (same family), which would be out of quota too. In that case the
+    window is already running on the backup, so the default model takes over
+    instead. Otherwise the automatic tier table applies."""
+    fam = family(provider_id)
+    choice = backup_choice()
+    if choice != BACKUP_AUTO:
+        if family(choice) != fam:
+            return choice
+        if default_provider and family(default_provider) not in (None, fam):
+            return default_provider
+    return FALLBACK.get(provider_id)
 
 
 def mark_limited(fam: str, kind: str, resets_at: float | None) -> None:
@@ -547,6 +605,8 @@ def refresh_codex(exe: str | None = None, check_login: bool = True) -> dict:
 
 def _meter_blocks(fam: str) -> str | None:
     """Reason the family cannot take a handoff, or None if it can."""
+    if fam not in _meter:
+        return None   # Gemini and Ollama have no subscription meter
     with _lock:
         m = dict(_meter.get(fam) or {})
     if m.get("signed_in") is False:
@@ -559,7 +619,7 @@ def _meter_blocks(fam: str) -> str | None:
     return None
 
 
-def snapshot() -> dict:
+def snapshot(default_provider: str | None = None) -> dict:
     now = time.time()
     with _lock:
         meter = json.loads(json.dumps(_meter))
@@ -571,8 +631,14 @@ def snapshot() -> dict:
     for fam in ("claude", "codex"):
         meter[fam]["limited"] = limited.get(fam)
         meter[fam]["blocked_reason"] = _meter_blocks(fam)
-    return {"enabled": bool(st.get("enabled", True)), "claude": meter["claude"],
-            "codex": meter["codex"], "last_failover": st.get("last_failover"), "now": now}
+    out = {"enabled": bool(st.get("enabled", True)), "claude": meter["claude"],
+           "codex": meter["codex"], "last_failover": st.get("last_failover"), "now": now,
+           "limited": limited, "backup": st.get("backup") or BACKUP_AUTO}
+    if default_provider:
+        target = backup_for(default_provider, default_provider)
+        out.update({"default": default_provider, "default_family": family(default_provider),
+                    "backup_target": target, "backup_family": family(target) if target else None})
+    return out
 
 
 # ── Background poller ───────────────────────────────────────────────────────
@@ -604,7 +670,7 @@ def start_poller(claude_exe_fn=None, codex_exe_fn=None) -> None:
                 refresh_codex(codex_exe_fn() if codex_exe_fn else None, check_login=do_login)
             except Exception as e:
                 log.warning(f"[FAILOVER] codex poll failed: {e}")
-            for fam in ("claude", "codex"):
+            for fam in list(_state["limited"]):
                 limited_until(fam)   # expire passed entries
             time.sleep(CODEX_POLL_SECS)
 
@@ -623,8 +689,10 @@ _tl = threading.local()
 
 
 class TurnCtx:
-    def __init__(self, provider: str, allow_handoff: bool, can_take: callable):
+    def __init__(self, provider: str, allow_handoff: bool, can_take: callable,
+                 backup: str | None = None):
         self.provider = provider
+        self.backup = backup
         self.family = family(provider)
         self.allow_handoff = allow_handoff
         self._can_take = can_take
@@ -646,9 +714,9 @@ class TurnCtx:
         if not enabled():
             self.skip_reason = "failover is switched off in Settings"
             return
-        target = FALLBACK.get(self.provider)
+        target = self.backup
         if not target:
-            self.skip_reason = "this model has no failover partner"
+            self.skip_reason = "no backup model is set for it (Settings, Model)"
             return
         reason = self._can_take(target)
         if reason:
@@ -750,13 +818,16 @@ def _tool_line(payload) -> str | None:
 
 def run_turn(provider_id: str, message: str, project_path: str, sse, *,
              runner_for, set_provider, provider_available, history=None,
-             save_history=None, announce: bool = True) -> str:
+             save_history=None, announce: bool = True,
+             default_provider: str | None = None) -> str:
     """Run one turn on `provider_id`, routing around a known limit first and
     handing the turn to the partner provider if the limit hits mid-turn.
 
     `runner_for(pid)` returns the bridge runner, `set_provider(pid)` pins the
     thread's provider and returns the previous value, `provider_available(pid)`
-    says whether its CLI is installed. Returns the provider that answered last.
+    says whether its CLI is installed. `default_provider` is the model chosen
+    as the default in Settings (see backup_for). Returns the provider that
+    answered last.
     """
     fam = family(provider_id)
     if fam is None:
@@ -771,6 +842,9 @@ def run_turn(provider_id: str, message: str, project_path: str, sse, *,
             return f"{FAMILY_LABEL[tfam]} is also at its limit"
         return _meter_blocks(tfam)
 
+    def pick(pid: str) -> str | None:
+        return backup_for(pid, default_provider)
+
     def note(text: str) -> None:
         if announce:
             sse("token", text)
@@ -781,8 +855,8 @@ def run_turn(provider_id: str, message: str, project_path: str, sse, *,
     pid = provider_id
     until = limited_until(fam) if enabled() else None
     if until:
-        target = FALLBACK.get(provider_id)
-        reason = can_take(target) if target else "no failover partner"
+        target = pick(provider_id)
+        reason = can_take(target) if target else "no backup model"
         if target and not reason:
             entry = _state["limited"].get(fam) or {}
             when = _fmt_time(until) if entry.get("reset_known") else ""
@@ -793,7 +867,7 @@ def run_turn(provider_id: str, message: str, project_path: str, sse, *,
             _record_failover(provider_id, target, "routed (limit active)")
 
     # 2. Run, watching for a limit that hits mid-turn.
-    ctx = TurnCtx(pid, allow_handoff=(pid == provider_id), can_take=can_take)
+    ctx = TurnCtx(pid, allow_handoff=(pid == provider_id), can_take=can_take, backup=pick(pid))
     held: list[tuple[str, object]] = []
 
     def proxy(event_type, text):
