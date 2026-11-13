@@ -64,7 +64,7 @@ def run(base, out):
         page.locator('[data-difficulty="pilot"]').click(); assert selected(page) == 'pilot'
         checks.append('difficulty radio group: click, arrow keys, Home/End, Enter launches from a focused level, saved per profile, applied to the run, shown on pause')
 
-        # Lasers: red at launch, a preview on the upgrade card, and blue after the second weapon upgrade.
+        # Lasers: red at launch, a preview on the damage card only, and blue once Heavy rounds is installed.
         page.evaluate(CAPTURE); page.locator('#launch').click()
         page.wait_for_function("fixtureGame.mode === 'playing' && fixtureGame.difficulty.id === 'pilot'")
         page.evaluate(CALM)
@@ -73,12 +73,15 @@ def run(base, out):
         assert page.evaluate("fixtureGame.shots.filter(s => s.owner === 'player').every(s => s.color === 'red')")
         page.screenshot(path=str(out / 'laser-red.png'))
         page.keyboard.up('Space')
-        page.evaluate("() => { fixtureGame.upgrades.rapid = 1; }")
+        page.evaluate("() => { fixtureGame.upgrades.rapid = 1; fixtureGame.upgrades.spread = 2; }")
+        assert page.evaluate("fixtureGame.laser") == 'red', 'fire rate and a maxed split shot stay red'
         page.evaluate(CLEAR)
         page.wait_for_function("fixtureGame.mode === 'upgrade'")
-        page.evaluate("() => { fixtureGame.choices = ['power', 'hull', 'spread']; }")
+        page.evaluate("() => { fixtureGame.choices = ['power', 'hull', 'rapid']; }")
         expect(page.locator('#upgrade-screen')).to_be_visible(timeout=5000)
-        assert page.locator('.laser-note').count() == 2, 'both weapon cards preview the blue lasers'
+        assert page.locator('.laser-note').count() == 1, 'only the damage card previews the blue lasers'
+        assert page.locator('[data-choice="power"] .laser-note').count() == 1
+        assert page.locator('[data-choice="rapid"] .laser-note').count() == 0
         assert page.locator('[data-choice="hull"] .laser-note').count() == 0
         page.screenshot(path=str(out / 'upgrade-laser-preview.png'))
         page.locator('[data-choice="power"]').click()
@@ -91,7 +94,7 @@ def run(base, out):
         assert page.evaluate("fixtureGame.shots.filter(s => s.owner === 'player').every(s => s.color === 'blue')")
         page.screenshot(path=str(out / 'laser-blue.png'))
         page.keyboard.up('Space')
-        checks.append('red lasers at launch, blue-laser preview on weapon cards, blue lasers and callout after the second weapon upgrade')
+        checks.append('red lasers at launch and after fire-rate and split-shot upgrades, blue-laser preview on the damage card only, blue lasers and callout after Heavy rounds')
 
         # The dreadnought: every fifth sector, with warning, HUD, shield, charge, ring, collapse, kill, and full repair.
         page.evaluate("() => { fixtureGame.wave = 4; }")

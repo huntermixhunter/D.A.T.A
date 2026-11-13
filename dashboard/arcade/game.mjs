@@ -1,4 +1,4 @@
-import { Game, HANGAR, UPGRADES, DIFFICULTIES, BOSS_EVERY, LASER_BLUE_AT, WEAPON_UPGRADES, cleanProfile, difficultyFor, purchase, hangarCost, clamp } from './engine.mjs';
+import { Game, HANGAR, UPGRADES, DIFFICULTIES, BOSS_EVERY, LASER_BLUE_AT, LASER_UPGRADE, cleanProfile, difficultyFor, purchase, hangarCost, clamp } from './engine.mjs';
 import { Renderer } from './renderer.mjs';
 
 const $ = id => document.getElementById(id);
@@ -455,7 +455,7 @@ function showUpgrades() {
   $('upgrade-choices').replaceChildren();
   for (const id of game.choices) {
     const upgrade = UPGRADES.find(item => item.id === id) || { id: 'repair', name: 'Field service', tag: 'SUPPORT', icon: 'shield', detail: 'Fully repair your hull and bank 60 extra salvage.', max: 0 };
-    const blue = WEAPON_UPGRADES.includes(id) && game.laser === 'red' && game.weaponLevel + 1 >= LASER_BLUE_AT;
+    const blue = id === LASER_UPGRADE && game.laser === 'red' && game.upgrades[id] + 1 >= LASER_BLUE_AT;
     const button = document.createElement('button');
     button.type = 'button'; button.className = 'upgrade-card'; button.dataset.choice = id;
     button.innerHTML = icon(upgrade.icon) + '<span class="eyebrow">' + upgrade.tag + (upgrade.max ? ' / LEVEL ' + (game.upgrades[id] + 1) + ' OF ' + upgrade.max : '') + '</span><strong>' + upgrade.name.toUpperCase() + '</strong><span class="description">' + upgrade.detail + '</span>'

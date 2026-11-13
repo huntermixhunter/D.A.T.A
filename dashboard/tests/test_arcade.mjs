@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, WORLD, delta, distance, wrap, angleDiff, cleanProfile, purchase, hangarCost, UPGRADES, DIFFICULTIES, DEFAULT_DIFFICULTY,
-  BOSS_EVERY, LASER_BLUE_AT, SPAWN_RADIUS, CAMERA_LEAD, SHIP } from '../arcade/engine.mjs';
+  BOSS_EVERY, LASER_BLUE_AT, LASER_UPGRADE, SPAWN_RADIUS, CAMERA_LEAD, SHIP } from '../arcade/engine.mjs';
 import { VIEW_SPAN, zoomFor } from '../arcade/renderer.mjs';
 
 function seeded() {
@@ -205,8 +205,9 @@ test('ramming the dreadnought bounces the ship and hurts', () => {
   assert.ok(distance(g.player, boss) > 130, 'the ship is pushed back out');
 });
 
-test('cannons fire red lasers until two weapon upgrades are installed, then blue', () => {
-  assert.equal(LASER_BLUE_AT, 2);
+test('cannons fire red lasers until the damage upgrade is installed, then blue', () => {
+  assert.equal(LASER_UPGRADE, 'power');
+  assert.equal(LASER_BLUE_AT, 1);
   const g = game(); quiet(g);
   g.step(1 / 60, { fire: true });
   assert.ok(g.shots.length >= 2 && g.shots.every(shot => shot.color === 'red'));
@@ -214,7 +215,11 @@ test('cannons fire red lasers until two weapon upgrades are installed, then blue
   assert.equal(new Game({ hangar: { cannons: 4 } }).laser, 'red', 'every run starts red, whatever the hangar');
   const install = id => { g.mode = 'upgrade'; g.choices = [id]; assert.ok(g.chooseUpgrade(id)); quiet(g); };
   install('rapid');
-  assert.equal(g.laser, 'red', 'one weapon upgrade is not enough');
+  assert.equal(g.laser, 'red', 'fire rate does not change the color');
+  install('spread'); install('spread');
+  assert.equal(g.laser, 'red', 'split shot does not change the color, even maxed');
+  install('rapid');
+  assert.equal(g.laser, 'red', 'any number of non-damage weapon upgrades stays red');
   install('hull');
   assert.equal(g.laser, 'red', 'defense upgrades do not count');
   assert.ok(!g.drainEvents().some(event => event.type === 'laser'));

@@ -24,7 +24,7 @@ const PALETTE = {
   white: [255, 255, 255], cyan: [120, 222, 255], blue: [86, 158, 255], orange: [255, 150, 60],
   amber: [255, 196, 107], red: [255, 74, 61], green: [125, 255, 122], violet: [183, 115, 255],
   ember: [255, 110, 40], pink: [255, 90, 120], ftl: [110, 240, 138],
-  // Player lasers: red from launch, blue once enough weapon upgrades are installed.
+  // Player lasers: red from launch, blue once the damage upgrade (Heavy rounds) is installed.
   crimson: [255, 38, 46], azure: [52, 128, 255], magenta: [255, 80, 200],
 };
 const laserColor = laser => laser === 'blue' ? 'azure' : laser === 'red' ? 'crimson' : 'cyan';

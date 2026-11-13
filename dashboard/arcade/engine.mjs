@@ -19,9 +19,10 @@ export const SPAWN_RADIUS = 1350;
 export const CAMERA_LEAD = .24;
 // Every fifth sector is a dreadnought fight.
 export const BOSS_EVERY = 5;
-// The cannons fire red lasers until this many weapon upgrades are installed in a run.
-export const LASER_BLUE_AT = 2;
-export const WEAPON_UPGRADES = ['rapid', 'spread', 'power'];
+// The cannons fire red lasers until the damage upgrade (Heavy rounds) reaches this level in a run.
+// Fire rate and Split shot never change the color.
+export const LASER_UPGRADE = 'power';
+export const LASER_BLUE_AT = 1;
 
 export const SHIP = { radius: 24, nose: 74, tail: 69, turn: 7.5, turnEase: 12, cruise: 300, boost: 1.9 };
 export const ENEMIES = {
@@ -161,8 +162,7 @@ export class Game {
   get multiplier() { return 1 + Math.min(4, Math.floor(this.combo / 5)); }
   get remaining() { return this.bases.filter(base => !base.dead).length + (this.boss && !this.boss.dead ? 1 : 0); }
   get bossSector() { return this.wave % BOSS_EVERY === 0; }
-  get weaponLevel() { return WEAPON_UPGRADES.reduce((sum, id) => sum + this.upgrades[id], 0); }
-  get laser() { return this.weaponLevel >= LASER_BLUE_AT ? 'blue' : 'red'; }
+  get laser() { return this.upgrades[LASER_UPGRADE] >= LASER_BLUE_AT ? 'blue' : 'red'; }
   // Escalation: zero in Sector 1 on Pilot, rising every sector at the difficulty's pace.
   get threat() { return this.difficulty.start + (this.wave - 1) * this.difficulty.growth; }
   get maxEnemies() { return Math.round(MAX_ENEMIES * this.difficulty.spawn); }

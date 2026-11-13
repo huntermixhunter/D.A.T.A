@@ -7,6 +7,12 @@ segments and shield pips, system power bars, and chamfered panels. The player
 ship, the alien fighters, and the six-cannon fortress are the supplied artwork.
 There are no accounts, purchases, external game services, or AI calls to play.
 
+## Standalone release
+
+Void Patrol also ships on its own: https://github.com/huntermixhunter/void-patrol
+It has browser play on GitHub Pages and Windows, Mac, and Linux desktop builds. Its `game/` folder is this
+`arcade/` folder minus the dashboard embedding. Make gameplay changes in both.
+
 ## The loop
 
 1. Choose a difficulty on the title screen, then launch a run. Your ship never
@@ -86,10 +92,11 @@ BOSS points to it when it is off screen.
 
 ## Lasers and view
 
-The cannons fire red lasers at the start of every run. After two weapon upgrades
-in the same run (any mix of Overclocked cannons, Split shot, and Heavy rounds)
-they switch to blue lasers with a callout. Weapon cards that would make the
-switch say so on the upgrade screen, and the weapons panel names the current
+The cannons fire red lasers at the start of every run. Installing Heavy rounds,
+the upgrade that raises the damage of every shot, switches them to blue lasers
+with a callout. Overclocked cannons (fire rate) and Split shot (extra shots) do
+not change the color, at any level. The Heavy rounds card says so on the upgrade
+screen while the lasers are still red, and the weapons panel names the current
 lasers and takes their color. Permanent hangar upgrades do not change the color.
 
 The camera shows about 2,000 world units across a widescreen playfield, 25%
