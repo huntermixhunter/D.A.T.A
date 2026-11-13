@@ -12041,6 +12041,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self._check_auth():
             return
 
+        # ── /open-external: outside links go to the default browser ──
+        # Used by the standalone app window; the checks live in app_window.py.
+        if path == "/open-external":
+            import app_window
+            app_window.handle_open_external(self, body)
+            return
+
         # ── In-chat console (sign-in / setup commands) ───────
         if path.startswith("/console/"):
             self._handle_console(path, body)

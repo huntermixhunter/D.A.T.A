@@ -76,14 +76,104 @@ class OpenTests(unittest.TestCase):
             result = app_window.open_app_window("http://localhost:7777/", "DATA")
         opened.assert_not_called()
         cmd = spawned.call_args[0][0]
-        self.assertIn("--app=http://localhost:7777/", cmd)
+        self.assertIn("--app=http://localhost:7777/?window=app", cmd)
         self.assertEqual(result, "edge app window")
+
+    def test_app_url_tag(self):
+        self.assertEqual(app_window.app_url("http://localhost:7777/"),
+                         "http://localhost:7777/?window=app")
+        self.assertEqual(app_window.app_url("http://localhost:7777/?vitals=1"),
+                         "http://localhost:7777/?vitals=1&window=app")
 
     def _tmp(self):
         import tempfile
         d = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, d, True)
         return d
+
+
+class _FakeHandler:
+    """Just enough of BaseHTTPRequestHandler for the /open-external route."""
+
+    def __init__(self, headers=None, peer="127.0.0.1", port=7777):
+        base = {"Host": f"localhost:{port}", "X-Data-Request": "1",
+                "Origin": f"http://localhost:{port}", "Sec-Fetch-Site": "same-origin"}
+        base.update(headers or {})
+        self.headers = {k: v for k, v in base.items() if v is not None}
+        self.client_address = (peer, 50000)
+        self.server = mock.Mock(server_address=("127.0.0.1", port))
+        self.replies = []
+
+    def _json(self, obj, code=200):
+        self.replies.append((code, obj))
+
+
+class ExternalUrlTests(unittest.TestCase):
+    def test_plain_web_links_pass(self):
+        for url in ("https://t.me/BotFather", "http://example.com/a?b=c#d",
+                    "https://tailscale.com/download"):
+            self.assertEqual(app_window.external_url(url), url)
+
+    def test_other_schemes_are_refused(self):
+        for url in ("file:///C:/Windows/System32/calc.exe", "ms-settings:privacy",
+                    "javascript:alert(1)", "mailto:a@b.c", r"C:\Windows\notepad.exe",
+                    "//example.com", "https://", "", None, 42, {"url": "x"}):
+            self.assertIsNone(app_window.external_url(url), url)
+
+    def test_odd_characters_and_huge_urls_are_refused(self):
+        for url in ('https://a.com/"x', "https://a.com/x y", "https://a.com/\x00",
+                    "https://a.com/\nx", "https://a.com/" + "a" * 5000):
+            self.assertIsNone(app_window.external_url(url))
+
+
+class LocalRequestTests(unittest.TestCase):
+    def test_dashboard_on_this_computer_is_allowed(self):
+        self.assertEqual(app_window.local_dashboard_request(_FakeHandler()), "")
+        self.assertEqual(app_window.local_dashboard_request(
+            _FakeHandler({"Origin": None, "Sec-Fetch-Site": None})), "")
+        self.assertEqual(app_window.local_dashboard_request(
+            _FakeHandler({"Host": "127.0.0.1:7777", "Origin": "http://127.0.0.1:7777"})), "")
+
+    def test_refusals(self):
+        cases = {
+            "remote peer": _FakeHandler(peer="100.64.0.7"),
+            "tunnel": _FakeHandler({"Cf-Connecting-Ip": "1.2.3.4"}),
+            "rebinding host": _FakeHandler({"Host": "evil.example:7777",
+                                            "Origin": "http://evil.example:7777"}),
+            "wrong port": _FakeHandler({"Host": "localhost:9999"}),
+            "no marker": _FakeHandler({"X-Data-Request": None}),
+            "cross-site": _FakeHandler({"Sec-Fetch-Site": "cross-site"}),
+            "foreign origin": _FakeHandler({"Origin": "https://evil.example"}),
+        }
+        for label, handler in cases.items():
+            self.assertNotEqual(app_window.local_dashboard_request(handler), "", label)
+
+
+class OpenExternalTests(unittest.TestCase):
+    def test_opens_in_default_browser(self):
+        h, opener = _FakeHandler(), mock.Mock(return_value=True)
+        app_window.handle_open_external(h, b'{"url": "https://t.me/BotFather"}', opener)
+        opener.assert_called_once_with("https://t.me/BotFather")
+        self.assertEqual(h.replies, [(200, {"ok": True})])
+
+    def test_refused_request_never_opens(self):
+        h, opener = _FakeHandler({"X-Data-Request": None}), mock.Mock()
+        app_window.handle_open_external(h, b'{"url": "https://t.me/BotFather"}', opener)
+        opener.assert_not_called()
+        self.assertEqual(h.replies[0][0], 403)
+
+    def test_bad_bodies_are_rejected(self):
+        for body in (b"", b"not json", b"[]", b'{"url": "file:///etc/passwd"}'):
+            h, opener = _FakeHandler(), mock.Mock()
+            app_window.handle_open_external(h, body, opener)
+            opener.assert_not_called()
+            self.assertEqual(h.replies[0][0], 400, body)
+
+    def test_browser_failure_is_reported(self):
+        for opener in (mock.Mock(return_value=False), mock.Mock(side_effect=OSError("x"))):
+            h = _FakeHandler()
+            app_window.handle_open_external(h, b'{"url": "https://example.com"}', opener)
+            self.assertEqual(h.replies[0][0], 500)
 
 
 class WaitTests(unittest.TestCase):

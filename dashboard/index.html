@@ -1474,6 +1474,67 @@
     });
     document.addEventListener('DOMContentLoaded', _fullscreenPaint);
 
+    // Outside links
+    // In the standalone app window (app_window.py opens it with ?window=app),
+    // links to other sites open in the computer's default browser, where the
+    // user is already signed in, instead of inside the window's private
+    // profile. Normal browser tabs and remote phones keep the usual behavior.
+    (function () {
+      var KEY = 'data-app-window';
+      var inApp = false;
+      try {
+        if (new URLSearchParams(location.search).get('window') === 'app') {
+          sessionStorage.setItem(KEY, '1');
+        }
+        inApp = sessionStorage.getItem(KEY) === '1';
+      } catch (e) {}
+      var onThisComputer = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+      if (!inApp || !onThisComputer) return;
+
+      function outsideUrl(href) {
+        try {
+          var u = new URL(href, location.href);
+          if ((u.protocol === 'http:' || u.protocol === 'https:') && u.origin !== location.origin) {
+            return u.href;
+          }
+        } catch (e) {}
+        return '';
+      }
+
+      var rawOpen = window.open.bind(window);
+      function openOutside(url) {
+        fetch('/open-external', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Data-Request': '1' },
+          body: JSON.stringify({ url: url })
+        }).then(function (r) {
+          if (!r.ok) throw new Error('open-external ' + r.status);
+        }).catch(function () {
+          rawOpen(url, '_blank', 'noopener');  // older bridge: open it here instead
+        });
+      }
+
+      window.open = function (url) {
+        var ext = outsideUrl(url == null ? '' : String(url));
+        if (ext) { openOutside(ext); return null; }
+        return rawOpen.apply(window, arguments);
+      };
+
+      // Bubble phase, so any handler that already took over a link wins.
+      function onLinkClick(e) {
+        if (e.defaultPrevented) return;
+        if (e.type === 'click' ? e.button !== 0 : e.button !== 1) return;
+        var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+        if (!a || a.hasAttribute('download')) return;
+        var ext = outsideUrl(typeof a.href === 'string' ? a.href : a.getAttribute('href'));
+        if (!ext) return;
+        e.preventDefault();
+        openOutside(ext);
+      }
+      document.addEventListener('click', onLinkClick);
+      document.addEventListener('auxclick', onLinkClick);
+    })();
+
     // Ctrl+Alt+Left / Ctrl+Alt+Right fold the matching rail. Ignored while a
     // field has focus, so it can never swallow a keystroke in the chat box.
     document.addEventListener('keydown', function (e) {
