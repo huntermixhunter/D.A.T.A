@@ -1292,6 +1292,8 @@ from model_capabilities import (
     effort_levels as _model_effort_levels, effective_effort,
 )
 
+import provider_failover as _failover   # subscription usage meter + usage-limit failover
+
 _CODEX_CATALOG = read_codex_catalog()
 _CODEX_SOL_MODEL = codex_sol_model(_CODEX_CATALOG)
 
@@ -7920,6 +7922,10 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                         text = block.get("text", "").strip()
                         if not text:
                             continue
+                        # Usage-limit message: swallowed when the turn is
+                        # being handed to Codex (provider_failover).
+                        if _failover.claim_limit_text(text):
+                            continue
                         if stop_reason == "end_turn":
                             # Final response — stream as tokens
                             final_text += text
@@ -7959,11 +7965,19 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                         if preview:
                             send_sse('thinking', f"  → {preview}")
 
+            elif etype == "rate_limit_event":
+                # Feeds the usage meter every turn; a rejected request marks
+                # the turn for failover.
+                _failover.claim_rate_event(ev.get("rate_limit_info") or {})
+
             elif etype == "result":
                 result_text = ev.get("result", "").strip()
                 is_error    = ev.get("is_error", False)
                 subtype     = ev.get("subtype", "")
                 log.info(f"[CLI-STREAM] result event: is_error={is_error} subtype={subtype!r} result_text={result_text[:120]!r}")
+                if (is_error and _failover.claim_limit_text(result_text)) or _failover.handing_off():
+                    # The partner provider finishes this turn.
+                    continue
                 if is_error and not final_text and (
                         auth_failed or cli_console.looks_logged_out("claude", result_text)):
                     auth_failed = True
@@ -8032,6 +8046,9 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         # add any fallback text here — just let the stream end cleanly.
         if not final_text:
             final_text = "(rooted)"  # placeholder so history isn't empty
+    elif _failover.handing_off() or (not final_text and _failover.claim_limit_text(stderr)):
+        # The partner provider finishes this turn and saves the history.
+        pass
     elif not final_text:
         if cli_console.looks_logged_out("claude", stderr):
             auth_failed = True
@@ -8041,9 +8058,10 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
             send_sse('token', fallback)
             final_text = fallback
 
-    # Save to history (skip on abort to avoid polluting context, and skip a
-    # signed-out turn — the buyer will resend once they've logged in).
-    if not was_killed and not auth_failed:
+    # Save to history (skip on abort to avoid polluting context, skip a
+    # signed-out turn (the buyer will resend once they've logged in), and skip
+    # a failover handoff, where the partner provider saves the finished turn).
+    if not was_killed and not auth_failed and not _failover.handing_off():
         conversation_history.append({"role": "user",      "content": message})
         conversation_history.append({"role": "assistant",  "content": final_text.strip()})
         if len(conversation_history) > MAX_HISTORY:
@@ -8255,6 +8273,10 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
         msg = "Aborted, Captain."
         if not final_text:
             send_sse('token', msg); final_text = msg
+    elif not final_text.strip() and _failover.claim_limit_text(f"{error_text}\n{stderr}"):
+        # Codex hit its usage limit and Claude is taking the turn over.
+        # error_text is set, so this runner skips the history write below.
+        error_text = error_text or "usage limit"
     elif not final_text.strip():
         if cli_console.looks_logged_out("codex", f"{error_text}\n{stderr}"):
             # Sends its own reply text + needs_login card. error_text is set, so
@@ -8666,6 +8688,26 @@ def _provider_runner(provider_id: str):
     }.get(provider_id, ask_hermes_cli_stream)
 
 
+def _run_turn_with_failover(provider_id: str, message: str, project_path: str,
+                            sse, announce: bool = True) -> str:
+    """Run one turn through provider_failover: a Claude or Codex turn that hits
+    its usage limit is finished by the partner CLI, and later turns route
+    around the limit until it resets. Other providers run unchanged. Returns
+    the provider id that answered last."""
+    def _set_provider(pid):
+        prev = getattr(_provider_override, "id", None)
+        _provider_override.id = pid
+        return prev
+    return _failover.run_turn(
+        provider_id, message, project_path, sse,
+        runner_for=_provider_runner,
+        set_provider=_set_provider,
+        provider_available=_provider_available,
+        history=conversation_history,
+        save_history=lambda: _save_history(conversation_history),
+        announce=announce)
+
+
 def dispatch(message: str, project_path: str = "", pane_id: str = "") -> str:
     """Route to API or CLI mode based on BRIDGE_MODE. Used by the legacy non-streaming /chat endpoint."""
     _bind_history(project_path, pane_id)
@@ -8682,7 +8724,6 @@ def _dispatch_with_provider(provider_id: str, message: str, project_path: str = 
     pinned via thread-local so concurrent chat requests in other windows still
     see ACTIVE_PROVIDER (or their own override)."""
     _bind_history(project_path, pane_id)   # route conversation_history to this project+pane's bucket
-    runner = _provider_runner(provider_id)
     parts: list[str] = []
     def _sse(event_type: str, text: str) -> None:
         if event_type == "token":
@@ -8697,7 +8738,8 @@ def _dispatch_with_provider(provider_id: str, message: str, project_path: str = 
                                  provider=provider_id, officer=MAIN_CHAT_CREW, owner=_ACTIVE_USER) if _crew else None
     _crew_ok = False
     try:
-        runner(message, project_path, _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
+        _run_turn_with_failover(provider_id, message, project_path,
+                                _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
         _crew_ok = True
     except Exception as e:
         log.exception(f"[dispatch-provider:{provider_id}] failed: {e}")
@@ -8963,7 +9005,6 @@ def _voice_llm_stream(message: str, project_path: str = "", on_token=None,
     """
     global VOICE_CONVERSATION_MODE, VOICE_ACTIVE_CREW
     provider = VOICE_PROVIDER
-    runner = _provider_runner(provider)
     parts: list[str] = []
     def _sse(event_type: str, text: str) -> None:
         if event_type == 'token':
@@ -8986,7 +9027,10 @@ def _voice_llm_stream(message: str, project_path: str = "", on_token=None,
                                  officer=VOICE_ACTIVE_CREW, owner=_ACTIVE_USER) if _crew else None
     _crew_ok = False
     try:
-        runner(message, project_path, _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
+        # announce=False: failover notes go to the thinking line, not into TTS.
+        _run_turn_with_failover(provider, message, project_path,
+                                _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse,
+                                announce=False)
         _crew_ok = True
     except Exception as e:
         log.exception(f"[voice-stream] {provider} failed: {e}")
@@ -10987,6 +11031,7 @@ class Handler(BaseHTTPRequestHandler):
             "/arcade/host.css": ("arcade/host.css", "text/css; charset=utf-8"),
             "/offline_maps.js": ("offline_maps.js", "application/javascript; charset=utf-8"),
             "/offline_maps.css": ("offline_maps.css", "text/css; charset=utf-8"),
+            "/usage_meter.css": ("usage_meter.css", "text/css; charset=utf-8"),
             "/offline_archive.js": ("offline_archive.js", "application/javascript; charset=utf-8"),
             "/":             ("index.html", "text/html; charset=utf-8"),
             "/index.html":   ("index.html", "text/html; charset=utf-8"),
@@ -11340,6 +11385,11 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/effort":
             self._json({"active": ACTIVE_EFFORT, "levels": _provider_effort_levels(ACTIVE_PROVIDER)})
+
+        elif path == "/usage":
+            # Subscription usage meter + failover state (cached; the poller
+            # and every Claude turn keep it current).
+            self._json(_failover.snapshot())
 
         elif path == "/agents":
             # Editable per-officer personality files (~/.claude/agents/*.md),
@@ -12944,6 +12994,22 @@ class Handler(BaseHTTPRequestHandler):
             log.info(f"[EFFORT] switched to {ACTIVE_EFFORT or '(auto)'}")
             self._json({"active": ACTIVE_EFFORT, "levels": _provider_effort_levels(ACTIVE_PROVIDER)})
 
+        elif path == "/usage/refresh":
+            # Re-read both subscription meters now (Claude via the CLI's
+            # get_usage control request, no tokens; Codex via session files).
+            _failover.refresh_claude(_provider_executable("claude-cli") or None)
+            _failover.refresh_codex(_provider_executable("codex") or None)
+            self._json(_failover.snapshot())
+
+        elif path == "/failover":
+            # Settings switch. Body: {"enabled": true|false}.
+            if not isinstance(data.get("enabled"), bool):
+                self._json({"error": "enabled must be true or false"}, 400)
+                return
+            _failover.set_enabled(data["enabled"])
+            log.info(f"[FAILOVER] switched {'on' if data['enabled'] else 'off'}")
+            self._json(_failover.snapshot())
+
         elif path == "/llm/install":
             # kind='ollama' → pull a local model;  kind='cli' → install a connector
             kind   = (data.get("kind") or "").strip()
@@ -13356,7 +13422,6 @@ class Handler(BaseHTTPRequestHandler):
                     if _crew:
                         _crew_tid = _crew.begin_turn("chat", pane=_history_state.key, project=project_path,
                                                      provider=pid, officer=crew_officer, owner=crew_owner)
-                    runner = _provider_runner(pid)
                     # Wrap send_sse to intercept spawn_workspaces marker blocks
                     # — lets CLI providers (claude-cli, codex, gemini) trigger
                     # the spawn even though they don't see our structured tools.
@@ -13385,8 +13450,9 @@ class Handler(BaseHTTPRequestHandler):
                     _request_attachments.list = attachments
                     try:
                         try:
-                            runner(message, project_path,
-                                   _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
+                            _run_turn_with_failover(
+                                pid, message, project_path,
+                                _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
                             ok = True
                         except Exception as runner_err:
                             # The runner exited via an uncaught exception
@@ -13720,6 +13786,11 @@ if __name__ == "__main__":
     # Active brain: restore the persisted provider if it is still available
     # (so a connected local model survives a restart on a machine with no CLI).
     _load_active_provider()
+    # Usage meter + limit failover: restore state (any active limit and the
+    # Settings switch), then poll both subscriptions in the background.
+    _failover.init(PROJECT_DIR / "provider_failover_state.json")
+    _failover.start_poller(lambda: _provider_executable("claude-cli") or None,
+                           lambda: _provider_executable("codex") or None)
     # Email-cockpit brain: restore the persisted mail model (cloud default or a
     # local Ollama model the buyer picked for privacy).
     _load_mail_provider()

@@ -1,0 +1,86 @@
+/* Subscription usage meter + usage-limit failover (provider_failover.py).
+   Right-rail SUBSCRIPTION USAGE block and the Settings > MODEL switch. */
+.usage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.usage-refresh {
+  background: none;
+  border: 1px solid var(--edge-1);
+  color: var(--data-blue);
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.usage-refresh:hover { color: var(--data-orange); border-color: var(--data-orange); }
+.usage-refresh:focus-visible { outline: 2px solid var(--data-orange); outline-offset: 1px; }
+.usage-refresh.spinning { animation: usage-spin 0.9s linear infinite; }
+@keyframes usage-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .usage-refresh.spinning { animation: none; opacity: 0.5; } }
+.usage-prov {
+  background: var(--surf-well);
+  border: 1px solid var(--edge-1);
+  border-radius: 4px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.usage-prov-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--data-text);
+}
+.usage-state {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+}
+.usage-state.ok   { color: var(--data-bg); background: var(--data-green); }
+.usage-state.warn { color: var(--data-bg); background: var(--data-yellow); }
+.usage-state.bad  { color: var(--data-bg); background: var(--data-red); }
+.usage-state.dim  { color: var(--data-text-dim); border: 1px solid var(--edge-1); }
+.usage-win {
+  display: grid;
+  grid-template-columns: 58px 1fr 34px;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.usage-win-label { color: var(--data-text-dim); }
+.usage-bar {
+  height: 6px;
+  background: var(--edge-1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.usage-bar i { display: block; height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+.usage-bar i.ok   { background: var(--data-green); }
+.usage-bar i.warn { background: var(--data-yellow); }
+.usage-bar i.bad  { background: var(--data-red); }
+.usage-pct { font-family: var(--font-mono); text-align: right; color: var(--data-text); }
+.usage-foot { font-size: 9px; color: var(--data-text-dim); letter-spacing: 0.05em; }
+.usage-foot code { font-family: var(--font-mono); color: var(--data-yellow); }
+.usage-empty { font-size: 10px; color: var(--data-text-dim); }
+.usage-failover { font-size: 10px; color: var(--data-text-dim); display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.usage-failover .usage-state { margin-right: 6px; }
+.usage-settings-h { margin-top: 18px; }
+.usage-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--data-text);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.usage-toggle input { width: 16px; height: 16px; accent-color: var(--data-orange); cursor: pointer; }

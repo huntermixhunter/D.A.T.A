@@ -10804,12 +10804,157 @@ async function installBriefingItem(id) {
   loadBriefing();
 }
 
+// ── Subscription usage meter + limit failover ─────────────
+// Backed by provider_failover.py (styles in usage_meter.css). GET /usage is
+// a cached read (the bridge polls both CLIs itself and updates Claude on
+// every turn); the refresh button asks the bridge to re-read both now,
+// which spends no tokens.
+let _usageLastFailoverAt = null;
+
+function _usageClock(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000), now = new Date();
+  const clock = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const days = Math.round((new Date(d.toDateString()) - new Date(now.toDateString())) / 86400000);
+  if (days === 0) return clock;
+  if (days === 1) return `tomorrow ${clock}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} ${clock}`;
+}
+
+function _usageAgo(ts) {
+  if (!ts) return 'never';
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 90) return 'just now';
+  if (s < 5400) return `${Math.round(s / 60)} min ago`;
+  if (s < 172800) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86400)} days ago`;
+}
+
+function _usageProviderHtml(name, m) {
+  m = m || {};
+  let state = 'OK', cls = 'ok';
+  if (m.limited) { state = 'LIMITED'; cls = 'bad'; }
+  else if (m.signed_in === false) { state = 'SIGNED OUT'; cls = 'bad'; }
+  else if (m.blocked_reason) { state = 'FULL'; cls = 'warn'; }
+  else if (!m.windows || !m.windows.length) { state = m.error ? 'NO DATA' : '...'; cls = 'dim'; }
+  // Signed out: old readings would only mislead, so show just the hint.
+  const rows = (m.signed_in === false ? [] : (m.windows || [])).map(w => {
+    const pct = Math.max(0, Math.min(100, Number(w.pct) || 0));
+    const tone = pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : 'ok';
+    const tip = w.live === false
+      ? `${w.label}: this window has reset since the last reading`
+      : `${w.label}: ${pct}% used${w.resets_at ? ', resets ' + _usageClock(w.resets_at) : ''}`;
+    return `<div class="usage-win" title="${escapeHtml(tip)}">
+        <span class="usage-win-label">${escapeHtml(w.label)}</span>
+        <span class="usage-bar"><i class="${tone}" style="width:${pct}%"></i></span>
+        <span class="usage-pct">${w.live === false ? '0%*' : pct + '%'}</span>
+      </div>`;
+  }).join('');
+  // The window closest to full decides which reset time is worth showing.
+  const live = (m.windows || []).filter(w => w.live !== false && w.resets_at);
+  const worst = live.sort((a, b) => (b.pct || 0) - (a.pct || 0))[0];
+  let foot = '';
+  if (m.limited) {
+    foot = m.limited.reset_known
+      ? `At its ${escapeHtml(m.limited.kind)} limit until ${_usageClock(m.limited.until)}`
+      : `At its ${escapeHtml(m.limited.kind)} limit, retrying ${_usageClock(m.limited.until)}`;
+  } else if (m.signed_in === false) {
+    foot = name === 'CODEX' ? 'Run <code>codex login</code> to enable failover' : 'Signed out';
+  } else if (worst) {
+    foot = `${escapeHtml(worst.label.toLowerCase())} resets ${_usageClock(worst.resets_at)}`;
+  } else if (m.error) {
+    foot = escapeHtml(m.error);
+  }
+  const seen = m.updated_at ? `Read ${_usageAgo(m.updated_at)}` : '';
+  return `<div class="usage-prov">
+      <div class="usage-prov-head"><span>${name}</span>
+        <span class="usage-state ${cls}" title="${escapeHtml(seen)}">${state}</span></div>
+      ${rows}
+      ${foot ? `<div class="usage-foot">${foot}</div>` : ''}
+    </div>`;
+}
+
+function _renderUsage(u) {
+  const rows = document.getElementById('usage-rows');
+  const fo = document.getElementById('usage-failover');
+  if (!rows || !u) return;
+  rows.innerHTML = _usageProviderHtml('CLAUDE', u.claude) + _usageProviderHtml('CODEX', u.codex);
+  let line;
+  if (!u.enabled) {
+    line = '<div><span class="usage-state dim">FAILOVER OFF</span></div>';
+  } else if (u.claude && u.claude.limited) {
+    line = '<div><span class="usage-state warn">FAILOVER</span>Claude limited, sending to Codex</div>';
+  } else if (u.codex && u.codex.limited) {
+    line = '<div><span class="usage-state warn">FAILOVER</span>Codex limited, sending to Claude</div>';
+  } else {
+    line = '<div><span class="usage-state ok">FAILOVER ON</span>Claude &harr; Codex</div>';
+  }
+  const lf = u.last_failover;
+  if (lf && lf.at) {
+    line += `<div class="usage-foot">Last switch: ${escapeHtml(lf.from)} &rarr; ${escapeHtml(lf.to)}, ${_usageAgo(lf.at)}</div>`;
+    if (_usageLastFailoverAt !== null && lf.at !== _usageLastFailoverAt) {
+      addLog(`Failover: ${lf.from} → ${lf.to} (${lf.why})`);
+    }
+    _usageLastFailoverAt = lf.at;
+  } else if (_usageLastFailoverAt === null) {
+    _usageLastFailoverAt = 0;
+  }
+  fo.innerHTML = line;
+  const tog = document.getElementById('failover-toggle');
+  if (tog) tog.checked = !!u.enabled;
+  const st = document.getElementById('failover-settings-status');
+  if (st) {
+    const codex = u.codex || {};
+    st.textContent = codex.signed_in === false
+      ? 'Codex is signed out, so Claude has nowhere to fail over to. Run "codex login" in a terminal once.'
+      : '';
+  }
+}
+
+async function fetchUsage() {
+  try {
+    const res = await fetch(`${API_BASE}/usage`);
+    if (res.ok) _renderUsage(await res.json());
+  } catch (e) { /* bridge offline: fetchVitals already flags it */ }
+}
+
+async function refreshUsage(manual) {
+  const btn = document.getElementById('usage-refresh-btn');
+  if (btn) btn.classList.add('spinning');
+  try {
+    const res = await fetch(`${API_BASE}/usage/refresh`, { method: 'POST' });
+    if (res.ok) _renderUsage(await res.json());
+    if (manual) addLog('Usage meter refreshed');
+  } catch (e) {
+    if (manual) addLog(`Usage refresh failed: ${e.message || e}`);
+  } finally {
+    if (btn) btn.classList.remove('spinning');
+  }
+}
+
+async function setFailover(on) {
+  try {
+    const res = await fetch(`${API_BASE}/failover`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !!on }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    _renderUsage(await res.json());
+    addLog(`Usage-limit failover ${on ? 'on' : 'off'}`);
+  } catch (e) {
+    addLog(`Failover switch failed: ${e.message || e}`);
+    fetchUsage();
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────
 addLog('Dashboard initialized');
 addLog('DATA interface online');
 fetchMode();
 fetchVitals();
 setInterval(fetchVitals, 30000);
+fetchUsage();                       // subscription usage meter (cached read)
+setInterval(fetchUsage, 60000);
 subscribeShipsHealth();   // /vitals_fast SSE → engine gauge + hardware readouts + alert dot
 // Quietly load the upgrades briefing on startup so the badge is correct
 loadBriefing();

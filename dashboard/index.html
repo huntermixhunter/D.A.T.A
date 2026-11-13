@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="marketplace.css?v=preview-divider-20261029" />
   <link rel="stylesheet" href="forum.css?v=embedded-20261030" />
   <link rel="stylesheet" href="offline_maps.css?v=1">
+  <link rel="stylesheet" href="usage_meter.css?v=1">
   <link rel="stylesheet" href="crew-deck/host.css?v=1">
   <link rel="stylesheet" href="arcade/host.css?v=1">
 </head>
@@ -599,6 +600,19 @@
 
         <div class="right-divider"></div>
 
+        <!-- Subscription usage meter + limit failover (provider_failover.py) -->
+        <div class="right-section usage-meter" id="usage-meter">
+          <div class="section-label usage-head">
+            <span>SUBSCRIPTION USAGE</span>
+            <button type="button" class="usage-refresh" id="usage-refresh-btn"
+                    onclick="refreshUsage(true)"
+                    title="Re-read both subscriptions now (uses no tokens)">&#x27F3;</button>
+          </div>
+          <div id="usage-rows"><div class="usage-empty">Reading usage&hellip;</div></div>
+          <div class="usage-failover" id="usage-failover" role="status" aria-live="polite"></div>
+        </div>
+        <div class="right-divider"></div>
+
         <div class="right-section">
           <div class="section-label">ACTIVITY LOG</div>
           <div class="activity-log" id="activity-log">
@@ -851,6 +865,14 @@
               <h3 class="settings-h">Default LLM</h3>
               <p class="settings-sub">Model the main channel uses for new messages.</p>
               <div class="settings-opt-row" id="settings-model-row"></div>
+
+              <h3 class="settings-h usage-settings-h">Usage-limit failover</h3>
+              <p class="settings-sub">When Claude hits its usage limit, Codex finishes that reply and answers later messages until Claude resets, then everything switches back. It works the other way too. It never hands work to a service that is signed out or whose last reading shows 100%, so it never pushes you onto paid credits.</p>
+              <label class="usage-toggle">
+                <input type="checkbox" id="failover-toggle" onchange="setFailover(this.checked)">
+                <span>Failover on</span>
+              </label>
+              <p class="settings-sub" id="failover-settings-status"></p>
             </section>
 
             <section class="settings-pane" data-pane="upgrades">

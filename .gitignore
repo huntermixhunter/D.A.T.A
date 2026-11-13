@@ -11,6 +11,9 @@ bridge.log
 standing_orders.json
 power_core_baseline.json
 dashboard/provider_state.json
+# Usage meter + limit failover state (switch, active limits); per install
+provider_failover_state.json
+provider_failover_state.tmp
 dashboard/provider_state.json.tmp
 provider_state.json
 recall_index.db
