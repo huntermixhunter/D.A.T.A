@@ -29,7 +29,10 @@ def run(base, out):
     out.mkdir(parents=True, exist_ok=True)
     checks, errors = [], []
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        # --disable-speech-api removes speechSynthesis, so the game's voice callouts stay
+        # silent. Spoken lines go through the OS speech engine, which Playwright's
+        # --mute-audio does not cover; without this a hidden test talks out loud.
+        browser = pw.chromium.launch(headless=True, args=['--disable-speech-api'])
         context = browser.new_context(viewport={'width': 1440, 'height': 900})
         context.route('**/*', lambda route: route.continue_() if route.request.url.startswith(base + '/') else route.abort())
         page = context.new_page()
