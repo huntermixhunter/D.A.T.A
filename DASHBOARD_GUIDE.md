@@ -278,7 +278,7 @@ The page reads top to bottom:
 | Provider | Models it adds | One-time setup |
 |----------|----------------|----------------|
 | **Claude Code** | Opus · Sonnet · Haiku · Fable | install Claude Code, run `claude`, sign in |
-| **Codex** (OpenAI) | GPT-5 Codex | `npm i -g @openai/codex`, then `codex login` |
+| **Codex** (OpenAI) | GPT-6 Astra · Sol · Luna | `npm i -g @openai/codex`, then `codex login` |
 | **Gemini CLI** (Google) | Gemini 2.5 Pro | `npm i -g @google/gemini-cli`, then sign in |
 
 **RESCAN** (top-right) re-reads your hardware and re-checks what's installed — hit it
@@ -290,6 +290,78 @@ dashboard.**
 > brain, *and/or* connect one CLI provider for heavyweight thinking. Either one alone
 > makes the main channel work. Then open **Communications** and pick your model from
 > the menu.
+
+### Usage limits and failover
+
+Subscription plans come with usage limits. Claude has a 5-hour window and a weekly
+window, Codex has its own windows, and Gemini has a daily quota. When the model you
+are using runs out, DATA can hand the work to a second model so you are not left
+waiting for the reset.
+
+**The usage meter.** The right-hand panel has a **SUBSCRIPTION USAGE** box with a bar
+for each Claude and Codex window: how much is used and when it resets. Hover over a
+bar for the exact reset time. Each service also shows a status:
+
+| Status | Meaning |
+|--------|---------|
+| **OK** | Room left. |
+| **FULL** | A window is at 100%. Failover will not send work here. |
+| **LIMITED** | This service hit its limit and is resting until the time shown. |
+| **SIGNED OUT** | The CLI is not installed or not signed in. For Codex, run `codex login` once. |
+| **NO DATA** | No reading yet, or the last reading failed. Click **⟳** to try again. |
+
+Reading the meter costs nothing. DATA asks each CLI for its usage numbers without
+sending a prompt, so no tokens are used. It checks Claude about every 5 minutes and
+Codex about every minute. Click **⟳** to re-read both now. Gemini and local models
+do not appear in the meter: Gemini does not report its quota ahead of time, and local
+models have no limits at all.
+
+**What happens at the limit.** When the default model hits its limit partway through a
+reply, the backup model picks up the same task. It is told which steps were already
+taken and what was already written, so it carries on instead of starting over. You
+see a short note in the chat, for example *"Claude hit its 5-hour limit (resets
+2:30 AM). Codex is picking up from here."* Until the limit resets, new messages go
+straight to the backup. Once the reset time passes, or a fresh reading shows room
+again, everything switches back to your default on its own. If DATA could not tell
+when the limit resets, it tries the default again after 15 minutes.
+
+This applies to the main channel, project workspace panes, voice turns, and standing
+orders. Your saved conversation keeps your own words, with a one-line marker where
+one model stopped and the other continued.
+
+**Choosing the backup.** Open **Settings > MODEL**:
+
+- **Default LLM** is the model that normally answers.
+- **Backup LLM** is the model that takes over. **AUTOMATIC** pairs Claude and Codex
+  with each other and keeps the speed tier: Claude Opus, Fable, or the standard
+  Claude model hands off to GPT-6 Astra Codex, Sonnet to Sol (the workhorse), and
+  Haiku to Luna (the fast one). Codex hands back the same way. Or pick a specific
+  model instead.
+- A **local Ollama model** makes a dependable backup for any service, because it never
+  runs out and costs nothing.
+- Models that share the default's account are greyed out. Claude Opus and Claude
+  Sonnet draw from the same Claude limit, so one cannot rescue the other.
+- **Gemini** has no automatic partner. If Gemini is your default, pick a backup by
+  hand, or the panel will say **NO BACKUP**.
+
+**Failover on** (the checkbox under **Usage-limit failover** in the same tab) turns
+the whole feature on or off. It is on by default. The bottom of the meter always
+shows the current pairing, such as **FAILOVER ON Claude → Codex**, plus the last
+switch that happened. While the dashboard is open, each switch is also written to
+the Activity Log.
+
+**It never spends money for you.** Failover will not hand work to Claude or Codex
+while that service is signed out, already at its limit, or reading 100% on any
+window. That matters because some plans let you keep going on paid credits once the
+included usage runs out, and DATA will not push you there. It never buys credits,
+upgrades a plan, or turns on pay-per-use billing. If no backup is able to take over,
+the reply ends with a note saying why, for example *"Failover skipped: Codex is
+signed out."*
+
+> **Good to know:** leaving failover on costs nothing even if you only use one
+> service. With no working backup, it simply has nowhere to send work and does
+> nothing. Sign in to a second service later (for Codex, run `codex login`) and it
+> starts working with no other setup.
 
 ---
 
