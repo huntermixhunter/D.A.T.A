@@ -441,7 +441,7 @@ channel offers. No config files, no restart. The page reads top to bottom:
 | Provider | Models it adds | One-time setup |
 |----------|----------------|----------------|
 | **Claude Code** | Opus, Sonnet, Haiku, Fable | install Claude Code, run `claude`, sign in |
-| **Codex** (OpenAI) | GPT-5 Codex | `npm i -g @openai/codex`, then `codex login` |
+| **Codex** (OpenAI) | GPT-6 Astra · Sol · Luna | `npm i -g @openai/codex`, then `codex login` |
 | **Gemini CLI** (Google) | Gemini 2.5 Pro | `npm i -g @google/gemini-cli`, then sign in |
 
 Hit **RESCAN** after you install a model or sign in to a provider. Install any one

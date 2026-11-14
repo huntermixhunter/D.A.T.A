@@ -270,7 +270,7 @@ channel offers — no config files, no restart.
 > Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
 > ```
 > It affects only your own user account and is safe.
-| **GPT-5 Codex** | `npm i -g @openai/codex`, then `codex login` | Your ChatGPT subscription |
+| **Codex** (GPT-6 Astra · Sol · Luna) | `npm i -g @openai/codex`, then `codex login` | Your ChatGPT subscription |
 | **Gemini 2.5** | `npm i -g @google/gemini-cli`, then log in on first run | Google free tier / account |
 | **Ollama** (local models) | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5-coder:7b` | Free — runs on your hardware |
 
