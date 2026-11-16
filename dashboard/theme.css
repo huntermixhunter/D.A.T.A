@@ -3057,9 +3057,11 @@ mark.chat-find-hl.active {
 }
 
 /* Fullscreen state — covers the DATA header + footer + sidebars and
-   collapses the panel-header bar itself so the chat panes get every
-   available pixel. The fullscreen button floats in the top-right
-   corner as the only way back out. */
+   shrinks the panel-header to one slim right-aligned toolbar row. The
+   pills used to float absolutely over the top-right corner, which put
+   them on top of whichever chat pane header sat there (provider and
+   officer selectors, close button). A real row costs ~40px but can
+   never cover pane controls, whatever the split layout. */
 #panel-chat.fullscreen {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
@@ -3070,24 +3072,23 @@ mark.chat-find-hl.active {
   border-bottom: none;
   padding: 0;
   background: transparent;
-  /* Header still exists in flow so the button can sit relative to it,
-     but has zero usable height. */
   min-height: 0;
+  flex-shrink: 0;
 }
 #panel-chat.fullscreen .panel-title-bar {
-  padding: 0;
+  padding: 4px 8px;
   background: transparent;
   border: none;
   position: relative;
   min-height: 0;
+  justify-content: flex-end;
 }
 #panel-chat.fullscreen .panel-title {
   display: none;
 }
 #panel-chat.fullscreen .panel-pills {
-  position: absolute;
-  top: 8px; right: 8px;
-  z-index: 901;
+  position: relative;   /* keeps anchoring the text-size popup */
+  z-index: 901;         /* popup paints above the panes below */
 }
 #panel-chat.fullscreen .fullscreen-btn {
   /* Slightly larger and more visible since it's now the only exit. */
