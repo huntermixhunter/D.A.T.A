@@ -1,4 +1,4 @@
-# DATA Daemon — Dashboard for Analytical Thought and Action
+# D.A.T.A: Dashboard for Agentic Thought and Action
 
 A self-hosted, local-first AI operations dashboard. DATA gives you a mission-control
 interface for working with AI: a main chat channel wired to your AI provider, a crew
@@ -59,7 +59,7 @@ sends to them. See `dashboard/ACCOUNT.md`.
 
 > ## ⚠️ Experimental software — use at your own risk
 >
-> DATA is an autonomous AI agent that can **run commands, create/modify/delete files,
+> DATA is an AI agent that can **run commands, create/modify/delete files,
 > install software, control your mouse/keyboard/screen, and act in connected accounts.**
 > AI is non-deterministic and can take **unintended, irreversible, or destructive**
 > actions, including **loss of data.** Keep backups, run it only on systems you control,
