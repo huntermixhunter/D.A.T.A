@@ -114,6 +114,9 @@ body.theme-event-horizon .data-btn.active { color: var(--p-accent); background: 
 body.theme-event-horizon .data-btn[data-nav-panel='arcade'] { color: var(--p-secondary); }
 body.theme-event-horizon .data-btn[data-nav-panel='arcade']::before { content: ''; display: inline-block; width: 5px; height: 5px; border: 1px solid currentColor; transform: rotate(45deg); margin-right: 10px; vertical-align: 2px; }
 body.theme-event-horizon .data-main { position: relative; min-width: 0; isolation: isolate; }
+/* isolation traps the fullscreen chat's z-index inside .data-main, so the footer painted over it.
+   Lift the whole main stacking context while the chat is fullscreen. */
+body.theme-event-horizon .data-main:has(#panel-chat.fullscreen) { z-index: 900; }
 body.theme-event-horizon .panel { background: transparent; position: relative; }
 body.theme-event-horizon .chats-wrapper { background: transparent; }
 body.theme-event-horizon .panel.active { border: 1px solid var(--p-edge); }
