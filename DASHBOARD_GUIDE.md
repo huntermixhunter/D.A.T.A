@@ -212,6 +212,49 @@ you ask for the right thing.
 | "Look at my screen and…" / "click the publish button" | Computer use — the agent screenshots, then drives mouse/keyboard to do the task. |
 | "Upload this to YouTube" / "pin this to my board" | Direct integrations fire (when those accounts are authorized). |
 
+### Slash commands: the chat box as a command line
+
+Type `/` in any chat box and a list of commands pops up. Arrow keys move through it,
+**Tab** completes, **Enter** runs. These act on the dashboard itself, run instantly
+(even while a reply is still streaming), and are never sent to the AI.
+
+| Command | What it does |
+|---------|--------------|
+| `/help` | Lists every command. |
+| `/new [folder] [model]` | Opens a new chat window. With no arguments it copies this window's folder, model and effort. `/new sonnet` picks the model, `/new MyProject` opens a sibling folder, `/new C:\path\to\folder` opens that folder. |
+| `/model [name]` | With no name, shows clickable model buttons. Partial names work: `/model opus`, `/model codex mini`. Applies to this window only. |
+| `/effort [level]` | Shows or sets reasoning effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max` (only the levels the current model offers). |
+| `/panes` | Lists the open windows with their model, effort and folder. |
+| `/stop` | Stops this window's reply. |
+| `/clear` | Clears this window's screen. The conversation memory is kept. |
+| `/close` | Closes this window (the main channel stays open). |
+| `/shortcuts` | Lists your saved prompt shortcuts with Run, Edit and Delete buttons. See below. |
+| `/login`, `/logout`, `/status` | Sign in to, sign out of, or check the AI CLI this window uses. |
+
+**Prompt shortcuts.** A shortcut is a saved prompt you send by typing its name, so
+`/brief` sends a full status-brief request to the AI in that window. DATA starts you
+with five: `/brief`, `/review`, `/tests`, `/explain` and `/plan`. They show up in the
+`/` list marked PROMPT.
+
+- `/shortcuts add standup Summarise what changed today` saves a one-line shortcut.
+- `/shortcuts add standup` (no text) opens a small form for longer, multi-line prompts.
+  With no name at all, the form starts from the last message you sent in that window,
+  which is an easy way to save a prompt you just wrote.
+- `/shortcuts edit standup`, `/shortcuts delete standup` (with Undo), `/shortcuts reset`
+  (back to the starter five).
+- Put `{args}` in a prompt where extra text should go: `/explain app.js`. Without
+  `{args}`, anything typed after the name is added to the end. `{folder}` becomes the
+  window's folder.
+- Built-in commands always take priority, so a shortcut cannot be named `model` or `new`.
+- Shortcuts are saved per user in `users/<you>/prompt_shortcuts.json` on the computer
+  running DATA, so every browser connected to it shares the same list. Over a remote
+  address they need the bridge token to be set, the same rule as crew profiles.
+
+The sign-in console also accepts `claude login`, `codex status`, `install gemini` and
+the rest of its list (type `!help`). It only runs that fixed list, only from the
+computer DATA is installed on; it is not a general terminal. A message that merely
+starts with a slash and a path, such as `/r/stocks is up today`, still goes to the AI.
+
 ---
 
 ## 6. Memory — teaching DATA who you are

@@ -1755,6 +1755,15 @@ async function sendMessage() {
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
   const mainBucket = _getPendingForPane('main');
+  // Dashboard slash commands (/new, /model, /effort, /help... see
+  // slash_commands.js). They act on the dashboard and never reach the AI, and
+  // run even while a reply is streaming so /stop works.
+  if (text && globalThis.DashSlash?.handles(text)) {
+    input.value = '';
+    clearChatDraft();
+    globalThis.DashSlash.run({ main: true }, text);
+    return;
+  }
   // Allow sending with only attachments (no text) — like ChatGPT/Gemini.
   if (!text && mainBucket.length === 0) return;
 
@@ -9488,6 +9497,15 @@ function closeProjectWorkspace(wsId) {
 
 async function sendProjectMessage(wsId) {
   const ws = _workspaces.get(wsId);
+  // Dashboard slash commands run before the busy check so /stop, /model and
+  // /new still work while this window is mid-reply (see slash_commands.js).
+  const slashInput = document.getElementById(`pane-input-ws${wsId}`);
+  const slashText = slashInput?.value.trim() || '';
+  if (ws && slashText && globalThis.DashSlash?.handles(slashText)) {
+    slashInput.value = '';
+    globalThis.DashSlash.run({ wsId }, slashText);
+    return;
+  }
   if (!ws || ws.isThinking) return;
   const input = document.getElementById(`pane-input-ws${wsId}`);
   const text = input?.value.trim() || '';

@@ -11012,6 +11012,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if marketplace.handle_http(self):
             return
+        import prompt_shortcuts
+        if prompt_shortcuts.handle_http(self, globals()):
+            return
         path = urllib.parse.urlparse(self.path).path
         log.debug("do_GET: path=%r", path)
 
@@ -11039,6 +11042,7 @@ class Handler(BaseHTTPRequestHandler):
             "/offline_maps.css": ("offline_maps.css", "text/css; charset=utf-8"),
             "/usage_meter.css": ("usage_meter.css", "text/css; charset=utf-8"),
             "/pane_status.js": ("pane_status.js", "application/javascript; charset=utf-8"),
+            "/slash_commands.js": ("slash_commands.js", "application/javascript; charset=utf-8"),
             "/pane_status.css": ("pane_status.css", "text/css; charset=utf-8"),
             "/offline_archive.js": ("offline_archive.js", "application/javascript; charset=utf-8"),
             "/":             ("index.html", "text/html; charset=utf-8"),
@@ -12044,6 +12048,9 @@ class Handler(BaseHTTPRequestHandler):
         if advanced_tools.handle_http(self, _user_dir() / "advanced-tools", _detect_hardware):
             return
         if marketplace.handle_http(self):
+            return
+        import prompt_shortcuts
+        if prompt_shortcuts.handle_http(self, globals()):
             return
         path = urllib.parse.urlparse(self.path).path
         length = int(self.headers.get("Content-Length", 0))
