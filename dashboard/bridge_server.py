@@ -8607,6 +8607,28 @@ _READ_ONLY_DIRECTIVE = (
 
 
 # ── Auto decision (Task A7) ─────────────────────────────────────────────────
+def _route_followup_context(message: str) -> tuple:
+    """(previous ask, previous reply) for this pane, so a follow-up such as
+    "continue" is routed by the work it continues. Reads the thread-bound
+    history; the current message is normally not appended yet, but skip it
+    if it is. Best effort: any problem returns empty strings."""
+    try:
+        msgs = [m for m in list(conversation_history)[-12:]
+                if isinstance(m, dict) and isinstance(m.get("content"), str) and m["content"].strip()]
+        if msgs and msgs[-1].get("role") == "user" and msgs[-1]["content"].strip() == (message or "").strip():
+            msgs = msgs[:-1]
+        reply = ask = ""
+        for m in reversed(msgs):
+            if not reply and m.get("role") == "assistant":
+                reply = m["content"]
+            elif reply and m.get("role") == "user":
+                ask = m["content"]
+                break
+        return ask[-_auto_router.CONTEXT_ASK_CHARS:], reply[-_auto_router.CONTEXT_REPLY_CHARS:]
+    except Exception:
+        return "", ""
+
+
 def _route_auto(rec: dict, message: str, project_path: str, sse, min_tier: str | None = None) -> str:
     """Decide the model for an Auto turn, record it on the routing record,
     emit the `route` event, and return the provider id to run. Any failure
@@ -8629,6 +8651,7 @@ def _route_auto(rec: dict, message: str, project_path: str, sse, min_tier: str |
             message=message or "", project_path=project_path or "", attachments=tuple(kinds),
             prev=prev, settings=settings, now=now, home_provider=ACTIVE_PROVIDER,
             min_tier=min_tier, triage=None)
+        ctx.last_ask, ctx.last_reply = _route_followup_context(message)
         d = _auto_router.decide(ctx, _auto_candidates())
         pid = d.provider_id if d.provider_id in PROVIDERS else fallback_pid
         tier = d.tier if pid == d.provider_id else (_auto_router.provider_tier(pid) or _auto_router.TOP)

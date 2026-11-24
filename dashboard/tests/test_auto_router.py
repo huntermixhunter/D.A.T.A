@@ -209,6 +209,72 @@ class TestApproval(unittest.TestCase):
         self.assertEqual(floor("yes").tier, TOP)
 
 
+class TestFollowUpContext(unittest.TestCase):
+    """"continue" and friends are routed by the conversation before them."""
+    LIGHT_PREV = {"tier": LIGHT, "category": "lookup", "provider_id": "claude-cli-haiku", "ts": NOW - 20}
+
+    def test_new_continue_phrases_are_follow_ups(self):
+        for msg in ("continue", "keep going", "carry on", "next", "go on please",
+                    "continue where you left off", "finish it", "do the next step"):
+            with self.subTest(msg=msg):
+                d = floor(msg, prev=self.LIGHT_PREV)
+                self.assertIn(d.rule_hits[0], ("follow.approval",))
+
+    def test_approving_an_offer_goes_strongest(self):
+        reply = "The capital of Peru is Lima. Want me to add it to your travel notes?"
+        d = floor("yes", prev=self.LIGHT_PREV, last_ask="what is the capital of peru", last_reply=reply)
+        self.assertEqual(d.tier, TOP)
+        self.assertEqual(d.reason_code, "follow.offer")
+        self.assertIn("follow.offer", d.rule_hits)
+
+    def test_continue_inherits_the_work_in_context(self):
+        d = floor("continue", last_ask="fix the login bug in app.js",
+                  last_reply="Found the cause in the token check. Patched half of it so far.")
+        self.assertEqual(d.tier, TOP)
+        self.assertEqual(d.reason_code, "follow.context")
+        self.assertEqual(d.category, "code_change")
+
+    def test_context_works_without_a_previous_decision(self):
+        # After a bridge restart the in-memory previous decision is gone, but
+        # the saved conversation still tells the router what is going on.
+        d = floor("keep going", last_ask="write a function to fix the date parsing",
+                  last_reply="Here is the first half.")
+        self.assertEqual(d.tier, TOP)
+
+    def test_ok_after_a_quick_answer_stays_light(self):
+        d = floor("ok", prev=self.LIGHT_PREV, last_ask="what time is it in tokyo",
+                  last_reply="It is 3:40 in the morning in Tokyo.")
+        self.assertEqual(d.tier, LIGHT)
+
+    def test_never_below_previous_turn(self):
+        prev = {"tier": TOP, "category": "code_change", "provider_id": "claude-cli", "ts": NOW - 20}
+        d = floor("ok", prev=prev, last_ask="what time is it in tokyo", last_reply="3:40 am.")
+        self.assertEqual(d.tier, TOP)
+
+    def test_short_answer_to_a_choice_uses_context(self):
+        reply = "Two ways to go. <<ask_options>>{\"question\":\"Which?\",\"options\":[\"A\",\"B\"]}<</ask_options>>"
+        d = floor("Postgres", last_ask="set up the database for the app and commit it", last_reply=reply)
+        self.assertEqual(d.tier, TOP)
+        self.assertIn("follow.answer", d.rule_hits)
+
+    def test_short_answer_without_context_is_unclear(self):
+        d = floor("Postgres")
+        self.assertEqual(d.tier, TOP)
+        self.assertEqual(d.reason_code, "unclear.safe")
+
+    def test_redo_floor_is_respected(self):
+        d = floor("ok", prev=self.LIGHT_PREV, last_ask="what time is it in tokyo",
+                  last_reply="3:40 am.", min_tier=MID)
+        self.assertEqual(d.tier, MID)
+        self.assertEqual(d.reason_code, "redo")
+
+    def test_weak_prose_in_reply_does_not_force_strongest(self):
+        # A chatty reply with several questions must not read as a multi-part job.
+        reply = "Sure. Is it sunny? Is it cold? And also, how long is the trip?"
+        d = floor("ok", prev=self.LIGHT_PREV, last_ask="what time is it in tokyo", last_reply=reply)
+        self.assertEqual(d.tier, LIGHT)
+
+
 class TestTriage(unittest.TestCase):
     def good(self, **kw):
         base = {"category": "lookup", "difficulty": 1, "risk": "low", "takes_action": False, "confidence": "high"}

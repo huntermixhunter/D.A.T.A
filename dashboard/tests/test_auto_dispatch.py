@@ -319,6 +319,42 @@ class DispatchTest(_Base):
         _, routes = self.turn("thanks")
         self.assertEqual(routes[0]["tier"], "top")
 
+    def _with_history(self, turns):
+        saved = getattr(bs._history_state, "history", None)
+        bs._history_state.history = list(turns)
+        self.addCleanup(setattr, bs._history_state, "history", saved)
+
+    def test_continue_reads_the_pane_history(self):
+        # No previous Auto decision in memory (as after a restart): the saved
+        # conversation alone tells the router that "continue" is code work.
+        self._with_history([
+            {"role": "user", "content": "fix the login bug in app.js"},
+            {"role": "assistant", "content": "Found it in the token check. Half patched so far."},
+        ])
+        answered, routes = self.turn("continue")
+        self.assertEqual(routes[0]["tier"], "top")
+        self.assertEqual(routes[0]["reason"], "follow.context")
+        self.assertFalse(self.seen[0]["read_only"])
+
+    def test_yes_to_an_offer_goes_strongest(self):
+        self.turn("what time is it in tokyo")
+        self._with_history([
+            {"role": "user", "content": "what time is it in tokyo"},
+            {"role": "assistant", "content": "3:40 am. Want me to set a reminder for your call?"},
+        ])
+        _, routes = self.turn("yes")
+        self.assertEqual(routes[0]["tier"], "top")
+        self.assertEqual(routes[0]["reason"], "follow.offer")
+
+    def test_followup_context_skips_the_current_message(self):
+        self._with_history([
+            {"role": "user", "content": "fix the bug"},
+            {"role": "assistant", "content": "Done."},
+            {"role": "user", "content": "continue"},
+        ])
+        ask, reply = bs._route_followup_context("continue")
+        self.assertEqual((ask, reply), ("fix the bug", "Done."))
+
     def test_route_event_has_no_prompt_text(self):
         _, routes = self.turn("my secret phrase is zebra-unique-42")
         self.assertNotIn("zebra-unique-42", json.dumps(routes))

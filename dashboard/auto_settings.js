@@ -49,6 +49,7 @@
   const REASON = {
     'unclear.safe': 'playing it safe', 'triage.down': 'quick check said simple',
     'triage.up': 'quick check said careful', 'follow.approval': 'carrying on',
+    'follow.context': 'carrying on', 'follow.offer': 'carrying on the work',
     sticky: 'same conversation', 'user.request': 'you asked', redo: 'trying stronger',
     escalated: 'retried', 'limit.cross': 'a service was busy', 'limit.up': 'next level up',
     'limit.down': 'usage limits', fallback_default: 'your home model',

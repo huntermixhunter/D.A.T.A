@@ -205,8 +205,27 @@ _GREETING = re.compile(
 # Short approvals inherit the previous turn's tier and category (spec 6.3.7).
 _APPROVAL = re.compile(
     r"^\s*(yes|yeah|yep|yup|sure|ok|okay|k|do it|go ahead|go for it|ship it|proceed|continue|sounds good|"
-    r"approved|let'?s do it|let'?s go|please do|yes please|yes,? do it|all good|perfect,? (?:go|do it)|confirm(?:ed)?)"
+    r"approved|let'?s do it|let'?s go|please do|yes please|yes,? do it|all good|perfect,? (?:go|do it)|confirm(?:ed)?|"
+    r"keep going|carry on|go on|resume|next|next step|do the next (?:one|step|part)|finish (?:it|up|the rest)|"
+    r"continue (?:where (?:you|we) left off|from there|with (?:it|that|the rest))|keep at it|same again)"
     r"[\s!.,]*(please)?[\s!.,]*$", re.IGNORECASE)
+
+# Follow-ups read the conversation, not just the words. When the last reply
+# offered to do something, approving it means taking action, which only the
+# strongest tier can do (the lower tiers run read-only).
+_OFFER = re.compile(
+    r"(want me to|shall i|should i (?:go ahead|start|proceed|build|run|commit|push|merge)|would you like me to|"
+    r"do you want me to|i can (?:now )?(?:build|wire|add|fix|run|commit|push|merge|deploy|install|set up|ship|"
+    r"start|make|write|update|create|apply|port)|ready to (?:build|ship|merge|deploy|commit|run|start|apply)|"
+    r"say the word|say go|on your go|next step|next,? i(?:'ll| will)|<<ask_options>>|"
+    r"(?:say|reply|answer) (?:yes|go|continue))", re.IGNORECASE)
+# How much of the conversation a follow-up may read (characters).
+CONTEXT_ASK_CHARS = 1500
+CONTEXT_REPLY_CHARS = 1200
+CONTEXT_OFFER_CHARS = 500
+# A reply this short with no recognisable request is read as an answer to the
+# previous turn ("the second one", "Postgres") and routed from the context.
+SHORT_REPLY_CHARS = 60
 
 # Explicit model requests inside the message (spec 6.3.5). Not stripped.
 _REQ_TOP = re.compile(
@@ -415,6 +434,8 @@ COPY = {
     "triage.down":       ("quick check said simple", "A quick check said this is simple, so a lighter model answered."),
     "triage.up":         ("quick check said careful", "A quick check said this needs care, so a stronger model answered."),
     "follow.approval":   ("carrying on", "You approved the last step, so the same kind of model carried on."),
+    "follow.context":    ("carrying on", "Your reply continues the earlier request, so the model matched what that work needs."),
+    "follow.offer":      ("carrying on the work", "You said yes to work the last reply offered to do, so the strongest model carried it out."),
     "sticky":            ("same conversation", "We're in the middle of a task, so I kept the same model so it doesn't lose track."),
     "user.request":      ("you asked", "You asked for this model in your message."),
     "redo":              ("trying stronger", "You asked for a stronger model, so this answer came from one."),
@@ -448,6 +469,8 @@ class RouteContext:
     project_path: str = ""
     attachments: tuple = ()          # attachment kinds: "image", "pdf", "text", "audio"
     prev: Optional[dict] = None      # pane's previous decision: tier, category, provider_id, ts
+    last_ask: str = ""               # the pane's previous user message (for follow-ups)
+    last_reply: str = ""             # the pane's previous assistant reply (for follow-ups)
     settings: Optional[dict] = None
     now: Optional[float] = None
     home_provider: str = ""          # the user's Default LLM (ACTIVE_PROVIDER)
@@ -608,6 +631,85 @@ def _sticky_active(prev: Optional[dict], settings: dict, now: float) -> bool:
         return False
 
 
+def _category_tier(cat: str, bias_idx: int, settings: dict) -> str:
+    """A category's tier under the bias column and the user's floor for it."""
+    t = CATEGORY_TIERS[cat][bias_idx]
+    user = settings["category_floor"].get(cat, "auto")
+    if user != "auto":
+        ut = SETTING_TIERS[user]
+        t = tier_max(t, ut) if cat in LOCKED else ut
+    return t
+
+
+def _follow_up(ctx: RouteContext, prev: Optional[dict], settings: dict, bias_idx: int,
+               approval: bool) -> Optional[Decision]:
+    """Route a follow-up from the conversation before it. Returns None when
+    there is nothing to go on, so the normal unclear handling applies.
+
+    Reads the previous ask and the end of the previous reply:
+      * an approval of something the reply offered to do -> Strongest (it acts);
+      * otherwise the strongest categories found in that context set the tier;
+      * never below the previous Auto turn's tier, nor the Redo floor.
+    Weak hits and the multi-part shape are ignored: they describe how a
+    message was worded, and the reply's own prose would trip them."""
+    reply = (ctx.last_reply or "").strip()
+    ask = (ctx.last_ask or "").strip()
+    has_prev = bool(prev and prev.get("tier") in TIER_RANK)
+    if not (reply or ask or has_prev):
+        return None
+
+    cat_tiers: dict = {}
+    hits = ["follow.approval" if approval else "follow.answer"]
+    code = "follow.approval"
+
+    offer = bool(reply) and bool(_OFFER.search(reply[-CONTEXT_OFFER_CHARS:]))
+    if offer and approval:
+        cat_tiers["action"] = TOP
+        hits.append("follow.offer")
+        code = "follow.offer"
+
+    context = "\n".join(x for x in (ask[-CONTEXT_ASK_CHARS:], reply[-CONTEXT_REPLY_CHARS:]) if x)
+    found = False
+    if context:
+        cc = classify(context, ctx.project_path)
+        for cat, weight in cc["categories"].items():
+            if weight != "strong" or cat in ("multi_part", "chat"):
+                continue
+            t = _category_tier(cat, bias_idx, settings)
+            cat_tiers[cat] = tier_max(cat_tiers.get(cat), t) if cat in cat_tiers else t
+            found = True
+        if found:
+            hits.append("follow.context")
+            if code != "follow.offer":
+                code = "follow.context"
+
+    if has_prev:
+        pc = prev.get("category") if prev.get("category") in CATEGORY_TIERS else None
+        key = pc or "unclear"
+        cat_tiers[key] = tier_max(cat_tiers.get(key), prev["tier"]) if key in cat_tiers else prev["tier"]
+    if not cat_tiers:
+        # Context exists but says nothing recognisable: no safe basis to go
+        # lower, so leave it to the normal unclear handling.
+        return None
+
+    tier = tier_max(*cat_tiers.values())
+    if ctx.min_tier in TIER_RANK:
+        tier = tier_max(tier, ctx.min_tier)
+    d = Decision()
+    known = {c: t for c, t in cat_tiers.items() if c in CATEGORY_TIERS}
+    d.category = _pick_reason_category(known, tier) if known else "unclear"
+    d.categories = sorted(known, key=REASON_PRIORITY.index) or ["unclear"]
+    d.rule_hits = hits
+    d.confidence = "confident"
+    d.min_tier = d.tier = tier
+    d.sticky = has_prev
+    if ctx.min_tier in TIER_RANK and TIER_RANK[ctx.min_tier] > TIER_RANK[tier_max(*cat_tiers.values())]:
+        code = "redo"
+    d.reason_code = code if code in COPY else "follow.approval"
+    d.reason_text = reason_copy(d.reason_code)[1]
+    return d
+
+
 def plan(ctx: RouteContext) -> Decision:
     """Steps 1 to 7: work out the minimum tier and the reason. No model choice."""
     t0 = time.perf_counter()
@@ -619,20 +721,20 @@ def plan(ctx: RouteContext) -> Decision:
     msg = ctx.message or ""
     prev = ctx.prev if isinstance(ctx.prev, dict) else None
 
-    # Approval follow-up: inherit the previous turn's tier and category.
-    if _APPROVAL.match(msg) and prev and prev.get("tier") in TIER_RANK:
-        d.categories = [prev.get("category") or "unclear"]
-        d.category = d.categories[0]
-        d.rule_hits = ["follow.approval"]
-        d.confidence = "confident"
-        d.min_tier = tier_max(prev["tier"], ctx.min_tier)
-        d.tier = d.min_tier
-        d.reason_code = "follow.approval"
-        d.reason_text = reason_copy("follow.approval")[1]
-        d.decided_ms = int((time.perf_counter() - t0) * 1000)
-        return d
-
     c = classify(msg, ctx.project_path, ctx.attachments)
+
+    # Follow-ups ("continue", "yes", "the second one"): the words carry no
+    # signal, so decide from the conversation that came before.
+    approval = bool(_APPROVAL.match(msg))
+    short_answer = (not approval and c["confidence"] == "none" and "?" not in msg
+                    and 0 < len(msg.strip()) <= SHORT_REPLY_CHARS
+                    and not any(k and k != "audio" for k in (str(x).lower() for x in ctx.attachments or ())))
+    if approval or short_answer:
+        fd = _follow_up(ctx, prev, settings, bias_idx, approval)
+        if fd is not None:
+            fd.bias = bias
+            fd.decided_ms = int((time.perf_counter() - t0) * 1000)
+            return fd
     hits = c["categories"]
     d.categories = sorted(hits, key=REASON_PRIORITY.index)
     d.rule_hits = list(c["rule_hits"])
@@ -642,12 +744,7 @@ def plan(ctx: RouteContext) -> Decision:
     # Steps 3 and 4: bias column, then per-category settings floors.
     cat_tiers = {}
     for cat in hits:
-        t = CATEGORY_TIERS[cat][bias_idx]
-        user = settings["category_floor"].get(cat, "auto")
-        if user != "auto":
-            ut = SETTING_TIERS[user]
-            t = tier_max(t, ut) if cat in LOCKED else ut
-        cat_tiers[cat] = t
+        cat_tiers[cat] = _category_tier(cat, bias_idx, settings)
     if "hl.crisis" in d.rule_hits:
         cat_tiers["health_legal"] = TOP
     floor = tier_max(*cat_tiers.values()) if cat_tiers else LIGHT
