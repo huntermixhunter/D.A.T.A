@@ -86,6 +86,29 @@ def _remove(name: str, bundle: Path, live: Path, label: str, stats: dict) -> Non
     print(f"  {'(dry) ' if DRY else 'GONE '}{label}{'  [forced]' if (FORCE and not safe) else ''}")
 
 
+def _library_installed() -> list:
+    """Skill folders the Skill Library installed (they carry its marker)."""
+    roots = [CLAUDE_SKILLS_DIR]
+    if HERMES_SKILLS_DIR.is_dir():
+        roots += [c for c in HERMES_SKILLS_DIR.iterdir() if c.is_dir()]
+    found = []
+    for root in roots:
+        if root.is_dir():
+            found += [d for d in root.iterdir() if d.is_dir() and (d / ".data-library.json").is_file()]
+    return found
+
+
+def _library_unmodified(live: Path) -> bool:
+    try:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        import install_skills
+        marker = json.loads((live / ".data-library.json").read_text(encoding="utf-8"))
+        return install_skills.fingerprint(live) == marker.get("fingerprint")
+    except Exception:
+        return False
+
+
 def main() -> int:
     if not MANIFEST.exists():
         print(f"ERROR: manifest not found: {MANIFEST}")
@@ -108,6 +131,19 @@ def main() -> int:
         cat, name = ent["category"], ent["name"]
         _remove(name, BUNDLE_DIR / "hermes" / cat / name,
                 HERMES_SKILLS_DIR / cat / name, f"hermes/{cat}/{name}", stats)
+
+    # Skills added from Settings > Upgrades > Skill Library carry a
+    # .data-library.json marker. Remove those too, unless the user edited them.
+    for live in _library_installed():
+        label = f"library/{live.parent.name}/{live.name}"
+        if FORCE or _library_unmodified(live):
+            if not DRY:
+                shutil.rmtree(live, ignore_errors=True)
+            stats["removed"] += 1
+            print(f"  {'(dry) ' if DRY else 'GONE '}{label}")
+        else:
+            stats["kept"].append(label)
+            print(f"  KEEP  {label}  (modified - left in place)")
 
     print(f"\nRemoved: {stats['removed']}   "
           f"Already absent: {stats['absent']}   "

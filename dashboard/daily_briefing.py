@@ -141,7 +141,7 @@ def load_existing() -> dict:
 def _captain_context() -> str:
     """Short context block so the model can rank by relevance."""
     return (
-        "The Captain runs DATA — the Dashboard for Analytical Thought and Action: "
+        "The Captain runs D.A.T.A, the Dashboard for Agentic Thought and Action: "
         "a self-hosted, local-first AI operations dashboard driven by AI provider "
         "CLIs (Claude Code by default). DATA has tools for web search, file I/O, "
         "terminal, screenshots, persistent memory, and can dynamically load "

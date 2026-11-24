@@ -11,7 +11,7 @@ case "${1:-}" in
 esac
 
 echo ""
-echo "  DATA - Dashboard for Analytical Thought and Action"
+echo "  D.A.T.A: Dashboard for Agentic Thought and Action"
 echo "  macOS / Linux / ChromeOS installer"
 echo ""
 
@@ -85,13 +85,16 @@ fi
 
 # 3. Check for an AI provider CLI
 FOUND=""
-for p in claude codex gemini ollama; do
+for p in claude codex gemini grok ollama; do
     command -v "$p" >/dev/null 2>&1 && FOUND="$FOUND $p"
 done
+# Grok Build's installer puts grok in ~/.grok/bin, which reaches PATH only in a
+# new shell.
+case "$FOUND" in *grok*) ;; *) [ -x "${GROK_HOME:-$HOME/.grok}/bin/grok" ] && FOUND="$FOUND grok" ;; esac
 if [ -n "$FOUND" ]; then
     echo "  [OK] AI provider(s) found:$FOUND"
 else
-    echo "  [!!] No AI provider CLI found (claude / codex / gemini / ollama)."
+    echo "  [!!] No AI provider CLI found (claude / codex / gemini / grok / ollama)."
     echo "      The dashboard will load, but chat needs one. Recommended:"
     echo "      https://docs.claude.com/en/docs/claude-code"
     echo "      NOTE: install the Claude Code COMMAND-LINE tool, not the"
@@ -141,7 +144,7 @@ if [ "$(uname -s)" = "Linux" ]; then
 [Desktop Entry]
 Type=Application
 Name=DATA
-Comment=Dashboard for Analytical Thought and Action
+Comment=Dashboard for Agentic Thought and Action
 Exec=$ROOT/start_data.sh
 Icon=$ROOT/dashboard/assets/icon-256.png
 Terminal=false

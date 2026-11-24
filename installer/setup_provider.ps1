@@ -1,20 +1,23 @@
 # DATA - AI provider bootstrap (runs during the installer, optional step)
 # ----------------------------------------------------------------------------
-# DATA's dashboard loads on its own, but chat needs an AI provider CLI. They all
-# install via npm, so Node.js is the one shared prerequisite. This script makes
+# DATA's dashboard loads on its own, but chat needs an AI provider CLI. Most
+# install via npm, so Node.js is the shared prerequisite. This script makes
 # installing one or more of them one-click:
 #
-#   1. Ensure Node.js LTS is present (winget; falls back to the official MSI).
-#   2. For each requested CLI, npm install -g <package>.
-#   3. Report status. The ONE thing it can't do is sign you in -- you run the
+#   1. Grok Build is not on npm: run xAI's official PowerShell installer.
+#   2. Ensure Node.js LTS is present (winget; falls back to the official MSI).
+#   3. For each requested npm CLI, npm install -g <package>.
+#   4. Report status. The ONE thing it can't do is sign you in -- you run the
 #      CLI once and authenticate (an interactive browser/login flow).
 #
 # Which CLIs to install is passed by the wizard via -Clis (comma list). Valid
-# ids: claude, codex, gemini. Defaults to "claude" when omitted (back-compat).
+# ids: claude, codex, gemini, grok. Defaults to "claude" when omitted.
 #
 #   claude  -> @anthropic-ai/claude-code  (Anthropic Claude Code)   bin: claude
 #   codex   -> @openai/codex              (OpenAI Codex CLI)        bin: codex
 #   gemini  -> @google/gemini-cli         (Google Gemini CLI)       bin: gemini
+#   grok    -> https://x.ai/cli/install.ps1 (xAI Grok Build)        bin: grok
+#             (installs to %USERPROFILE%\.grok\bin and adds it to the user PATH)
 #
 # Never hard-fails the install: if a step errors, DATA is still fully installed
 # and the user can add a provider later. Exit code is always 0 so the wizard
@@ -55,6 +58,20 @@ $CATALOG = @{
     "claude" = @{ pkg = "@anthropic-ai/claude-code"; bin = "claude"; name = "Claude Code (Anthropic)"; login = "type 'claude', then '/login'" }
     "codex"  = @{ pkg = "@openai/codex";             bin = "codex";  name = "Codex CLI (OpenAI)";      login = "type 'codex', then sign in when prompted" }
     "gemini" = @{ pkg = "@google/gemini-cli";        bin = "gemini"; name = "Gemini CLI (Google)";     login = "type 'gemini', then sign in when prompted" }
+    "grok"   = @{ pkg = $null; script = "https://x.ai/cli/install.ps1"; bin = "grok"; name = "Grok Build (xAI)"; login = "type 'grok login' and sign in with your SuperGrok or X Premium+ account" }
+}
+
+# Grok Build lands in %USERPROFILE%\.grok\bin (or $env:GROK_HOME\bin); that
+# folder is added to the USER PATH, which this session does not see yet.
+function Find-Grok {
+    $c = Find-Cmd "grok"
+    if ($c) { return $c }
+    $homeDir = if ($env:GROK_HOME) { $env:GROK_HOME } else { Join-Path $env:USERPROFILE ".grok" }
+    foreach ($p in @(
+        (Join-Path $homeDir "bin\grok.exe"),
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Links\grok.exe"
+    )) { if (Test-Path $p) { return $p } }
+    return $null
 }
 
 # Parse + normalize the requested list.
@@ -71,7 +88,30 @@ Write-Host "  ---------------------------------------------------------------"
 "" | Set-Content -Path $log -ErrorAction SilentlyContinue
 Say ("Requested CLIs: " + ($requested -join ", ")) "Gray"
 
-# Figure out which ones still need installing (skip any already on PATH).
+$ok = @()
+$pending = @()
+
+# Grok Build first: it does not need Node.js, so a Node failure below can't
+# block it. Runs xAI's official installer in a child PowerShell so anything it
+# does to its own session (exit, scope changes) stays contained.
+if ($requested -contains "grok") {
+    $requested = @($requested | Where-Object { $_ -ne "grok" })
+    if (Find-Grok) {
+        Say "Grok Build (xAI) is already installed -- skipping." "Green"
+    } else {
+        Say "Installing Grok Build (xAI) with the official installer from x.ai..."
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm $($CATALOG['grok'].script) | iex" 2>&1 |
+            ForEach-Object { Add-Content -Path $log -Value $_ }
+        if (Find-Grok) {
+            Say "Grok Build (xAI) installed (will be on PATH in a new terminal)." "Green"; $ok += "grok"
+        } else {
+            Say "Grok Build install did not complete. Run later in PowerShell:  irm https://x.ai/cli/install.ps1 | iex" "Yellow"
+            $pending += "grok"
+        }
+    }
+}
+
+# Figure out which npm CLIs still need installing (skip any already on PATH).
 $toInstall = @()
 foreach ($id in $requested) {
     if (Find-Cmd $CATALOG[$id].bin) {
@@ -80,14 +120,16 @@ foreach ($id in $requested) {
         $toInstall += $id
     }
 }
-if ($toInstall.Count -eq 0) {
-    Say "All requested provider CLIs are already installed -- nothing to do." "Green"
-    exit 0
+if ($toInstall.Count -eq 0 -and $requested.Count -gt 0) {
+    Say "All requested npm provider CLIs are already installed." "Green"
 }
 
-# Ensure Node.js (shared prerequisite for every CLI).
+# Ensure Node.js (shared prerequisite for every npm CLI). Skipped when only
+# Grok Build was picked; clawdcursor below still installs if Node is present.
 $npm = Find-Npm
-if ($npm) {
+if ($toInstall.Count -eq 0) {
+    # Nothing from npm to install.
+} elseif ($npm) {
     Say "Node.js found." "Green"
 } else {
     Say "Node.js not found -- installing the LTS release..." "Yellow"
@@ -123,13 +165,12 @@ if ($npm) {
         Say "Could not install Node.js automatically." "Red"
         Say "Install it yourself from https://nodejs.org (LTS), then run:" "Yellow"
         foreach ($id in $toInstall) { Say ("  npm install -g " + $CATALOG[$id].pkg) "Yellow" }
-        exit 0   # DATA itself is still fully installed
+        $pending += $toInstall
+        $toInstall = @()   # DATA itself is still fully installed; carry on to the summary
     }
 }
 
-# Install each requested CLI globally via npm.
-$ok = @()
-$pending = @()
+# Install each requested npm CLI globally.
 foreach ($id in $toInstall) {
     $pkg = $CATALOG[$id].pkg
     $bin = $CATALOG[$id].bin

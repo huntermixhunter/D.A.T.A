@@ -1,9 +1,11 @@
 {
   "_comment": "DATA-core curated skill set. This is the source of truth for which skills ship with a fresh DATA install. bundle_skills.py reads this to copy skills from your live dirs INTO this bundle (maintainer side). install_skills.py reads this to copy the bundle OUT to the two discovery dirs on a fresh machine (install side). Edit the lists below to add/remove a skill, then re-run bundle_skills.py to refresh the physical files.",
   "version": 1,
-  "updated": "2026-11-03",
+  "updated": "2026-11-22",
   "_note_clawdcursor": "clawdcursor ships instruction-only: after bundle_skills.py runs, its heavy dist/ and native/ folders are pruned from the bundled copy (node_modules is already excluded by _IGNORE). The runtime binary is installed separately by the installer via 'npm install -g clawdcursor', and the .mcp.json.example registers it. If you re-run bundle_skills.py, re-prune dist/ and native/ from skills_bundle/claude/clawdcursor/.",
   "_note_remindb": "remind and memoize were removed 2026-11-03. Both only drive a remindb MCP server, which no DATA installer sets up, so they shipped broken. Long-term memory is the bridge recall index (recall_index.db, searched by the search_history tool).",
+  "_note_platforms": "An entry may carry \"platforms\" (sys.platform values, e.g. [\"darwin\"]). install_skills.py installs it only on those systems, so the Mac skills ship in every download but land only on a Mac.",
+  "_note_source_bundle": "Entries with \"source\": \"bundle\" are maintained directly in this bundle (DATA-authored, or adapted from Hermes to DATA's tools). bundle_skills.py never overwrites them from your live folders, and --clean keeps them.",
   "claude": [
     "skill-creator",
     "clawdcursor",
@@ -52,7 +54,53 @@
     "arxiv"
   ],
   "hermes": [
-    { "category": "media", "name": "youtube-content" },
-    { "category": "note-taking", "name": "obsidian" }
+    {
+      "category": "media",
+      "name": "youtube-content"
+    },
+    {
+      "category": "note-taking",
+      "name": "obsidian"
+    },
+    {
+      "category": "apple",
+      "name": "apple-notes",
+      "platforms": [
+        "darwin"
+      ],
+      "source": "bundle"
+    },
+    {
+      "category": "apple",
+      "name": "apple-reminders",
+      "platforms": [
+        "darwin"
+      ],
+      "source": "bundle"
+    },
+    {
+      "category": "apple",
+      "name": "findmy",
+      "platforms": [
+        "darwin"
+      ],
+      "source": "bundle"
+    },
+    {
+      "category": "apple",
+      "name": "imessage",
+      "platforms": [
+        "darwin"
+      ],
+      "source": "bundle"
+    },
+    {
+      "category": "apple",
+      "name": "mac-desktop-control",
+      "platforms": [
+        "darwin"
+      ],
+      "source": "bundle"
+    }
   ]
 }

@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="event_horizon.css?v=1" />
   <script type="module" src="appearance.mjs?v=2"></script>
   <link rel="stylesheet" href="skill_search.css?v=1" />
+  <link rel="stylesheet" href="skill_library.css?v=1" />
   <link rel="stylesheet" href="advanced_tools.css?v=1" />
   <link rel="stylesheet" href="remote_access.css?v=1" />
   <link rel="stylesheet" href="marketplace.css?v=preview-divider-20261029" />
@@ -40,7 +41,7 @@
       <div class="header-title">
         <span class="system-name">DATA</span>
         <span class="separator">◆</span>
-        <span class="ship-name">Dashboard for Analytical Thought and Action</span>
+        <span class="ship-name">Dashboard for Agentic Thought and Action</span>
       </div>
       <div class="header-stardate">
         <span class="stardate-label">SYSDATE</span>
@@ -581,7 +582,7 @@
       </main>
 
       <!-- RIGHT PANEL -->
-      <aside class="data-right" id="rail-right">
+      <aside class="data-right" id="rail-right" tabindex="0" aria-label="Status panel">
         <div class="right-elbow-top"></div>
 
         <div class="right-section">
@@ -686,7 +687,7 @@
          Powered by the local Kokoro voice engine (CPU, offline). -->
     <div class="convo-overlay hidden" id="convo-overlay" onclick="_convoOverlayClick(event)">
       <canvas class="convo-canvas" id="convo-canvas"></canvas>
-      <!-- DATA DAEMON face — SINGLE-STREAM SOURCE SWAP (idle ↔ speaking).
+      <!-- DATA face — SINGLE-STREAM SOURCE SWAP (idle ↔ speaking).
            ONE <video>, ONE decoder, ever. When Data speaks, app.js swaps this
            element's src to the speaking loop; when he stops, back to idle. The
            old chop came from running TWO 720p loops at once (the retired
@@ -889,6 +890,8 @@
             </section>
 
             <section class="settings-pane" data-pane="model">
+              <div id="auto-settings-root" hidden></div>
+
               <h3 class="settings-h">Default LLM</h3>
               <p class="settings-sub">Model the main channel uses for new messages.</p>
               <div class="settings-opt-row" id="settings-model-row"></div>
@@ -923,6 +926,38 @@
                   <p class="advanced-tools-note">Set up optional applications here. Applications and model downloads are separate.</p>
                   <p id="advanced-tools-status" role="status" aria-live="polite"></p>
                   <div id="advanced-tools-list" aria-busy="false"></div>
+                </section>
+
+                <section class="conn-section skill-library" id="skill-library" aria-labelledby="skill-library-heading">
+                  <h4 class="conn-section-label" id="skill-library-heading">SKILL LIBRARY</h4>
+                  <p class="skill-library-intro">Optional skills that work with DATA. Add only the ones you want. Each one downloads in seconds when you click Install, and you can remove it any time.</p>
+                  <div class="skill-library-screen" id="skill-library-screen" hidden>
+                    <div>
+                      <strong>Screen control</strong>
+                      <p id="skill-library-screen-text"></p>
+                    </div>
+                    <button class="data-btn-sm orange" id="skill-library-screen-btn" type="button">Install screen control</button>
+                  </div>
+                  <div class="skill-library-controls">
+                    <div class="skill-search-field">
+                      <label for="skill-library-filter">Filter</label>
+                      <input id="skill-library-filter" type="search" placeholder="Name, task, or app..." maxlength="80" autocomplete="off" aria-controls="skill-library-list">
+                    </div>
+                    <div class="skill-search-field skill-search-sort">
+                      <label for="skill-library-group">Category</label>
+                      <select id="skill-library-group" aria-controls="skill-library-list"><option value="">All categories</option></select>
+                    </div>
+                    <div class="skill-search-field skill-search-sort">
+                      <label for="skill-library-show">Show</label>
+                      <select id="skill-library-show" aria-controls="skill-library-list">
+                        <option value="all">All skills</option>
+                        <option value="installed">Installed</option>
+                        <option value="available">Not installed</option>
+                      </select>
+                    </div>
+                  </div>
+                  <p class="skill-library-status" id="skill-library-status" role="status" aria-live="polite"></p>
+                  <div class="skill-library-list" id="skill-library-list" aria-label="Skill library" aria-busy="false"></div>
                 </section>
 
                 <section class="conn-section skill-search" aria-labelledby="skill-search-heading">
@@ -1679,10 +1714,13 @@
     });
   </script>
   <script src="app.js?v=release-1.0.63"></script>
+  <link rel="stylesheet" href="auto_settings.css?v=1">
+  <script src="auto_settings.js?v=1"></script>
   <script src="pane_status.js?v=1"></script>
   <script src="slash_commands.js?v=2"></script>
   <script src="advanced_tools.js?v=sidebar-defaults-20261030"></script>
   <script src="skill_search.js?v=1"></script>
+  <script src="skill_library.js?v=1"></script>
   <script src="remote_access.js?v=1"></script>
   <script src="forum.js?v=embedded-20261030"></script>
   <script src="offline_maps.js?v=sidebar-defaults-20261030"></script>

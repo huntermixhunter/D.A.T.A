@@ -1,4 +1,4 @@
-# ⚠️ IMPORTANT DISCLAIMER — READ BEFORE USING DATA Daemon
+# ⚠️ IMPORTANT DISCLAIMER — READ BEFORE USING D.A.T.A
 
 **DATA is experimental software. Use it at your own risk.**
 

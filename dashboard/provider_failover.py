@@ -63,7 +63,8 @@ FALLBACK = {
     "codex-mini":         "claude-cli-haiku",
 }
 
-FAMILY_LABEL = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini", "ollama": "Ollama"}
+FAMILY_LABEL = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini", "grok": "Grok",
+                "ollama": "Ollama"}
 
 # Settings choice for the backup model. "auto" uses FALLBACK above; any other
 # value is a provider id the user picked in Settings.
@@ -83,6 +84,8 @@ def family(provider_id: str) -> str | None:
         return "codex"
     if pid.startswith("gemini"):
         return "gemini"
+    if pid.startswith("grok"):
+        return "grok"     # no automatic partner; the Settings backup applies
     if pid.startswith("ollama"):
         return "ollama"   # local and free: never limited, so a safe backup
     return None
@@ -113,6 +116,11 @@ _RESETS_RE = re.compile(
 _GEMINI_LIMIT_RE = re.compile(
     r"reached your daily [^\n]{0,60}?quota|usage limit reached for all|quota exceeded for quota metric"
     r"|RESOURCE_EXHAUSTED", re.I)
+# Grok Build plan limits (checked only against a turn that produced no reply):
+#   rate limit / usage limit reached / quota exceeded / HTTP 429
+_GROK_LIMIT_RE = re.compile(
+    r"usage limit|rate[ _-]?limit(?:ed)?|quota (?:exceeded|reached)|too many requests|\b429\b",
+    re.I)
 _TRY_AGAIN_AT_RE = re.compile(r"try again at (?P<when>[^\n]+?)\.?\s*$", re.I)
 _TRY_AGAIN_IN_RE = re.compile(r"try again in (?P<span>[0-9 a-z,]+)", re.I)
 
@@ -214,6 +222,12 @@ def match_limit(text: str, fam: str, now: float | None = None) -> dict | None:
         span = _TRY_AGAIN_IN_RE.search(text) or re.search(r"retry in (?P<span>[0-9 a-z,.]+)", text, re.I)
         secs = _parse_span(span.group("span")) if span else None
         return {"kind": "quota", "resets_at": now + secs if secs else None, "label": "quota limit"}
+    if fam == "grok":
+        if not _GROK_LIMIT_RE.search(text):
+            return None
+        span = _TRY_AGAIN_IN_RE.search(text) or re.search(r"retry in (?P<span>[0-9 a-z,.]+)", text, re.I)
+        secs = _parse_span(span.group("span")) if span else None
+        return {"kind": "usage", "resets_at": now + secs if secs else None, "label": "usage limit"}
     return None
 
 
@@ -606,7 +620,7 @@ def refresh_codex(exe: str | None = None, check_login: bool = True) -> dict:
 def _meter_blocks(fam: str) -> str | None:
     """Reason the family cannot take a handoff, or None if it can."""
     if fam not in _meter:
-        return None   # Gemini and Ollama have no subscription meter
+        return None   # Gemini, Grok and Ollama have no subscription meter
     with _lock:
         m = dict(_meter.get(fam) or {})
     if m.get("signed_in") is False:

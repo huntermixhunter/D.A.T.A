@@ -442,7 +442,10 @@ channel offers. No config files, no restart. The page reads top to bottom:
 |----------|----------------|----------------|
 | **Claude Code** | Opus, Sonnet, Haiku, Fable | install Claude Code, run `claude`, sign in |
 | **Codex** (OpenAI) | GPT-6 Astra · Sol · Luna | `npm i -g @openai/codex`, then `codex login` |
-| **Gemini CLI** (Google) | Gemini 2.5 Pro | `npm i -g @google/gemini-cli`, then sign in |
+| **Gemini CLI** (Google) | Gemini 3 Auto | `npm i -g @google/gemini-cli`, then sign in |
+| **Grok Build** (xAI) | Newest Grok your plan offers | official installer (`irm https://x.ai/cli/install.ps1 | iex` on Windows), then `grok login` (needs SuperGrok or X Premium+) |
+
+**Models stay current on their own.** Every time DATA starts it checks, for free, which models each brain can use: the newest Codex tiers your ChatGPT account lists, the real Claude version behind "latest" (shown as, for example, Opus 5.5 after your first message), the newest Grok your xAI account offers, and which local models are downloaded. A built-in local brain whose model is missing is pointed at one you actually have. The recommended local-model list is downloaded fresh from the DATA GitHub repo (the copy inside the app is used when you are offline), so new models show up without a new release. Nothing in this check costs anything.
 
 Hit **RESCAN** after you install a model or sign in to a provider. Install any one
 brain and chat works; connect several and you can switch per conversation.

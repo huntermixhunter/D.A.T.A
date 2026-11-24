@@ -23,3 +23,7 @@ tools/ export-ignore
 installer/ export-ignore
 .github/ export-ignore
 .gitattributes export-ignore
+
+# Optional Skill Library: lives on GitHub, downloaded one skill at a time from
+# Settings > Upgrades. Kept out of every zip, installer and DMG.
+skills_library/ export-ignore

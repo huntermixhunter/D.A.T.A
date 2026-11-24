@@ -29,7 +29,7 @@
   CD.ROSTERS = {
   "retail": {
     "label": "DATA",
-    "ship": "DAEMON",
+    "ship": "D.A.T.A",
     "computer": "DATA",
     "ids": {
       "command": "atlas",

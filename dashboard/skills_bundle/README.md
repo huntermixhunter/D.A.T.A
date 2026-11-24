@@ -57,3 +57,45 @@ present (use `--force` to overwrite).
 2. Run `python bundle_skills.py` to pull the new skill's files into the bundle
    (or drop the removed one).
 3. Commit `manifest.json` + the changed `claude/` / `hermes/` folders.
+
+## Platform-only skills
+
+A manifest entry may carry `"platforms": ["darwin"]` (values are `sys.platform`
+names). The files ship in every download, but `install_skills.py` installs the
+entry only on those systems. The Mac skills (`apple/apple-notes`,
+`apple/apple-reminders`, `apple/findmy`, `apple/imessage`,
+`apple/mac-desktop-control`) use this.
+
+## Bundle-maintained skills
+
+Entries with `"source": "bundle"` are edited directly in this folder: either
+written for DATA (`mac-desktop-control`) or adapted from Hermes to DATA's tools
+(the Apple skills). `bundle_skills.py` never overwrites them from your live
+folders, and `--clean` keeps them.
+
+## Updates reach existing installs
+
+The self-updater syncs everything under `dashboard/`, including this bundle.
+When bundle files change, it runs `install_skills.py --sync`, and the bridge
+runs the same sync once at startup on retail installs. Sync:
+
+- installs skills that are new to the bundle;
+- refreshes a skill only if the live copy is still exactly what DATA installed;
+- never overwrites a skill the user edited, and never reinstalls one they deleted.
+
+What DATA installed is fingerprinted in `.install_state.json` (gitignored).
+
+## The optional Skill Library (not in this bundle)
+
+About 70 more skills live in the repo at `skills_library/`, which
+`.gitattributes` marks `export-ignore`, so no zip, installer or DMG contains
+them and the updater never pulls them. Users add or remove them one at a time
+in Settings > Upgrades > Skill Library (`dashboard/skill_library.py`), which
+downloads only that skill from GitHub and checks every file against GitHub's
+blob SHA. Installed copies carry a `.data-library.json` marker, so DATA only
+ever removes skills it installed.
+
+Maintainer: edit the `LIBRARY` list in `tools/build_skill_library.py`, run it
+from the repo root, and commit `skills_library/` plus
+`dashboard/skill_library_catalog.json`. A skill must be pushed to GitHub before
+retail users can install it.

@@ -1,5 +1,5 @@
 ========================================================================
-  DATA Daemon - Dashboard for Analytical Thought and Action
+  D.A.T.A: Dashboard for Agentic Thought and Action
   Quick Install Guide
 ========================================================================
 
@@ -136,6 +136,11 @@ have installed and log in to with YOUR OWN account. Pick one:
 
   * Gemini  - Google account / free tier
         npm i -g @google/gemini-cli   (log in on first run)
+
+  * Grok Build  - xAI, needs a SuperGrok or X Premium+ subscription
+        Windows PowerShell:  irm https://x.ai/cli/install.ps1 | iex
+        macOS / Linux:       curl -fsSL https://x.ai/cli/install.sh | bash
+        then:  grok login     (no Node.js needed; DATA never uses a paid xAI API key)
 
   NOTE: the "npm i -g ..." commands above need Node.js installed first
   (npm ships with it). If npm is "not recognized", install Node.js LTS

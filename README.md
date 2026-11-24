@@ -271,12 +271,13 @@ channel offers — no config files, no restart.
 > ```
 > It affects only your own user account and is safe.
 | **Codex** (GPT-6 Astra · Sol · Luna) | `npm i -g @openai/codex`, then `codex login` | Your ChatGPT subscription |
-| **Gemini 2.5** | `npm i -g @google/gemini-cli`, then log in on first run | Google free tier / account |
+| **Gemini 3** | `npm i -g @google/gemini-cli`, then log in on first run | Google free tier / account |
+| **Grok Build** (xAI) | Official installer: `irm https://x.ai/cli/install.ps1 \| iex` (Windows) or `curl -fsSL https://x.ai/cli/install.sh \| bash`, then `grok login` | Your SuperGrok or X Premium+ subscription |
 | **Ollama** (local models) | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5-coder:7b` | Free — runs on your hardware |
 
 Each person who installs DATA logs in with **their own** accounts on **their own
 machine** — nothing is shared through the repo, and no keys ever live in the
-project folder. Install any one of the four and chat works; install several and
+project folder. Install any one of the five and chat works; install several and
 you can switch per-conversation (project workspaces can even run different
 providers side-by-side).
 

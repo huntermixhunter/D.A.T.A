@@ -62,12 +62,32 @@ def main() -> int:
         return 1
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
+    # Entries marked "source": "bundle" are maintained inside the bundle itself
+    # (DATA-authored, or adapted to DATA's tools). Never overwrite or clean them.
+    keep = {("hermes", e["category"], e["name"]) for e in man.get("hermes", [])
+            if isinstance(e, dict) and e.get("source") == "bundle"}
+    keep |= {("claude", "", e["name"]) for e in man.get("claude", [])
+             if isinstance(e, dict) and e.get("source") == "bundle"}
+
     if CLEAN and not DRY:
         for sub in ("claude", "hermes"):
             p = BUNDLE_DIR / sub
-            if p.exists():
-                shutil.rmtree(p)
-        print("Cleaned bundle/claude and bundle/hermes.")
+            if not p.exists():
+                continue
+            if sub == "claude":
+                for d in p.iterdir():
+                    if d.is_dir() and ("claude", "", d.name) not in keep:
+                        shutil.rmtree(d)
+            else:
+                for cat in p.iterdir():
+                    if not cat.is_dir():
+                        continue
+                    for d in cat.iterdir():
+                        if d.is_dir() and ("hermes", cat.name, d.name) not in keep:
+                            shutil.rmtree(d)
+                    if not any(cat.iterdir()):
+                        cat.rmdir()
+        print("Cleaned bundle/claude and bundle/hermes (bundle-maintained skills kept).")
 
     copied, missing = 0, []
 
@@ -75,7 +95,11 @@ def main() -> int:
     print(f"Source (Hermes): {HERMES_SKILLS_DIR}")
     print(f"Bundle target:   {BUNDLE_DIR}\n")
 
-    for name in man.get("claude", []):
+    for ent in man.get("claude", []):
+        name = ent if isinstance(ent, str) else ent["name"]
+        if ("claude", "", name) in keep:
+            print(f"  KEEP  claude/{name}  (maintained in the bundle)")
+            continue
         src = CLAUDE_SKILLS_DIR / name
         if not src.is_dir():
             missing.append(f"claude/{name}")
@@ -87,6 +111,9 @@ def main() -> int:
 
     for ent in man.get("hermes", []):
         cat, name = ent["category"], ent["name"]
+        if ("hermes", cat, name) in keep:
+            print(f"  KEEP  hermes/{cat}/{name}  (maintained in the bundle)")
+            continue
         src = HERMES_SKILLS_DIR / cat / name
         if not src.is_dir():
             missing.append(f"hermes/{cat}/{name}")

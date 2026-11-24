@@ -64,9 +64,34 @@ FAMILIES = {
                "npm": "@openai/codex"},
     "gemini": {"name": "Gemini CLI",  "provider": "gemini",
                "npm": "@google/gemini-cli"},
+    # Grok Build is not on npm. It installs from xAI's official per-OS script.
+    "grok":   {"name": "Grok Build",  "provider": "grok",
+               "npm": None},
 }
 
-_NPM_TO_FAMILY = {v["npm"]: k for k, v in FAMILIES.items()}
+_NPM_TO_FAMILY = {v["npm"]: k for k, v in FAMILIES.items() if v.get("npm")}
+
+# xAI's official Grok Build installers (https://github.com/xai-org/grok-build,
+# user guide "Getting Started"). Fixed strings: nothing from the chat or the
+# client is ever spliced into them.
+GROK_INSTALL_PS = "irm https://x.ai/cli/install.ps1 | iex"
+GROK_INSTALL_SH = "curl -fsSL https://x.ai/cli/install.sh | bash"
+
+
+def grok_install_argv() -> list:
+    """argv that runs the official Grok Build installer for this OS."""
+    if os.name == "nt":
+        return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-Command", GROK_INSTALL_PS]
+    return ["bash", "-c", GROK_INSTALL_SH]
+
+
+def grok_install_shell_cmd() -> str:
+    """The same installer as one shell command line (for the AI Connectors
+    INSTALL button, which runs connector commands through the shell)."""
+    if os.name == "nt":
+        return f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "{GROK_INSTALL_PS}"'
+    return GROK_INSTALL_SH
 
 # Seconds before a piped command is force-stopped. Sign-in waits on a human in a
 # browser, so it gets generous time; status/version should be instant.
@@ -88,6 +113,8 @@ def family_for_provider(provider_id: str) -> str:
         return "codex"
     if pid.startswith("gemini"):
         return "gemini"
+    if pid.startswith("grok"):
+        return "grok"
     return ""
 
 
@@ -116,8 +143,10 @@ def help_text() -> str:
         "  codex login         Sign in to Codex with your ChatGPT account\n"
         "  codex logout | codex status\n"
         "  gemini login        Opens a terminal window to sign in to Gemini\n"
-        "  install claude | install codex | install gemini\n"
-        "  claude --version | codex --version | gemini --version\n"
+        "  grok login          Sign in to Grok Build with your SuperGrok / X account\n"
+        "  grok logout | grok login --device-auth\n"
+        "  install claude | install codex | install gemini | install grok\n"
+        "  claude --version | codex --version | gemini --version | grok --version\n"
         "  /login              Sign in to the CLI this window is using\n"
         "This box only runs sign-in and setup commands. It is not a general terminal."
     )
@@ -168,10 +197,13 @@ def parse_command(text: str, pane_provider: str = "") -> Optional[dict]:
         fam = family_for_provider(pane_provider) or "claude"
         return parse_command(f"{fam} {head[1:]}")
 
-    # "install claude" / "install codex" / "install gemini"
+    # "install claude" / "install codex" / "install gemini" / "install grok"
     if head == "install" and len(rest) == 1 and rest[0] in FAMILIES:
         fam = rest[0]
         pkg = FAMILIES[fam]["npm"]
+        if not pkg:   # Grok Build: official installer script, not npm
+            return _spec("script", fam, [], action="install",
+                         label=f"install {fam} (official xAI installer)")
         return _spec("npm", fam, ["install", "-g", pkg], action="install",
                      label=f"npm install -g {pkg}")
 
@@ -237,6 +269,25 @@ def parse_command(text: str, pane_provider: str = "") -> Optional[dict]:
             return _spec("cli", fam, ["--version"], action="version", label="gemini --version")
         return None
 
+    if fam == "grok":
+        # `grok login` opens the browser OAuth flow and waits for it, like
+        # `codex login`, so it runs piped with its output in the chat. The
+        # device-code flow is for machines without a browser.
+        if joined in ("", "login", "/login"):
+            return _spec("cli", fam, ["login"], action="login", label="grok login")
+        if joined in ("login --device-auth", "login --device-code", "login device", "device-auth"):
+            return _spec("cli", fam, ["login", "--device-auth"], action="login",
+                         label="grok login --device-auth")
+        if joined in ("logout", "/logout"):
+            return _spec("cli", fam, ["logout"], action="logout", label="grok logout")
+        if joined in ("--version", "-v", "version"):
+            return _spec("cli", fam, ["--version"], action="version", label="grok --version")
+        if joined in ("update", "upgrade"):
+            return _spec("cli", fam, ["update"], action="update", label="grok update")
+        if joined in ("terminal", "open", "interactive"):
+            return _spec("cli", fam, [], mode="terminal", action="default", label="grok")
+        return None
+
     return None
 
 
@@ -275,6 +326,13 @@ def build_argv(spec: dict, resolve_exe: Callable[[str], str]) -> tuple[list, str
                         "installed from here. Install Node.js LTS from https://nodejs.org, "
                         "restart DATA, then try again.")
         return [npm, *spec["args"]], ""
+    if spec["kind"] == "script":
+        if fam != "grok":
+            return [], "Nothing to run."
+        if os.name != "nt" and not shutil.which("curl"):
+            return [], ("curl isn't installed on this computer, so Grok Build can't be "
+                        "installed from here. Install curl, then try again.")
+        return grok_install_argv(), ""
     if spec["kind"] == "cli":
         exe = resolve_exe(info.get("provider", ""))
         if not exe:
@@ -289,7 +347,8 @@ def child_env() -> dict:
     reflect the buyer's SUBSCRIPTION sign-in, matching how the chat runs the
     CLIs. Colour is turned off so output is plain text."""
     env = {k: v for k, v in os.environ.items()
-           if k not in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")}
+           if k not in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+                        "XAI_API_KEY", "GROK_API_KEY")}
     env["NO_COLOR"] = "1"
     env["FORCE_COLOR"] = "0"
     env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
@@ -541,6 +600,11 @@ _AUTH_FAIL = {
     "gemini": re.compile(
         r"auth(?:entication)? method|GEMINI_API_KEY|login required|not (?:logged|signed) in|"
         r"reauthenticat|oauth|credentials? (?:not found|expired|missing)", re.I),
+    # Grok Build: "Run `grok login` first, or set XAI_API_KEY",
+    # "Authentication failed", expired or unrefreshable tokens.
+    "grok": re.compile(
+        r"grok login|XAI_API_KEY|authentication failed|not (?:logged|signed) in|"
+        r"\b401\b|unauthori[sz]ed|(?:token|session) (?:has )?expired|sign in again", re.I),
 }
 
 
@@ -560,6 +624,10 @@ def login_notice(family: str) -> dict:
     elif family == "codex":
         how = ("Type `codex login` here (or click **Sign in** below). Your browser opens to the "
                "ChatGPT sign-in page; once it says you're signed in, come back here.")
+    elif family == "grok":
+        how = ("Type `grok login` here (or click **Sign in** below). Your browser opens to the "
+               "xAI sign-in page; sign in with the account that has your SuperGrok or X Premium+ "
+               "subscription, then come back here.")
     else:
         how = ("Type `claude login` here (or click **Sign in** below). Your browser opens to the "
                "Claude sign-in page. If it shows you a code, paste the code into this chat and press Enter.")

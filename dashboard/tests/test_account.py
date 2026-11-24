@@ -344,6 +344,24 @@ class BridgeProfileTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/user/profile")[1]["user"]["name"], "Gyani")
         self.assertNotIn(injected, self.bs._active_captain_block())
 
+    def test_a_web_page_cannot_install_refresh_or_chat(self):
+        """Installs run vendor scripts and the chat brain holds shell tools, so
+        a drive-by POST to these routes must be refused before any work starts."""
+        with mock.patch.object(self.bs, "_start_install_job") as install, \
+                mock.patch.object(self.bs, "_run_model_refresh") as refresh:
+            for path, body in (("/llm/install", {"kind": "cli", "target": "x"}),
+                               ("/upgrades/install", {"id": "x"}),
+                               ("/models/refresh", {}),
+                               ("/chat", {"message": "run calc"}),
+                               ("/chat_stream", {"message": "run calc"})):
+                with self.subTest(path=path):
+                    self.assertEqual(self.cross_site("POST", path, body), 403)
+            install.assert_not_called()
+            refresh.assert_not_called()
+        # The dashboard itself still reaches the route (rejected only on input).
+        status, body, _ = self.call("POST", "/llm/install", {"kind": "ollama", "target": "nope:1b"})
+        self.assertEqual(status, 400)
+
     def test_a_web_page_cannot_read_the_captain_profile(self):
         for path in ("/user/profile", "/user/list", "/user/avatar?id=captain", "/agents/avatar?id=data"):
             with self.subTest(path=path):
