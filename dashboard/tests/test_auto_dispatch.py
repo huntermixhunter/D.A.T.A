@@ -27,6 +27,7 @@ def _load_bridge():
 
 bs = _load_bridge()
 ar = bs._auto_router
+_REAL_TRIAGE = bs._router_triage
 
 
 def simple_run_turn(provider_id, message, project_path, sse, *, runner_for, set_provider, **kw):
@@ -64,22 +65,36 @@ class _Base(unittest.TestCase):
             mock.patch.object(bs, "_ollama_installed_models",
                               return_value={p.get("model") for p in bs.PROVIDERS.values()}),
             mock.patch.object(bs, "ACTIVE_PROVIDER", "claude-cli"),
+            mock.patch.object(bs, "ACTIVE_EFFORT", ""),
+            # Never reach a real model from the shared setup. TriageTest
+            # exercises the real helper with stubbed backends.
+            mock.patch.object(bs, "_router_triage", return_value=None),
+            # The history and archive paths are fixed at import, so point them
+            # at the temp folder: no test may touch the real chat files.
+            mock.patch.object(bs, "HISTORY_FILE", self.udir / "conversation_history.json"),
+            mock.patch.object(bs, "CONVERSATION_ARCHIVE_FILE", self.udir / "conversation_archive.jsonl"),
         ]
         for p in self.patches:
             p.start()
         bs._route_prev.clear()
         bs._router_settings_cache.update(key=None, data=None)
         bs._history_state.key = "test-pane"
+        self._saved_history = getattr(bs._history_state, "history", None)
+        bs._history_state.history = []   # each test starts with an empty pane
         bs._request_attachments.list = []
         bs._provider_override.id = None
+        bs._effort_override.level = None
         self.seen = []
+        self.replies = []          # scripted replies; None sends no text
 
     def tearDown(self):
+        bs._history_state.history = self._saved_history
         for p in self.patches:
             p.stop()
         bs._route_prev.clear()
         bs._router_settings_cache.update(key=None, data=None)
         bs._provider_override.id = None
+        bs._effort_override.level = None
         self.tmp.cleanup()
 
     def recording_runner(self, message, project_path, sse):
@@ -88,10 +103,17 @@ class _Base(unittest.TestCase):
             "read_only": bs._turn_read_only(),
             "claude_args": bs._claude_permission_args(),
             "codex_args": bs._codex_permission_args(),
+            "effort": bs._effective_provider_effort(),
+            "claude_effort_args": bs._claude_effort_args(),
+            "soul_retry": bs._retry_directive() if bs._turn_read_only() else "",
         })
         meta = bs._empty_usage_meta(bs._current_provider_id())
         meta.update(input_tokens=500, output_tokens=20, cost_usd=0.001)
         bs._log_usage(meta, message)
+        reply = self.replies.pop(0) if self.replies else "ok"
+        if reply is not None:
+            sse("token", reply)
+        sse("done", "")
 
     def turn(self, message, pid="auto", **kw):
         events = []
@@ -415,5 +437,342 @@ class RedoTest(_Base):
         self.assertFalse(bs._drop_redo_exchange("x"))
 
 
+# ── A10: triage call for vague messages ─────────────────────────────────────
+SIMPLE = {"category": "lookup", "difficulty": 1, "risk": "low", "takes_action": False,
+          "confidence": "high"}
+SIMPLE_JSON = json.dumps(SIMPLE)
+
+
+class _Proc:
+    def __init__(self, stdout, returncode=0):
+        self.stdout, self.returncode, self.stderr = stdout, returncode, ""
+
+
+class TriageTest(_Base):
+    VAGUE = "hmm what about the other one"
+
+    def setUp(self):
+        super().setUp()
+        bs._triage_cache.clear()
+        bs._route_ctx.rec = None
+
+    def tearDown(self):
+        bs._triage_cache.clear()
+        bs._route_ctx.rec = None
+        super().tearDown()
+
+    # Dispatch: the router uses the triage answer.
+    def test_vague_message_routed_down_by_triage(self):
+        with mock.patch.object(bs, "_router_triage", return_value=dict(SIMPLE)) as tri:
+            answered, routes = self.turn(self.VAGUE)
+        tri.assert_called_once()
+        self.assertEqual(routes[0]["tier"], "light")
+        self.assertEqual(routes[0]["reason"], "triage.down")
+        row = self.rows()[0]
+        self.assertIs(row["triage_used"], True)
+        self.assertEqual(row["triage_result"]["difficulty"], 1)
+
+    def test_failed_triage_goes_strongest(self):
+        with mock.patch.object(bs, "_router_triage", return_value=None):
+            answered, routes = self.turn(self.VAGUE)
+        self.assertEqual(routes[0]["tier"], "top")
+        self.assertEqual(routes[0]["reason"], "unclear.safe")
+
+    def test_triage_not_called_for_clear_or_locked_messages(self):
+        with mock.patch.object(bs, "_router_triage", return_value=dict(SIMPLE)) as tri:
+            self.turn("hi")
+            _, routes = self.turn("delete my old invoices")
+        tri.assert_not_called()
+        self.assertEqual(routes[0]["tier"], "top")
+
+    def test_triage_off_in_settings(self):
+        bs._save_router_settings({**ar.normalize_settings(None), "mode": "auto", "triage": False})
+        with mock.patch.object(bs, "_router_triage", return_value=dict(SIMPLE)) as tri:
+            _, routes = self.turn(self.VAGUE)
+        tri.assert_not_called()
+        self.assertEqual(routes[0]["tier"], "top")
+
+    def test_thinking_line_shown_while_checking(self):
+        events = []
+        with mock.patch.object(bs, "_router_triage", return_value=dict(SIMPLE)), \
+             mock.patch.object(bs, "_provider_runner", return_value=self.recording_runner):
+            bs._run_turn_with_failover("auto", self.VAGUE, "", lambda t, d: events.append((t, d)))
+        self.assertTrue(any(t == "thinking" and "Quick check" in d for t, d in events))
+
+    # The helper: backend order, cache, and the Claude call itself.
+    def test_local_first_then_cached(self):
+        with mock.patch.object(bs, "_triage_local", return_value=dict(SIMPLE)) as loc, \
+             mock.patch.object(bs, "_triage_claude", return_value=None) as cl:
+            self.assertEqual(_REAL_TRIAGE("Can you help"), SIMPLE)
+            self.assertEqual(_REAL_TRIAGE("can  you help"), SIMPLE)
+        self.assertEqual(loc.call_count, 1)
+        cl.assert_not_called()
+
+    def test_local_failure_falls_back_to_claude(self):
+        with mock.patch.object(bs, "_triage_local", return_value=None), \
+             mock.patch.object(bs, "_triage_claude", return_value=dict(SIMPLE)) as cl:
+            self.assertEqual(_REAL_TRIAGE("x"), SIMPLE)
+        cl.assert_called_once()
+
+    def test_failures_are_not_cached(self):
+        with mock.patch.object(bs, "_triage_local", return_value=None), \
+             mock.patch.object(bs, "_triage_claude", return_value=None) as cl:
+            self.assertIsNone(_REAL_TRIAGE("x"))
+            self.assertIsNone(_REAL_TRIAGE("x"))
+        self.assertEqual(cl.call_count, 2)
+
+    def test_backend_setting_respected(self):
+        for backend, want_local, want_claude in (("local", 1, 0), ("claude", 0, 1)):
+            bs._triage_cache.clear()
+            bs._save_router_settings({**ar.normalize_settings(None), "triage_backend": backend})
+            with self.subTest(backend=backend), \
+                 mock.patch.object(bs, "_triage_local", return_value=None) as loc, \
+                 mock.patch.object(bs, "_triage_claude", return_value=None) as cl:
+                _REAL_TRIAGE("x")
+                self.assertEqual((loc.call_count, cl.call_count), (want_local, want_claude))
+
+    def _claude_run(self, stdout):
+        calls = []
+
+        def fake_run(args, **kw):
+            calls.append((args, kw))
+            return _Proc(stdout)
+        with mock.patch.object(bs, "_provider_executable", return_value="claude"), \
+             mock.patch.object(bs.subprocess, "run", side_effect=fake_run), \
+             mock.patch.dict(bs.os.environ, {"ANTHROPIC_API_KEY": "sk-test"}):
+            result = bs._triage_claude("help me", ar.normalize_settings(None), bs._auto_candidates())
+        return result, calls
+
+    def test_claude_triage_runs_with_no_tools(self):
+        out = json.dumps({"type": "result", "is_error": False, "result": SIMPLE_JSON,
+                          "usage": {"input_tokens": 5, "output_tokens": 30}, "total_cost_usd": 0.0003})
+        bs._route_ctx.rec = {"turn_id": "turn-1", "_logged": 0}
+        result, calls = self._claude_run(out)
+        self.assertEqual(result, SIMPLE)
+        args, kw = calls[0]
+        i = args.index("--tools")
+        self.assertEqual(args[i + 1], "")
+        self.assertIn("--strict-mcp-config", args)
+        self.assertIn("--no-session-persistence", args)
+        self.assertNotIn("--dangerously-skip-permissions", args)
+        self.assertNotIn("ANTHROPIC_API_KEY", kw["env"])
+        self.assertLessEqual(kw["timeout"], ar.TRIAGE_CLOUD_TIMEOUT)
+        self.assertIn("<request>", kw["input"])
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["kind"], "triage")
+        self.assertEqual(rows[0]["turn_id"], "turn-1")
+        self.assertIs(rows[0]["triage_ok"], True)
+        self.assertNotIn("help me", json.dumps(rows[0]))
+        self.assertEqual(bs._route_ctx.rec["_logged"], 0)   # not counted as the turn's row
+
+    def test_claude_error_or_garbage_is_none(self):
+        for out in ("", "not json", json.dumps({"is_error": True, "result": SIMPLE_JSON}),
+                    json.dumps({"is_error": False, "result": "I think it is easy"})):
+            with self.subTest(out=out):
+                result, _ = self._claude_run(out)
+                self.assertIsNone(result)
+
+    def test_claude_triage_skipped_when_claude_limited(self):
+        self.snap = _snapshot(claude_blocked="Claude 5-hour window is at 100%")
+        result, calls = self._claude_run(json.dumps({"result": SIMPLE_JSON}))
+        self.assertIsNone(result)
+        self.assertEqual(calls, [])
+
+    def test_local_triage_parses_ollama_reply(self):
+        body = json.dumps({"message": {"content": SIMPLE_JSON},
+                           "prompt_eval_count": 50, "eval_count": 20}).encode()
+        resp = mock.MagicMock()
+        resp.__enter__.return_value.read.return_value = body
+        with mock.patch.object(bs.urllib.request, "urlopen", return_value=resp) as uo:
+            result = bs._triage_local("help me", ar.normalize_settings(None), bs._auto_candidates())
+        self.assertEqual(result, SIMPLE)
+        sent = json.loads(uo.call_args[0][0].data)
+        self.assertEqual(sent["format"], "json")
+        self.assertNotIn("tools", sent)
+        self.assertLessEqual(uo.call_args[1]["timeout"], ar.TRIAGE_LOCAL_TIMEOUT)
+        self.assertEqual(self.rows()[0]["kind"], "triage")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Auto effort: the router picks the effort level when Effort is on Auto ───
+class EffortTest(_Base):
+    BLOCKED = "Claude 5-hour window is at 100%"
+
+    def test_fast_tier_runs_at_low(self):
+        self.snap = _snapshot(claude_blocked=self.BLOCKED)     # fast model is Luna
+        _, routes = self.turn("hi")
+        self.assertEqual(ar.provider_tier(self.seen[0]["provider"]), ar.LIGHT)
+        self.assertEqual(self.seen[0]["effort"], "low")
+        self.assertEqual(routes[0]["effort"], "low")
+        self.assertTrue(routes[0]["effort_auto"])
+
+    def test_model_without_effort_dial_gets_none(self):
+        _, routes = self.turn("hi")                             # Haiku has no effort setting
+        self.assertEqual(self.seen[0]["provider"], "claude-cli-haiku")
+        self.assertEqual(self.seen[0]["claude_effort_args"], [])
+        self.assertEqual(routes[0]["effort"], "")
+        self.assertFalse(routes[0]["effort_auto"])
+
+    def test_redo_to_standard_thinks_a_step_harder(self):
+        self.turn("hi", min_tier="mid")
+        # Standard is medium; a Redo is a retry, so one step more.
+        self.assertEqual(self.seen[0]["effort"], "high")
+
+    def test_action_on_strongest_gets_a_step_more(self):
+        _, routes = self.turn("delete my old invoices")
+        self.assertEqual(routes[0]["tier"], ar.TOP)
+        self.assertEqual(self.seen[0]["effort"], "xhigh")
+
+    def test_user_choice_always_wins(self):
+        for level in ("max", "low"):
+            bs._effort_override.level = level
+            _, routes = self.turn("hi", min_tier="mid")
+            self.assertEqual(self.seen[-1]["effort"], level)
+            self.assertFalse(routes[0]["effort_auto"])
+            self.assertEqual(bs._effort_override.level, level)   # left as the user set it
+
+    def test_global_effort_setting_wins(self):
+        with mock.patch.object(bs, "ACTIVE_EFFORT", "low"):
+            _, routes = self.turn("hi", min_tier="mid")
+        self.assertEqual(self.seen[0]["effort"], "low")
+        self.assertFalse(routes[0]["effort_auto"])
+
+    def test_setting_off_leaves_cli_default(self):
+        bs._save_router_settings({**ar.normalize_settings(None), "mode": "auto", "auto_effort": False})
+        _, routes = self.turn("hi", min_tier="mid")
+        self.assertEqual(self.seen[0]["effort"], "")
+        self.assertEqual(self.seen[0]["claude_effort_args"], [])
+        self.assertEqual(routes[0]["effort"], "")
+
+    def test_pick_does_not_leak_past_the_turn(self):
+        self.turn("delete my old invoices")
+        self.assertIsNone(bs._effort_override.level)
+        self.assertEqual(bs._current_effort(), "")
+        bs._route_prev.clear()                 # new conversation, no sticky tier
+        self.turn("hi", min_tier="mid")
+        self.assertEqual(self.seen[1]["effort"], "high")
+
+    def test_manual_turn_untouched(self):
+        self.turn("hi", pid="claude-cli-haiku")
+        self.assertEqual(self.seen[0]["effort"], "")
+
+    def test_ledger_records_effort(self):
+        self.turn("delete my old invoices")
+        row = self.rows()[-1]
+        self.assertEqual(row["effort"], "xhigh")
+        self.assertTrue(row["effort_auto"])
+        self.assertNotIn("_user_effort", row)
+
+    def test_model_without_effort_reports_none(self):
+        rec = {"turn_id": "t"}
+        d = ar.Decision(tier=ar.LIGHT, effort="low")
+        settings = ar.normalize_settings(None)
+        with mock.patch.object(bs, "_provider_effort_levels", return_value=[{"id": ""}]):
+            eff, auto = bs._route_effort(rec, "gemini", ar.LIGHT, d, settings, False)
+        self.assertEqual((eff, auto), ("", False))
+
+
+# ── Auto retry one tier up (Task A11) ───────────────────────────────────────
+class RetryTest(_Base):
+    def run_events(self, message, **kw):
+        events = []
+        with mock.patch.object(bs, "_provider_runner", return_value=self.recording_runner), \
+                mock.patch.object(bs, "_drop_redo_exchange", return_value=True) as drop:
+            answered = bs._run_turn_with_failover(
+                "auto", message, "", lambda t, d: events.append((t, d)), **kw)
+        self.drop = drop
+        return answered, events
+
+    def test_unsure_answer_retried_one_tier_up(self):
+        self.replies = ["maybe <<auto_unsure>>{}<</auto_unsure>>", "sure answer"]
+        answered, events = self.run_events("hi")
+        self.assertEqual(len(self.seen), 2)
+        self.assertEqual(ar.provider_tier(self.seen[0]["provider"]), ar.LIGHT)
+        self.assertEqual(ar.provider_tier(self.seen[1]["provider"]), ar.MID)
+        self.assertEqual(answered, self.seen[1]["provider"])
+        esc = [json.loads(d) for t, d in events if t == "escalate"]
+        self.assertEqual(len(esc), 1)
+        self.assertEqual((esc[0]["reason"], esc[0]["from_tier"], esc[0]["to_tier"]),
+                         ("unsure", ar.LIGHT, ar.MID))
+        routes = [json.loads(d) for t, d in events if t == "route"]
+        self.assertEqual(routes[-1]["reason"], "escalated")
+        self.drop.assert_called_once_with("hi")
+
+    def test_exactly_one_done_after_retry(self):
+        self.replies = ["<<auto_unsure>>{}<</auto_unsure>>", "fine"]
+        _, events = self.run_events("hi")
+        self.assertEqual([t for t, _ in events].count("done"), 1)
+        self.assertEqual(events[-1][0], "done")
+
+    def test_retry_thinks_harder(self):
+        self.replies = ["<<auto_unsure>>{}<</auto_unsure>>", "fine"]
+        self.run_events("hi")
+        self.assertEqual(self.seen[0]["effort"], "")         # Haiku: no effort dial
+        self.assertEqual(self.seen[1]["effort"], "high")     # Standard plus the retry step
+
+    def test_user_effort_kept_on_retry(self):
+        bs._effort_override.level = "medium"
+        self.replies = ["<<auto_unsure>>{}<</auto_unsure>>", "fine"]
+        self.run_events("hi")
+        self.assertEqual([x["effort"] for x in self.seen], ["", "medium"])
+        self.assertEqual(bs._effort_override.level, "medium")
+
+    def test_needs_action_and_empty_also_retry(self):
+        for reply, reason in (("I need to edit files. <<auto_needs_action>>{}<</auto_needs_action>>",
+                               "needs_action"), (None, "empty")):
+            self.seen.clear()
+            bs._route_prev.clear()
+            self.replies = [reply, "done it"]
+            _, events = self.run_events("hi")
+            esc = [json.loads(d) for t, d in events if t == "escalate"]
+            self.assertEqual(esc[0]["reason"], reason)
+            self.assertEqual(len(self.seen), 2)
+
+    def test_confident_answer_not_retried(self):
+        self.replies = ["hello!"]
+        _, events = self.run_events("hi")
+        self.assertEqual(len(self.seen), 1)
+        self.assertFalse([t for t, _ in events if t == "escalate"])
+        self.assertEqual([t for t, _ in events].count("done"), 1)
+        self.drop.assert_not_called()
+
+    def test_only_one_retry(self):
+        self.replies = ["<<auto_unsure>>{}<</auto_unsure>>", "<<auto_unsure>>{}<</auto_unsure>>"]
+        self.run_events("hi")
+        self.assertEqual(len(self.seen), 2)
+
+    def test_strongest_tier_never_retried(self):
+        self.replies = ["<<auto_unsure>>{}<</auto_unsure>>"]
+        self.run_events("delete my old invoices")
+        self.assertEqual(len(self.seen), 1)
+
+    def test_setting_off_disables_retry_and_directive(self):
+        bs._save_router_settings({**ar.normalize_settings(None), "mode": "auto", "escalation": False})
+        self.replies = ["<<auto_unsure>>{}<</auto_unsure>>"]
+        self.run_events("hi")
+        self.assertEqual(len(self.seen), 1)
+        self.assertEqual(self.seen[0]["soul_retry"], "")
+
+    def test_lighter_model_told_how_to_hand_off(self):
+        self.run_events("hi")
+        self.assertIn("<<auto_unsure>>", self.seen[0]["soul_retry"])
+
+    def test_ledger_marks_the_retry(self):
+        self.replies = ["<<auto_unsure>>{}<</auto_unsure>>", "fine"]
+        self.run_events("hi")
+        row = self.rows()[-1]
+        self.assertTrue(row.get("escalated"))
+        self.assertEqual(row.get("escalation_reason"), "unsure")
+
+    def test_markers_hidden_from_the_reply(self):
+        out = []
+        f = bs._marker_filter_sse(lambda t, d: out.append((t, d)))
+        f("token", "Answer text. <<auto_unsure>>{}<</auto_unsure>>")
+        f("done", "")
+        text = "".join(d for t, d in out if t == "token")
+        self.assertIn("Answer text.", text)
+        self.assertNotIn("auto_unsure", text)

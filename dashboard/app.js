@@ -1923,6 +1923,17 @@ async function _dispatchChatMessage(text, attachments) {
             if (speakReply) _speakStreamFeed(payload.text);
           } else if (evType === 'route') {
             try { _streamRoute = JSON.parse(payload.text); } catch { _streamRoute = null; }
+          } else if (evType === 'escalate') {
+            let info = null;
+            try { info = JSON.parse(payload.text); } catch { info = null; }
+            if (streamMsg) {
+              _finalizeStreamBubble(streamMsg);
+              _markFirstTry(streamMsg, info);
+              streamMsg = null;
+            }
+            _streamMeta = null;
+            thoughtEl.classList.remove('done');
+            _addThoughtLine(thoughtEl, (info && info.text) || 'Trying again with a stronger model');
           } else if (evType === 'meta') {
             try { _streamMeta = JSON.parse(payload.text); } catch { _streamMeta = null; }
           } else if (evType === 'needs_login') {
@@ -2224,6 +2235,22 @@ function _realProvider(pid) {
   return (pid && pid !== 'auto') ? pid : (_lastKnownActiveProvider || '');
 }
 
+const _EFFORT_WORDS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
+
+// Auto retry: a lighter model's first try was unsure, needed to act, or
+// failed, so the bridge is rerunning the turn one tier up in the same stream.
+// The first try stays on screen, dimmed, like "Try a stronger model".
+function _markFirstTry(msgEl, info) {
+  if (!msgEl) return;
+  msgEl.classList.add('route-superseded');
+  const bubble = msgEl.querySelector('.bubble');
+  if (!bubble || bubble.querySelector('.route-redo-note')) return;
+  const note = document.createElement('span');
+  note.className = 'route-redo-note';
+  note.textContent = `First try, ${String((info && info.from_tier_name) || 'fast').toLowerCase()} model`;
+  bubble.appendChild(note);
+}
+
 function _attachRouteBadge(msgEl, route, redoCtx) {
   if (!msgEl || !route || !route.tier_name) return;
   const bubble = msgEl.querySelector('.bubble');
@@ -2235,6 +2262,8 @@ function _attachRouteBadge(msgEl, route, redoCtx) {
   const tip = [];
   if (route.reason_text) tip.push(route.reason_text);
   if (route.model_label) tip.push(`Answered by: ${route.model_label}`);
+  if (route.effort) tip.push(`Effort: ${_EFFORT_WORDS[route.effort] || route.effort}`
+    + (route.effort_auto ? ', picked by Auto for this request' : ', your setting'));
   if (route.read_only) tip.push('This answer could read and search but not change anything. '
     + 'If you need it to act, ask again and say "use the strongest model".');
   b.title = tip.join('\n');
@@ -9903,6 +9932,14 @@ async function sendProjectMessage(wsId) {
             if (evType === 'token')        answer += payload.text || '';
             else if (evType === 'thinking') _addThoughtLine(thoughtEl, payload.text);
             else if (evType === 'route')   { try { paneRoute = JSON.parse(payload.text); } catch { paneRoute = null; } }
+            else if (evType === 'escalate') {
+              let info = null;
+              try { info = JSON.parse(payload.text); } catch { info = null; }
+              if (answer) _markFirstTry(appendMessageToPane(winEl, 'data', answer, ws.crew), info);
+              answer = '';
+              paneMeta = null;
+              _addThoughtLine(thoughtEl, (info && info.text) || 'Trying again with a stronger model');
+            }
             else if (evType === 'meta')    { try { paneMeta = JSON.parse(payload.text); } catch { paneMeta = null; } }
             else if (evType === 'needs_login') { try { loginInfo = JSON.parse(payload.text); } catch { loginInfo = null; } }
             else if (evType === 'error')   { serverError = payload.text || ''; streamDone = true; }
