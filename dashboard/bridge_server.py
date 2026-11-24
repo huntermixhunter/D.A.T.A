@@ -4499,6 +4499,9 @@ def _load_soul(mode: str = "api") -> str:
     _ro_check = globals().get("_turn_read_only")
     if _ro_check is not None and _ro_check():
         soul += _READ_ONLY_DIRECTIVE
+        _retry = globals().get("_retry_directive")
+        if _retry is not None:
+            soul += _retry()
 
     return soul
 
@@ -6207,7 +6210,14 @@ _MARKER_HANDLERS = {
     "set_project_path":      _handle_set_project_path_marker,
     "ask_options":           _handle_ask_options_marker,
     "send_to_pane":          _handle_send_to_pane_marker,
+    # Auto retry (Task A11): a lighter model ends its reply with one of these
+    # when it is unsure or the request needs it to act. They only need to be
+    # stripped from the visible reply; _run_turn_with_failover reads them
+    # from the raw stream and retries one tier up.
+    "auto_unsure":           lambda payload: None,
+    "auto_needs_action":     lambda payload: None,
 }
+_AUTO_RETRY_MARKERS = {"auto_unsure": "unsure", "auto_needs_action": "needs_action"}
 # Markers that "end the turn" — once they fire, any further LLM tokens are
 # irrelevant noise (the model has done what was asked). The filter suppresses
 # all token output after one of these dispatches so the Captain doesn't see
@@ -6357,6 +6367,9 @@ def _marker_filter_sse(downstream):
             json_text = buf[0][open_idx + len(open_tag):close_idx].strip()
             after     = buf[0][close_idx + len(close_tag):]
             if before and not suppressed[0]: downstream('token', before)
+            if name in _AUTO_RETRY_MARKERS:
+                buf[0] = after          # strip it; the body may be empty, not JSON
+                continue
             try:
                 payload = json.loads(json_text)
                 handler = _MARKER_HANDLERS.get(name)
@@ -6383,7 +6396,15 @@ def _marker_filter_sse(downstream):
             downstream('token', buf[0])
             buf[0] = ""
 
+    def reset():
+        """Start a fresh reply in the same stream (Auto retry): flush what the
+        first try left in the buffer and lift any terminal-marker silence."""
+        finalize()
+        buf[0] = ""
+        suppressed[0] = False
+
     filtered.finalize = finalize
+    filtered.reset = reset
     return filtered
 
 
@@ -8605,6 +8626,24 @@ _READ_ONLY_DIRECTIVE = (
     "files, run commands, send anything, or schedule tasks. If the request needs any of "
     "that, say in one line that it needs the strongest model, and stop.]")
 
+# Auto retry (Task A11, spec 6.8). Only added when retry is on, so the model
+# is never told a stronger model will step in when it will not.
+_RETRY_DIRECTIVE = (
+    "\n\n[You are a lighter model chosen to save usage. If the request needs you to edit "
+    "files, run commands, send, or schedule anything, write one short line saying so and "
+    "end your reply with <<auto_needs_action>>{}<</auto_needs_action>>. If you are not "
+    "confident your answer is correct and complete, end your reply with "
+    "<<auto_unsure>>{}<</auto_unsure>>. Either marker hands the request to a stronger "
+    "model automatically and is hidden from the user. Do not mention the markers. "
+    "Do not add one when you are confident.]")
+
+
+def _retry_directive() -> str:
+    try:
+        return _RETRY_DIRECTIVE if _router_settings().get("escalation", True) else ""
+    except Exception:
+        return ""
+
 
 # ── Auto decision (Task A7) ─────────────────────────────────────────────────
 def _route_followup_context(message: str) -> tuple:
@@ -8629,7 +8668,163 @@ def _route_followup_context(message: str) -> tuple:
         return "", ""
 
 
-def _route_auto(rec: dict, message: str, project_path: str, sse, min_tier: str | None = None) -> str:
+# ── Triage call for vague messages (Task A10, spec 6.7) ─────────────────────
+# A quick, tool-free classification that lets a vague message go to a lighter
+# model instead of always to Strongest. Local model first (free and private),
+# then Claude Haiku with every tool disabled. Any failure returns None, which
+# the router treats as Strongest. Each call writes its own ledger row.
+_triage_cache: dict = {}            # message hash -> (ts, result)
+_triage_cache_lock = threading.Lock()
+_TRIAGE_CACHE_MAX = 256
+
+
+def _triage_log_row(provider_id: str, meta: dict, backend: str, ok: bool) -> None:
+    """Write the triage call's own ledger row. Kept apart from _log_usage so it
+    never counts as the turn's row or picks up the turn's routing fields."""
+    try:
+        rec = getattr(_route_ctx, "rec", None)
+        row = {"ts": datetime.datetime.now().isoformat(timespec="seconds"),
+               "pane": getattr(_history_state, "key", "") or "",
+               **_empty_usage_meta(provider_id), **(meta or {}),
+               "kind": "triage", "turn_id": rec.get("turn_id") if rec else None,
+               "route_mode": "auto", "triage_backend": backend, "triage_ok": bool(ok),
+               "chosen_provider": provider_id, "provider": provider_id}
+        with _usage_ledger_lock:
+            with open(_user_dir() / USAGE_LEDGER_NAME, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception as e:
+        log.debug(f"[ROUTER] triage ledger row skipped: {e!r}")
+
+
+def _triage_usable(c: dict, settings: dict) -> bool:
+    return (c.get("eligible") and _auto_router.provider_tier(c.get("pid", "")) is not None
+            and (settings.get("allowed") or {}).get(c.get("pid")) is not False
+            and (settings.get("model_overrides") or {}).get(c.get("pid")) != "off")
+
+
+def _triage_local(message: str, settings: dict, cands: list):
+    """Classify on an installed local model. Returns the parsed result or None."""
+    for c in cands:
+        if c.get("family") != "ollama" or not _triage_usable(c, settings):
+            continue
+        cfg = PROVIDERS.get(c["pid"]) or {}
+        body = json.dumps({
+            "model": cfg.get("model"), "stream": False, "format": "json",
+            "options": {"temperature": 0},
+            "messages": [{"role": "system", "content": _auto_router.TRIAGE_SYSTEM},
+                         {"role": "user", "content": _auto_router.triage_prompt(message)}],
+        }).encode("utf-8")
+        t0 = time.time()
+        try:
+            req = urllib.request.Request(cfg.get("url", OLLAMA_CHAT_URL), data=body,
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=_auto_router.TRIAGE_LOCAL_TIMEOUT) as resp:
+                payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        except Exception as e:
+            log.info(f"[ROUTER] local triage on {c['pid']} failed: {e!r}")
+            return None
+        result = _auto_router.parse_triage((payload.get("message") or {}).get("content") or "")
+        _triage_log_row(c["pid"], {"input_tokens": int(payload.get("prompt_eval_count") or 0),
+                                   "output_tokens": int(payload.get("eval_count") or 0),
+                                   "duration_ms": int((time.time() - t0) * 1000)},
+                        "local", result is not None)
+        return result
+    return None
+
+
+def _triage_claude(message: str, settings: dict, cands: list):
+    """Classify on Claude Haiku with all tools and MCP servers disabled, no
+    session saved, run from a temp folder so no project files are read."""
+    pid = "claude-cli-haiku"
+    c = next((x for x in cands if x.get("pid") == pid), None)
+    if c is None or not _triage_usable(c, settings):
+        return None
+    exe = _provider_executable("claude-cli")
+    if not exe:
+        return None
+    model = (PROVIDERS.get(pid) or {}).get("model", "haiku")
+    sf = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+    sf.write(_auto_router.TRIAGE_SYSTEM); sf.close()
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + " --no-deprecation").strip()
+    t0 = time.time()
+    try:
+        r = subprocess.run(
+            [exe, "--print", "--output-format", "json", "--model", model,
+             "--tools", "", "--strict-mcp-config", "--no-session-persistence",
+             "--system-prompt-file", sf.name],
+            input=_auto_router.triage_prompt(message), capture_output=True, text=True,
+            encoding="utf-8", env=env, cwd=tempfile.gettempdir(),
+            timeout=_auto_router.TRIAGE_CLOUD_TIMEOUT)
+        ev = json.loads((r.stdout or "").strip() or "{}")
+    except Exception as e:
+        log.info(f"[ROUTER] Claude triage failed: {e!r}")
+        return None
+    finally:
+        try: os.unlink(sf.name)
+        except OSError: pass
+    if not isinstance(ev, dict):
+        return None
+    result = None if ev.get("is_error") else _auto_router.parse_triage(ev.get("result") or "")
+    try:
+        meta = _cli_usage_meta(ev, pid)
+    except Exception:
+        meta = {}
+    meta["duration_ms"] = int((time.time() - t0) * 1000)
+    _triage_log_row(pid, meta, "claude", result is not None)
+    return result
+
+
+def _router_triage(message: str):
+    """The triage function handed to the router. Cached for 10 minutes per
+    normalized message; only successful results are cached."""
+    if _auto_router is None:
+        return None
+    settings = _router_settings()
+    backend = settings.get("triage_backend", "auto")
+    key = _auto_router.triage_cache_key(message)
+    now = time.time()
+    with _triage_cache_lock:
+        hit = _triage_cache.get(key)
+        if hit and now - hit[0] < _auto_router.TRIAGE_CACHE_SECONDS:
+            return dict(hit[1])
+    cands = _auto_candidates()
+    result = None
+    if backend in ("auto", "local"):
+        result = _triage_local(message, settings, cands)
+    if result is None and backend in ("auto", "claude"):
+        result = _triage_claude(message, settings, cands)
+    if result is not None:
+        with _triage_cache_lock:
+            if len(_triage_cache) >= _TRIAGE_CACHE_MAX:
+                for k in sorted(_triage_cache, key=lambda k: _triage_cache[k][0])[:_TRIAGE_CACHE_MAX // 4]:
+                    _triage_cache.pop(k, None)
+            _triage_cache[key] = (now, dict(result))
+    return result
+
+
+def _route_effort(rec: dict, pid: str, tier: str, d, settings: dict, retry: bool) -> tuple:
+    """Effort for an Auto turn. When the user's effort is on Auto (and the
+    setting is on), the router's pick is applied for this turn through the
+    per-thread override; a level the user chose is left alone. The user's own
+    level is kept on the record so a retry still knows it was Auto. Returns
+    (effective level the model runs at, whether Auto picked it)."""
+    if "_user_effort" not in rec:
+        rec["_user_effort"] = _current_effort()
+    user = rec["_user_effort"]
+    auto = user == "" and bool(settings.get("auto_effort", True))
+    if auto:
+        picked = d.effort if tier == d.tier else ""
+        if not picked:
+            picked = _auto_router.pick_effort(tier, list(d.categories) + [d.category],
+                                              d.triage, retry=retry)
+        _effort_override.level = picked
+    levels = _provider_effort_levels(pid)
+    return effective_effort(_current_effort(), levels), auto and len(levels) > 1
+
+
+def _route_auto(rec: dict, message: str, project_path: str, sse, min_tier: str | None = None,
+                escalated: bool = False) -> str:
     """Decide the model for an Auto turn, record it on the routing record,
     emit the `route` event, and return the provider id to run. Any failure
     falls back to the user's default model, never to an unknown id."""
@@ -8647,26 +8842,38 @@ def _route_auto(rec: dict, message: str, project_path: str, sse, min_tier: str |
                  if isinstance(a, dict)]
         if min_tier not in _auto_router.TIER_RANK:
             min_tier = None
+
+        def _triage(msg: str):
+            try:
+                sse("thinking", "*Quick check: sizing up this request*")
+            except Exception:
+                pass
+            return _router_triage(msg)
+
         ctx = _auto_router.RouteContext(
             message=message or "", project_path=project_path or "", attachments=tuple(kinds),
             prev=prev, settings=settings, now=now, home_provider=ACTIVE_PROVIDER,
-            min_tier=min_tier, triage=None)
+            min_tier=min_tier, triage=_triage)
         ctx.last_ask, ctx.last_reply = _route_followup_context(message)
         d = _auto_router.decide(ctx, _auto_candidates())
         pid = d.provider_id if d.provider_id in PROVIDERS else fallback_pid
         tier = d.tier if pid == d.provider_id else (_auto_router.provider_tier(pid) or _auto_router.TOP)
         read_only = tier != _auto_router.TOP
+        if escalated and d.reason_code == "redo":
+            d.reason_code = "escalated"
+            d.reason_text = _auto_router.reason_copy("escalated")[1]
         rec.update(route_mode="auto", auto_chosen=True, chosen_provider=pid, chosen_tier=tier,
                    min_tier=d.min_tier, category=d.category, categories=list(d.categories),
                    rule_hits=list(d.rule_hits), confidence=d.confidence, route_reason=d.reason_code,
-                   triage_used=d.triage_used, sticky=d.sticky, fallback=d.fallback,
-                   cache_warm=d.cache_warm, bias=d.bias, router_version=d.router_version,
+                   triage_used=d.triage_used, triage_result=d.triage, sticky=d.sticky,
+                   fallback=d.fallback, cache_warm=d.cache_warm, bias=d.bias, router_version=d.router_version,
                    catalog_version=d.catalog_version, decided_ms=d.decided_ms, read_only=read_only)
         rec["_auto_tier"] = tier
-        if read_only:
-            ms = getattr(_route_ctx, "marker_state", None)
-            if isinstance(ms, dict):
-                ms["read_only"] = True
+        effort, effort_auto = _route_effort(rec, pid, tier, d, settings, min_tier is not None)
+        rec.update(effort=effort, effort_auto=effort_auto)
+        ms = getattr(_route_ctx, "marker_state", None)
+        if isinstance(ms, dict):
+            ms["read_only"] = read_only
         label, why = _auto_router.reason_copy(d.reason_code, d.limited_family or "")
         try:
             sse("route", json.dumps({
@@ -8676,11 +8883,13 @@ def _route_auto(rec: dict, message: str, project_path: str, sse, min_tier: str |
                 "family": _auto_router.provider_family(pid), "reason": d.reason_code,
                 "reason_label": label, "reason_text": d.reason_text or why,
                 "category": d.category, "read_only": read_only, "fallback": d.fallback,
+                "effort": effort, "effort_auto": effort_auto,
                 "show_model_names": bool(settings.get("show_model_names"))}))
         except Exception:
             pass
         log.info(f"[ROUTER] auto -> {pid} tier={tier} reason={d.reason_code} "
-                 f"category={d.category} read_only={read_only} ms={d.decided_ms}")
+                 f"category={d.category} effort={effort or '(default)'}"
+                 f"{' auto' if effort_auto else ''} read_only={read_only} ms={d.decided_ms}")
         return pid
     except Exception as e:
         log.warning(f"[ROUTER] auto decision failed, using default model: {e!r}")
@@ -9966,6 +10175,91 @@ def _drop_redo_exchange(raw_message: str) -> bool:
     return True
 
 
+# ── Auto retry one tier up (Task A11, spec 6.8) ─────────────────────────────
+_RETRY_MARKER_RE = re.compile(r"<<(auto_unsure|auto_needs_action)>>")
+_RETRY_NOTES = {
+    "unsure":       "The first answer was unsure, so a stronger model is answering.",
+    "needs_action": "This needs changes a lighter model cannot make, so a stronger model is taking over.",
+    "error":        "The first try failed, so a stronger model is answering.",
+    "empty":        "The first try came back empty, so a stronger model is answering.",
+}
+
+
+class _RetryTap:
+    """Wraps the stream for an Auto turn that may be retried. Records the raw
+    reply (before the marker filter strips anything) and holds back `done`
+    and `error`, so the browser keeps reading if a retry follows. Attribute
+    lookups (finalize, reset) go to the wrapped callback."""
+
+    def __init__(self, sse):
+        self._sse = sse
+        self._held = []
+        self._text = []
+        self.error = None
+
+    def __call__(self, event_type, text):
+        if event_type == "token" and isinstance(text, str):
+            self._text.append(text)
+        if event_type in ("done", "error"):
+            if event_type == "error":
+                self.error = text or "error"
+            self._held.append((event_type, text))
+            return None
+        return self._sse(event_type, text)
+
+    def __getattr__(self, name):
+        return getattr(self._sse, name)
+
+    def retry_reason(self):
+        raw = "".join(self._text)
+        m = _RETRY_MARKER_RE.search(raw)
+        if m:
+            return _AUTO_RETRY_MARKERS[m.group(1)]
+        if self.error is not None:
+            return "error"
+        if not raw.strip():
+            return "empty"
+        return None
+
+    def release(self):
+        held, self._held = self._held, []
+        for ev, txt in held:
+            self._sse(ev, txt)
+
+
+def _escalate_turn(route: dict, reason: str, first_pid: str, message: str,
+                   project_path: str, sse, run) -> str:
+    """Rerun this turn one tier up after a lighter model's first try failed or
+    said it was unsure. Exactly one retry: the rerun streams straight to the
+    browser with no tap, so it cannot trigger another."""
+    from_tier = route.get("_auto_tier") or _auto_router.LIGHT
+    to_tier = _auto_router.tier_up(from_tier)
+    reset = getattr(sse, "reset", None)
+    if callable(reset):
+        try:
+            reset()
+        except Exception:
+            pass
+    try:
+        _drop_redo_exchange(message)
+    except Exception as e:
+        log.warning(f"[ROUTER] could not drop the first try from history: {e!r}")
+    route.update(escalated=True, escalated_from=first_pid, escalation_reason=reason)
+    try:
+        sse("escalate", json.dumps({
+            "turn_id": route.get("turn_id"), "reason": reason,
+            "from_tier": from_tier, "to_tier": to_tier,
+            "from_tier_name": _auto_router.TIER_NAMES.get(from_tier, from_tier),
+            "text": _RETRY_NOTES.get(reason, _RETRY_NOTES["unsure"])}))
+    except Exception:
+        pass
+    log.info(f"[ROUTER] retry {first_pid} ({from_tier}) -> {to_tier}: {reason}")
+    pid = _route_auto(route, message, project_path, sse, min_tier=to_tier, escalated=True)
+    route["requested"] = pid
+    _provider_override.id = pid
+    return run(pid, sse)
+
+
 def _run_turn_with_failover(provider_id: str, message: str, project_path: str,
                             sse, announce: bool = True, kind: str = "chat",
                             min_tier: str | None = None,
@@ -9990,21 +10284,36 @@ def _run_turn_with_failover(provider_id: str, message: str, project_path: str,
     if redo_of:
         route["redo_of"] = redo_of
     prev_override = getattr(_provider_override, "id", None)
+    prev_effort = getattr(_effort_override, "level", None)
     if auto:
         provider_id = _route_auto(route, message, project_path, sse, min_tier)
         route["requested"] = provider_id
         _provider_override.id = provider_id
     answered = provider_id
-    try:
-        answered = _failover.run_turn(
-            provider_id, message, project_path, sse,
+
+    def _run(pid, run_sse):
+        return _failover.run_turn(
+            pid, message, project_path, run_sse,
             runner_for=_provider_runner,
             set_provider=_set_provider,
             provider_available=_provider_available,
             history=conversation_history,
             save_history=lambda: _save_history(conversation_history),
             announce=announce,
-            default_provider=ACTIVE_PROVIDER) or provider_id
+            default_provider=ACTIVE_PROVIDER) or pid
+    try:
+        retry = (auto and route.get("_auto_tier") in (_auto_router.LIGHT, _auto_router.MID)
+                 and bool(_router_settings().get("escalation", True)))
+        if not retry:
+            answered = _run(provider_id, sse)
+            return answered
+        tap = _RetryTap(sse)
+        answered = _run(provider_id, tap)
+        reason = tap.retry_reason()
+        if not reason or route.get("write_tools_used"):
+            tap.release()
+            return answered
+        answered = _escalate_turn(route, reason, answered, message, project_path, sse, _run)
         return answered
     finally:
         try:
@@ -10013,6 +10322,7 @@ def _run_turn_with_failover(provider_id: str, message: str, project_path: str,
             log.warning(f"[ROUTER] could not finish routing record: {e!r}")
         if auto:
             _provider_override.id = prev_override
+            _effort_override.level = prev_effort     # undo the per-turn effort pick
             ms = getattr(_route_ctx, "marker_state", None)
             if isinstance(ms, dict):
                 ms["read_only"] = False

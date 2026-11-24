@@ -200,12 +200,14 @@
 
         <h4 class="auto-set-h4">Behaviour</h4>
         ${toggle('triage', s.triage, 'Quick check for unclear requests',
-          'Arrives in a later update. Until then, unclear requests go to the strongest model.')}
+          'A short, tool-free check sizes up a vague request so a simple one can go to a lighter model. Off means unclear requests go to the strongest model.')}
         <label class="auto-set-field"><span>Where the quick check runs</span>
           <select data-auto-select="triage_backend">${optionTags(
             [['auto', 'Automatic'], ['local', 'This computer'], ['claude', 'Claude']], s.triage_backend)}</select></label>
         ${toggle('escalation', s.escalation, 'Retry with a stronger model when an answer looks unsure',
-          'Arrives in a later update. You can already use "Try a stronger model" under any Auto answer.')}
+          'If a lighter model is unsure, cannot do what was asked, or fails, the next level up answers automatically. The first try stays visible, dimmed.')}
+        ${toggle('auto_effort', s.auto_effort !== false, 'Pick the effort level for each request',
+          'Only when Effort is set to Auto: quick requests think briefly, hard or risky ones think longer. An effort level you choose yourself always wins.')}
         ${toggle('allow_step_down_on_limit', s.allow_step_down_on_limit,
           'Allow a weaker model when usage limits are hit')}
         ${toggle('show_model_names', s.show_model_names, 'Show model names on badges')}
