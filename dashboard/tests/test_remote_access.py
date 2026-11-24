@@ -301,6 +301,7 @@ class HttpTests(SetupTests):
                    "advanced_tools": SimpleNamespace(handle_http=lambda *_args: False),
                    "_user_dir": lambda: Path(self.temp.name), "_detect_hardware": Mock(),
                    "skill_search": SimpleNamespace(handle_http=lambda _h: False),
+                   "skill_library": SimpleNamespace(handle_http=lambda _h: False),
                    "__file__": str(Path(self.temp.name, "bridge_server.py"))}
         exec(compile(ast.Module(body=[handler_class], type_ignores=[]), "bridge_handler_test", "exec"), self.ns)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self.ns["Handler"])
@@ -377,9 +378,11 @@ for _name in list(vars(SetupTests)):
 class ProfileIsolationTests(unittest.TestCase):
     def standing_order_scope(self, dispatch):
         tree = ast.parse(Path(ra.__file__).with_name("bridge_server.py").read_text(encoding="utf-8"))
-        names = {"_fire_standing_order", "_switch_active_user"}
+        # _fire_standing_order is now a thin Crew Deck wrapper; the dispatch
+        # under test lives in _fire_standing_order_inner. No deck in the test.
+        names = {"_fire_standing_order", "_fire_standing_order_inner", "_switch_active_user"}
         nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
-        ns = {"_profile_dispatch_lock": threading.RLock(), "_ACTIVE_USER": "owner",
+        ns = {"_profile_dispatch_lock": threading.RLock(), "_ACTIVE_USER": "owner", "_crew": None,
               "_dispatch_with_provider": dispatch, "nullcontext": nullcontext,
               "log": Mock(), "time": time, "_push_ui_event": Mock(),
               "_switch_active_user_unlocked": Mock(return_value={"id": "other"})}

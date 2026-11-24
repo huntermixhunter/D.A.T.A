@@ -1,7 +1,7 @@
 """
 DATA Bridge Server
 ------------------
-DATA — Dashboard for Analytical Thought and Action.
+D.A.T.A: Dashboard for Agentic Thought and Action.
 Connects the DATA dashboard to its AI engine.
 Runs on http://localhost:7777
 
@@ -21,6 +21,7 @@ import re
 import html as html_module
 import threading
 import time
+import uuid
 import collections
 from contextlib import nullcontext
 from pathlib import Path
@@ -42,6 +43,7 @@ if _HERE_DIR not in sys.path:
 
 import marketplace
 import skill_search
+import skill_library
 import advanced_tools
 import remote_access
 
@@ -958,6 +960,18 @@ CREW_ROLES = {
     "scout":    "Fast-turnaround drafter for content, copy, and throwaway prototypes. Use for quick drafts and cheap experiments.",
 }
 
+# Model tier per officer, written as the agent-file `model` frontmatter. Uses the
+# CLI aliases (opus / sonnet / haiku) so each officer tracks the newest release
+# of its tier. Code, review, security, testing, and planning stay on Opus; light
+# advisory and wellness work runs on Sonnet; quick drafts run on Haiku. This
+# stretches a subscription's usage window without lowering quality on the build
+# path. An officer missing here gets no model line and inherits the session model.
+CREW_MODELS = {
+    "atlas": "opus", "forge": "opus", "vector": "opus", "sentinel": "opus", "probe": "opus",
+    "relay": "sonnet", "sage": "sonnet", "echo": "sonnet", "pulse": "sonnet",
+    "scout": "haiku",
+}
+
 
 def crew_agents_dir() -> Path:
     """The single folder the Settings roster and the matrix graph read crew
@@ -990,10 +1004,12 @@ def seed_crew_agents(force: bool = False) -> list:
                 continue
             name = spec.get("name", cid.title())
             desc = CREW_ROLES.get(cid, f"{name} of the DATA crew.")
+            model = CREW_MODELS.get(cid)
             body = (
                 "---\n"
                 f"name: {cid}\n"
-                f"description: {desc}\n"
+                + (f"model: {model}\n" if model else "")
+                + f"description: {desc}\n"
                 "---\n\n"
                 f"# {name} — DATA Crew\n\n"
                 f"{persona}\n"
@@ -1386,6 +1402,16 @@ PROVIDERS = {
         "executables": ["gemini", "gemini.exe", "gemini.cmd"],
         "install_hint": "npm i -g @google/gemini-cli   (free tier on Google AI Studio)",
     },
+    # xAI Grok Build CLI on a SuperGrok / X Premium+ subscription. "model" is
+    # filled at boot by the model refresh from `grok models` (the account's own
+    # list); empty means "let the CLI use its own default".
+    "grok": {
+        "label":       "Grok (SuperGrok Subscription, latest)",
+        "model":       "",
+        "kind":        "subprocess",
+        "executables": ["grok", "grok.exe"],
+        "install_hint": "Install Grok Build from https://x.ai/cli   (then run `grok login`)",
+    },
     "ollama": {
         "label":       "Qwen2.5-Coder 7B (Local, Free)",
         "model":       "qwen2.5-coder:7b",  # ~4.7GB q4_K_M — fits fully in 8GB VRAM with room for context
@@ -1593,6 +1619,11 @@ def _provider_executable(provider_id: str) -> str:
             Path("/usr/local/bin"),
             Path("/usr/bin"),
         ]
+    # Grok Build's official installers drop the binary in $GROK_HOME/bin
+    # (default ~/.grok/bin) and add it to the USER PATH, which this already-
+    # running process does not see until DATA restarts.
+    if base_name == "grok":
+        install_dirs.insert(0, _grok_home() / "bin")
     for d in install_dirs:
         if not d.exists(): continue
         for suffix in (".exe", ".cmd", ".bat", ""):
@@ -1662,10 +1693,16 @@ _provider_lock = threading.Lock()
 # source and as a cache-freshness key: when the buyer runs `claude /login`, this
 # file's mtime changes and busts the cached probe result immediately, so the
 # sign-in CTA clears promptly instead of lingering for up to the TTL.
+def _grok_home() -> Path:
+    """Grok Build's config dir: $GROK_HOME, else ~/.grok."""
+    return Path(os.environ.get("GROK_HOME") or (Path.home() / ".grok"))
+
+
 _CLI_CRED_FILES = {
     "claude-cli": Path.home() / ".claude" / ".credentials.json",
     "codex":      Path.home() / ".codex" / "auth.json",
     "gemini":     Path.home() / ".gemini" / "oauth_creds.json",
+    "grok":       _grok_home() / "auth.json",
 }
 
 
@@ -1751,6 +1788,94 @@ def _gemini_cli_authenticated() -> bool:
     return False
 
 
+_GROK_TOKEN_KEYS = ("access_token", "refresh_token", "id_token", "accesstoken", "refreshtoken")
+
+
+def _json_has_session_token(obj, depth: int = 0) -> bool:
+    """True when a parsed auth file holds a non-empty OAuth session token at any
+    nesting level (the Grok auth.json layout is not documented, so the probe
+    walks it). API-key entries deliberately do NOT count: a Grok signed in only
+    with an xAI API key bills per token, which DATA's subscription-only rule
+    forbids, so that state is reported as 'not signed in'."""
+    if depth > 5:
+        return False
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            key = str(k).lower().replace("-", "_")
+            if key.replace("_", "") in {t.replace("_", "") for t in _GROK_TOKEN_KEYS} \
+                    and isinstance(v, str) and v.strip():
+                return True
+            if isinstance(v, (dict, list)) and _json_has_session_token(v, depth + 1):
+                return True
+    elif isinstance(obj, list):
+        return any(_json_has_session_token(v, depth + 1) for v in obj[:50])
+    return False
+
+
+# Environment variables Grok Build can bill against. Stripped from every Grok
+# child process so a turn can only ever run on the subscription sign-in.
+_GROK_KEY_ENV = ("XAI_API_KEY", "GROK_API_KEY")
+
+_API_KEY_TEXT_RE = re.compile(
+    r"""(?im)^\s*["']?(?:xai_|grok_)?api[_-]?key["']?\s*[:=]\s*["']?[A-Za-z0-9_\-]{8,}""")
+
+
+def _json_has_api_key(obj, depth: int = 0) -> bool:
+    """True when a parsed Grok file stores a non-empty API key at any level."""
+    if depth > 5:
+        return False
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            key = str(k).lower().replace("-", "").replace("_", "")
+            if key.endswith("apikey") and isinstance(v, str) and v.strip():
+                return True
+            if isinstance(v, (dict, list)) and _json_has_api_key(v, depth + 1):
+                return True
+    elif isinstance(obj, list):
+        return any(_json_has_api_key(v, depth + 1) for v in obj[:50])
+    return False
+
+
+def _grok_stored_api_key() -> bool:
+    """True if Grok Build has an xAI API key saved in its own files. With one
+    present Grok may answer on metered API billing even when a browser session
+    also exists, so DATA treats that state as unusable."""
+    home = _grok_home()
+    for name in ("auth.json", "config.json", "settings.json", "config.toml", "config.yaml"):
+        f = home / name
+        try:
+            if not f.is_file() or f.stat().st_size >= 1_000_000:
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if f.suffix == ".json":
+            try:
+                if _json_has_api_key(json.loads(text)):
+                    return True
+                continue
+            except ValueError:
+                pass            # not valid JSON: fall through to the text scan
+        if _API_KEY_TEXT_RE.search(text):
+            return True
+    return False
+
+
+def _grok_cli_authenticated() -> bool:
+    """True if Grok Build holds a browser-login session AND no saved API key.
+    Grok writes $GROK_HOME/auth.json (default ~/.grok/auth.json) on
+    `grok login`. A saved API key reports 'not signed in' on purpose: DATA runs
+    Grok on the SuperGrok subscription only, never on metered billing."""
+    try:
+        cred = _grok_home() / "auth.json"
+        if cred.is_file() and cred.stat().st_size < 1_000_000:
+            data = json.loads(cred.read_text(encoding="utf-8", errors="replace"))
+            return _json_has_session_token(data) and not _grok_stored_api_key()
+    except Exception:
+        pass
+    return False
+
+
 def _provider_authenticated(provider_id: str) -> bool:
     """Whether a provider can ACTUALLY answer, not merely whether its executable
     exists. For subprocess CLI providers this checks sign-in state via the cheap,
@@ -1782,6 +1907,8 @@ def _provider_authenticated(provider_id: str) -> bool:
         ok = _codex_cli_authenticated()
     elif provider_id == "gemini":
         ok = _gemini_cli_authenticated()
+    elif provider_id == "grok":
+        ok = _grok_cli_authenticated()
     else:
         ok = True   # unknown subprocess provider — do not block on auth
     with _provider_lock:
@@ -1796,11 +1923,19 @@ def _list_providers() -> list:
     logged-out CLI rather than letting the buyer pick a dead brain."""
     _sync_ollama_providers()   # surface any freshly-pulled local models in the selector
     out = []
-    for pid, p in PROVIDERS.items():
+    for pid, p in list(PROVIDERS.items()):
         out.append({
             "id":            pid,
+            # Duplicate of a built-in local brain (see _sync_ollama_providers).
+            # Still listed so a window, standing order or saved choice that
+            # uses this id keeps resolving; the pickers skip it unless it is
+            # their current selection, so the model never shows up twice.
+            "hidden":        bool(p.get("hidden")),
             "label":         p["label"],
             "model":         p.get("model", ""),
+            # Short resolved name for the header pill (e.g. "Claude Opus 5.5"),
+            # filled by the boot model refresh. "" = use the static pill text.
+            "display":       p.get("display", ""),
             "kind":          p.get("kind", ""),
             "available":     _provider_available(pid),
             "authenticated": _provider_authenticated(pid),
@@ -1826,7 +1961,11 @@ def _needs_auth_payload() -> dict:
     return {
         "provider_id": pid,
         "name":        (conn or {}).get("name", pid),
-        "login_cmd":   (conn or {}).get("login_cmd", ""),
+        # A Grok with a saved xAI API key reads as signed out on purpose, and
+        # `grok login` alone does not clear that key, so name the real fix.
+        "login_cmd":   ("grok logout, then grok login"
+                        if pid == "grok" and _grok_stored_api_key()
+                        else (conn or {}).get("login_cmd", "")),
         "on_fallback": str(ACTIVE_PROVIDER).startswith("ollama"),
     }
 
@@ -1947,6 +2086,15 @@ CONNECTOR_CATALOG = [
      "login_cmd": "gemini  (then sign in)",
      "blurb": "Google Gemini 3 auto routing through Gemini CLI; free tier available.",
      "provider_ids": ["gemini"]},
+    {"id": "grok", "name": "Grok Build (xAI)", "models": "Latest Grok (list loads after sign-in)",
+     # Not an npm package: xAI's official installer script, per OS. The exact
+     # string is the only Grok command /llm/install will run.
+     "install_cmd": cli_console.grok_install_shell_cmd(),
+     "install_url": "https://github.com/xai-org/grok-build",
+     "login_cmd": "grok login",
+     "blurb": "xAI's Grok models through Grok Build. Needs a SuperGrok or X Premium+ "
+              "subscription; DATA never uses a paid xAI API key.",
+     "provider_ids": ["grok"]},
 ]
 
 # Cache of `ollama list` output so page polls don't fork the CLI constantly.
@@ -1980,13 +2128,18 @@ def _sync_ollama_providers() -> None:
     provider so it appears in the model selector and is dispatchable. Idempotent."""
     for name in _ollama_installed_models():
         pid = f"ollama:{name}"
-        if pid in PROVIDERS:
-            continue
         # Skip embedding-only models — they cannot answer a chat turn.
         if "embed" in name.lower():
             continue
-        # Skip if a built-in provider already represents this exact model
-        if any(p.get("model") == name for p in PROVIDERS.values()):
+        # When a built-in brain already represents this exact model, the
+        # ollama:<model> id is still registered (so a pane or standing order
+        # saved with it keeps working) but hidden from the selector, so the
+        # model never shows up twice. The boot model refresh can re-point a
+        # built-in at a model that was previously listed on its own.
+        dup = any(p.get("model") == name for k, p in list(PROVIDERS.items())
+                  if not k.startswith("ollama:"))
+        if pid in PROVIDERS:
+            PROVIDERS[pid]["hidden"] = dup
             continue
         PROVIDERS[pid] = {
             "label":        f"{name} (Local)",
@@ -1995,6 +2148,7 @@ def _sync_ollama_providers() -> None:
             "executables":  ["ollama", "ollama.exe"],
             "url":          OLLAMA_CHAT_URL,
             "install_hint": f"ollama pull {name}",
+            "hidden":       dup,
         }
 
 
@@ -2072,8 +2226,12 @@ def _model_fit(m: dict, hw: dict) -> str:
 def _recommend_model(hw: dict) -> dict | None:
     """Pick the largest catalog model that runs well on this machine.
     Prefers a comfortable GPU fit; falls back to tight/CPU if nothing fits cleanly."""
+    # Reasoning-first models (DeepSeek-R1) think at length before every reply
+    # and vision-only ones lack tool calls, so neither is the default pick for
+    # an everyday chat brain. They stay installable from the list.
+    general = [m for m in OLLAMA_CATALOG if m.get("use", "chat") in ("chat", "code")]
     for tier in (("fits",), ("tight", "cpu")):
-        candidates = [m for m in OLLAMA_CATALOG if _model_fit(m, hw) in tier]
+        candidates = [m for m in general if _model_fit(m, hw) in tier]
         if candidates:
             return max(candidates, key=lambda m: m["size_gb"])
     return None
@@ -2089,24 +2247,298 @@ def _llm_catalog_payload() -> dict:
     models = []
     for m in OLLAMA_CATALOG:
         is_inst = m["model"] in installed
+        # Prefer the visible built-in id when a built-in brain runs this model.
+        pid = next((k for k in ("ollama", "ollama-small")
+                    if PROVIDERS.get(k, {}).get("model") == m["model"]), f"ollama:{m['model']}")
         models.append({
             **m,
             "fit":          _model_fit(m, hw),
             "installed":    is_inst,
             "recommended":  bool(rec and m["model"] == rec["model"]),
-            "provider_id":  f"ollama:{m['model']}",
+            "provider_id":  pid,
         })
     connectors = []
+    checked = _MODEL_REFRESH.get("last_run", 0)
     for c in CONNECTOR_CATALOG:
         available = any(_provider_available(pid) for pid in c["provider_ids"])
-        connectors.append({**c, "available": available})
+        connectors.append({**c, "available": available, "checked": checked})
     return {
         "hardware":        hw,
         "models":          models,
         "connectors":      connectors,
         "recommendation":  (rec["model"] if rec else None),
         "ollama_installed": hw["ollama_installed"],
+        "model_refresh":   _model_refresh_summary(),
     }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# BOOT-TIME MODEL REFRESH: keep every brain pointed at the newest model its
+# provider offers (logic + sources in model_refresh.py). Runs in two passes:
+#   local    at startup, before the active brain is restored: Codex catalog
+#            file, remembered Claude versions, installed Ollama models, the
+#            cached/bundled download list, the last Grok model list. Fast,
+#            no network.
+#   network  right after, on a background thread: the published download list
+#            from GitHub and `grok models`. Never blocks startup.
+# Re-run on demand with POST /models/refresh. Costs nothing: every source is
+# a local file, a free download, or a model *listing* (no generation).
+# ════════════════════════════════════════════════════════════════════════
+
+import model_refresh as _mrefresh   # noqa: E402
+
+_MODEL_REFRESH = _mrefresh.RefreshState(PROJECT_DIR / "model_refresh_state.json")
+_MODEL_CATALOG_CACHE = PROJECT_DIR / "model_catalog_cache.json"
+_model_refresh_lock = threading.Lock()
+
+# Built-in Claude brains that send a tier alias, and how to label them once the
+# real model behind the alias is known.
+_CLAUDE_ALIAS_BRAINS = {
+    "claude-cli":        ("opus",   "Subscription, latest"),
+    "claude-cli-sonnet": ("sonnet", "Subscription, fast"),
+    "claude-cli-haiku":  ("haiku",  "Subscription, fastest"),
+    "claude-cli-fable":  ("fable",  "Subscription, latest"),
+}
+_CODEX_TIER_BRAINS = (
+    ("codex",      "astra", "Codex (ChatGPT Subscription)"),
+    ("codex-sol",  "sol",   "Codex (Workhorse)"),
+    ("codex-luna", "luna",  "Codex (Fast)"),
+    ("codex-mini", "luna",  "Codex (Fast, legacy id)"),
+)
+
+
+def _apply_claude_labels() -> None:
+    for pid, (alias, tag) in _CLAUDE_ALIAS_BRAINS.items():
+        p = PROVIDERS.get(pid)
+        if not p or p.get("model") != alias:
+            continue
+        pretty = _mrefresh.claude_pretty(_MODEL_REFRESH.claude_model(alias))
+        if pretty:
+            p["label"] = f"Claude {pretty} ({tag})"
+            p["display"] = f"Claude {pretty}"
+
+
+def _note_claude_model(resolved: str) -> None:
+    """Called from the Claude stream's init event with the real model id."""
+    try:
+        alias = PROVIDERS.get(_current_provider_id(), {}).get("model", "")
+        if _MODEL_REFRESH.note_claude(alias, resolved):
+            _apply_claude_labels()
+            _refresh_connector_models()
+            _MODEL_REFRESH.save()
+            log.info(f"[models] Claude '{alias}' now resolves to {resolved}")
+    except Exception as e:
+        log.debug(f"[models] could not record Claude model: {e}")
+
+
+def _apply_codex_refresh(changes: list) -> None:
+    global _CODEX_CATALOG
+    cat = read_codex_catalog()
+    if not cat:
+        return   # Codex absent or never signed in: keep the compiled-in tiers
+    _CODEX_CATALOG = cat   # also feeds the per-model effort levels
+    tiers = _mrefresh.codex_tiers(cat)
+    for pid, tier, suffix in _CODEX_TIER_BRAINS:
+        slug, p = tiers.get(tier), PROVIDERS.get(pid)
+        if not slug or not p:
+            continue
+        if p.get("model") != slug:
+            changes.append(f"{pid}: {p.get('model') or '(none)'} -> {slug}")
+            p["model"] = slug
+        p["label"] = f"{_mrefresh.codex_label(slug)} {suffix}"
+        p["display"] = f"Codex {_mrefresh.codex_label(slug)}"
+
+
+def _ollama_installed_sizes() -> dict:
+    """{installed model: size GB}. Ollama's HTTP API gives exact sizes; when the
+    daemon is not up, fall back to `ollama list` names with catalog sizes."""
+    sizes: dict = {}
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_BASE_URL}/api/tags", timeout=2) as r:
+            data = json.loads(r.read(2_000_000).decode("utf-8"))
+        for m in data.get("models", []) or []:
+            name = m.get("name") or m.get("model")
+            if name:
+                sizes[name] = round((m.get("size") or 0) / 1e9, 1)
+    except Exception:
+        pass
+    if not sizes:
+        known = {m["model"]: m["size_gb"] for m in OLLAMA_CATALOG}
+        for name in _ollama_installed_models():
+            sizes[name] = known.get(name, 0.0)
+    return sizes
+
+
+def _apply_ollama_refresh(changes: list) -> None:
+    if not _provider_executable("ollama"):
+        return
+    sizes = _ollama_installed_sizes()
+    if not sizes:
+        return
+    hw = _detect_hardware()
+    limit = hw.get("vram_total_gb", 0.0) if hw.get("has_gpu") else hw.get("ram_total_gb", 0.0) * 0.6
+    picks = _mrefresh.pick_local_defaults(
+        sizes, OLLAMA_CATALOG, limit,
+        PROVIDERS["ollama"]["model"], PROVIDERS["ollama-small"]["model"])
+    labels = {m["model"]: m["label"] for m in OLLAMA_CATALOG}
+    for pid, tag in (("ollama", "Local, Free"), ("ollama-small", "Local, voice-friendly")):
+        name = picks.get(pid)
+        if not name:
+            continue
+        p = PROVIDERS[pid]
+        changes.append(f"{pid}: {p['model']} (not downloaded) -> {name}")
+        p["model"] = name
+        p["label"] = f"{labels.get(name, name)} ({tag})"
+        p["install_hint"] = f"ollama pull {name}"
+    if any(picks.values()):
+        _sync_ollama_providers()   # re-hide any ollama:<model> that is now a duplicate
+
+
+def _apply_catalog(cat: dict, source: str, changes: list) -> None:
+    if not cat:
+        return
+    before = {m["model"] for m in OLLAMA_CATALOG}
+    OLLAMA_CATALOG[:] = cat["models"]   # in place: other references stay valid
+    added = [m["model"] for m in cat["models"] if m["model"] not in before]
+    if added and before:
+        changes.append(f"download list: +{', '.join(added[:6])}" + (" ..." if len(added) > 6 else ""))
+    _MODEL_REFRESH.set("catalog", {"source": source, "updated": cat["updated"],
+                                   "count": len(cat["models"])})
+
+
+def _apply_grok_models(ids: list, default: str) -> None:
+    p = PROVIDERS.get("grok")
+    if not p:
+        return
+    newest = _mrefresh.newest_grok(ids) or default
+    if newest and p.get("model") != newest:
+        p["model"] = newest
+    if newest:
+        p["label"] = f"{_mrefresh.grok_label(newest)} (SuperGrok Subscription, latest)"
+        p["display"] = _mrefresh.grok_label(newest)
+
+
+def _refresh_connector_models() -> None:
+    """Rebuild the 'models' line on each AI Connectors card from live data."""
+    for c in CONNECTOR_CATALOG:
+        if c["id"] == "claude-cli":
+            names = [_mrefresh.claude_pretty(_MODEL_REFRESH.claude_model(a)) or f"Latest {a.capitalize()}"
+                     for a in _mrefresh.CLAUDE_ALIASES]
+            c["models"] = " | ".join(names)
+        elif c["id"] == "codex":
+            seen, parts = set(), []
+            for pid, _tier, _suffix in _CODEX_TIER_BRAINS:
+                label = _mrefresh.codex_label(PROVIDERS.get(pid, {}).get("model", ""))
+                if label and label not in seen:
+                    seen.add(label); parts.append(label)
+            c["models"] = " | ".join(parts)
+        elif c["id"] == "grok":
+            g = _MODEL_REFRESH.get("grok", {}) or {}
+            ids = g.get("models") or []
+            newest = PROVIDERS.get("grok", {}).get("model", "")
+            if newest:
+                extra = f" (+{len(ids) - 1} more)" if len(ids) > 1 else ""
+                c["models"] = f"{_mrefresh.grok_label(newest)}{extra}"
+            else:
+                c["models"] = "Latest Grok (list loads after sign-in)"
+
+
+def _model_refresh_summary() -> dict:
+    s = _MODEL_REFRESH.snapshot()
+    return {"last_run": s.get("last_run", 0), "last_network_run": s.get("last_network_run", 0),
+            "changes": s.get("changes", [])[-12:], "catalog": s.get("catalog", {}),
+            "errors": s.get("errors", {}),
+            "brains": {pid: PROVIDERS[pid].get("model", "") for pid in
+                       ("claude-cli", "codex", "codex-sol", "codex-luna", "gemini", "grok",
+                        "ollama", "ollama-small") if pid in PROVIDERS}}
+
+
+def _run_model_refresh(network: bool) -> dict:
+    """One refresh pass (see the block comment above). Never raises."""
+    if not _model_refresh_lock.acquire(blocking=False):
+        return _model_refresh_summary()   # a pass is already running
+    changes: list = []
+    errors: dict = dict(_MODEL_REFRESH.get("errors", {}) or {})
+    try:
+        # Download list first: the Ollama re-point prefers models it knows.
+        bundled = _mrefresh.read_catalog_file(_mrefresh.BUNDLED_CATALOG)
+        cached = _mrefresh.read_catalog_file(_MODEL_CATALOG_CACHE)
+        remote = None
+        if network:
+            remote, err = _mrefresh.fetch_remote_catalog()
+            if remote:
+                errors.pop("catalog", None)
+                try:
+                    tmp = _MODEL_CATALOG_CACHE.with_suffix(".json.tmp")
+                    tmp.write_text(json.dumps({"schema": _mrefresh.CATALOG_SCHEMA, **remote}),
+                                   encoding="utf-8")
+                    os.replace(tmp, _MODEL_CATALOG_CACHE)
+                except OSError:
+                    pass
+            else:
+                errors["catalog"] = err   # offline or not published yet: fine
+        cat, source = _mrefresh.choose_catalog(remote, cached, bundled)
+        _apply_catalog(cat, source, changes)
+
+        for step in (_apply_codex_refresh, _apply_ollama_refresh):
+            try:
+                step(changes)
+            except Exception as e:
+                errors[step.__name__] = str(e)[:200]
+                log.warning(f"[models] {step.__name__} failed: {e}")
+        _apply_claude_labels()
+
+        g = _MODEL_REFRESH.get("grok", {}) or {}
+        if network and _brain_usable("grok"):
+            ids, default, err = _mrefresh.list_grok_models(
+                _provider_executable("grok"), env=_grok_child_env())
+            if ids:
+                g = {"models": ids, "default": default, "checked": int(time.time())}
+                _MODEL_REFRESH.set("grok", g)
+                errors.pop("grok", None)
+            else:
+                errors["grok"] = err
+        before = PROVIDERS.get("grok", {}).get("model", "")
+        _apply_grok_models(g.get("models") or [], g.get("default", ""))
+        after = PROVIDERS.get("grok", {}).get("model", "")
+        if after and after != before:
+            changes.append(f"grok: {before or '(CLI default)'} -> {after}")
+
+        _refresh_connector_models()
+        now = int(time.time())
+        _MODEL_REFRESH.set("last_run", now)
+        if network:
+            _MODEL_REFRESH.set("last_network_run", now)
+        # The brain table resets to its compiled-in defaults on every launch,
+        # so the same re-point would be logged at every boot. Only record a
+        # change the history does not already hold.
+        hist = _MODEL_REFRESH.get("changes", []) or []
+        seen = {h.split("  ", 1)[-1] for h in hist}
+        changes = [c for c in changes if c not in seen]
+        if changes:
+            stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            hist = hist + [f"{stamp}  {c}" for c in changes]
+            _MODEL_REFRESH.set("changes", hist[-40:])
+            log.info(f"[models] refresh ({'network' if network else 'local'}): " + "; ".join(changes))
+        _MODEL_REFRESH.set("errors", errors)
+        _MODEL_REFRESH.save()
+    except Exception as e:
+        log.warning(f"[models] refresh failed: {e}")
+    finally:
+        _model_refresh_lock.release()
+    return _model_refresh_summary()
+
+
+def _start_model_refresh_thread() -> None:
+    threading.Thread(target=_run_model_refresh, args=(True,), daemon=True,
+                     name="model-refresh").start()
+
+
+# The download list ships as model_catalog.json; load it at import so even the
+# first page load (before the boot refresh) shows the current list.
+_boot_catalog = _mrefresh.read_catalog_file(_mrefresh.BUNDLED_CATALOG)
+if _boot_catalog:
+    OLLAMA_CATALOG[:] = _boot_catalog["models"]
 
 
 # ── Install jobs ─────────────────────────────────────────────────────────
@@ -2204,8 +2636,8 @@ MAIL_PROVIDER_FILE  = PROJECT_DIR / "mail_provider.txt"     # persists the email
 PROVIDER_EXPLICIT = False
 
 # Fixed CLI preference order — authenticated Claude (Opus) wins, then Codex, then
-# Gemini. Order is explicit; never rely on dict ordering.
-_CLI_PRIORITY = ["claude-cli", "codex", "gemini"]
+# Gemini, then Grok. Order is explicit; never rely on dict ordering.
+_CLI_PRIORITY = ["claude-cli", "codex", "gemini", "grok"]
 
 # When a CLI is installed but NOT signed in and we fall back to Ollama, this holds
 # the highest-priority such provider id so the UI can show a "sign in" CTA. "" =
@@ -3498,7 +3930,7 @@ _COMPUTER_IDENTITY = """# DATA — Main Computer
 
 ## Core Directive
 
-You are Data — the main computer of the Dashboard for Analytical Thought and
+You are Data — the main computer of the Dashboard for Agentic Thought and
 Action — the system the Captain works with on the main channel. You are an
 extraordinarily capable AI assistant. Your primary function is to think
 rigorously, solve problems completely, and produce work that is genuinely
@@ -3788,7 +4220,14 @@ def _load_soul(mode: str = "api") -> str:
         f"To make a skill ship with every fresh install: (1) install it locally the normal way (above); "
         f"(2) add its name to the `claude` or `hermes` list in `manifest.json`; (3) run `python dashboard/bundle_skills.py`; "
         f"(4) commit `manifest.json` plus the changed `skills_bundle/claude|hermes/` folders. To stop shipping one, "
-        f"remove it from the manifest and re-run `bundle_skills.py --clean`. Full notes: `skills_bundle/README.md`.\n\n"
+        f"remove it from the manifest and re-run `bundle_skills.py --clean`. Full notes: `skills_bundle/README.md`.\n"
+        f"After a dashboard self-update, new bundled skills are copied out automatically "
+        f"(`install_skills.py --sync`), and Mac-only skills install only on a Mac.\n"
+        f"**Optional Skill Library.** About 70 more skills (coding agents, diagrams, Notion, Airtable, "
+        f"Linear, AI-model tooling, games and more) are not in the download. When the user wants one, "
+        f"point them to **Settings > Upgrades > Skill Library**, where each skill installs or removes with "
+        f"one click. The same panel has **Install screen control** for the pyautogui and Pillow packages "
+        f"that screenshots and mouse/keyboard control need (the Mac download leaves them out).\n\n"
         f"## SPAWN PROJECT WINDOWS — dashboard chat panes\n"
         f"When the Captain asks you to spin up / open / spawn / split into project chat windows "
         f"(one or several), emit a literal marker block in your reply containing JSON. The dashboard "
@@ -3799,7 +4238,7 @@ def _load_soul(mode: str = "api") -> str:
         f'  {{"path":"~/Documents/MyProject","provider":"codex","role":"Write the new feature"}},\n'
         f'  {{"path":"~/Documents/MyProject","provider":"claude-cli","role":"Audit the code"}}\n'
         f']}}<</spawn_workspaces>>\n\n'
-        f"Valid provider ids: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, ollama, ollama-small. "
+        f"Valid provider ids: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, grok, ollama, ollama-small. "
         f"After the marker block, give the Captain a single short confirmation line in your normal voice.\n\n"
         f"## RE-ROOT THE CURRENT CHAT PANE — set_project_path\n"
         f"When the Captain asks you to switch / change / re-root / move / open the **current** "
@@ -3982,7 +4421,7 @@ def _load_soul(mode: str = "api") -> str:
         f"`desktop_move`, `desktop_cursor_position`, `desktop_screen_size`. The native "
         f"Anthropic computer-use tool was wired for the API providers but those were "
         f"removed by Captain order — only the DIY desktop_* tools are reachable now.\n\n"
-        f"**CLI-mode escape hatch (claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini):** the "
+        f"**CLI-mode escape hatch (claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, grok):** the "
         f"tools above are not in your toolset — hit the bridge over HTTP using your shell "
         f"tool. All endpoints are at `http://localhost:{PORT}/computer/*` and accept JSON.\n"
         f"  Screen info (size + cursor; call once at start):\n"
@@ -4053,6 +4492,13 @@ def _load_soul(mode: str = "api") -> str:
     # slider was moved off its balanced default for this pane.
     _style_len, _style_depth = _current_style()
     soul += _style_directive(_style_len, _style_depth)
+
+    # Auto turns below the top tier cannot edit, run, send or schedule.
+    # (Looked up by name: the soul is also built once at import, before the
+    # router helpers further down this module exist.)
+    _ro_check = globals().get("_turn_read_only")
+    if _ro_check is not None and _ro_check():
+        soul += _READ_ONLY_DIRECTIVE
 
     return soul
 
@@ -4667,7 +5113,7 @@ TOOLS.append({
                     "type": "object",
                     "properties": {
                         "path":     {"type": "string", "description": "Absolute path to the project folder."},
-                        "provider": {"type": "string", "description": "Provider id. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, ollama, ollama-small."},
+                        "provider": {"type": "string", "description": "Provider id. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, grok, ollama, ollama-small."},
                         "role":     {"type": "string", "description": "Short assignment for that window — what the Captain wants this pane to do (e.g. 'Write the new feature', 'Audit the diff', 'Research alternatives')."},
                     },
                     "required": ["path", "provider", "role"],
@@ -4694,7 +5140,7 @@ TOOLS.append({
             "name":     {"type": "string", "description": "Short title shown on the Standing Orders page."},
             "cron":     {"type": "string", "description": "5-field cron expression: 'min hr dom mon dow'. Examples: '0 8 * * *' = daily 08:00; '*/15 * * * *' = every 15 min; '0 9 * * 1-5' = weekdays 09:00."},
             "prompt":   {"type": "string", "description": "Exactly what you should do/think/answer when the order fires. Write it as if the Captain just messaged you with it."},
-            "provider": {"type": "string", "description": "Provider id to dispatch through. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, ollama, ollama-small."},
+            "provider": {"type": "string", "description": "Provider id to dispatch through. One of: claude-cli, claude-cli-opus-5, claude-cli-opus-48, claude-cli-sonnet, claude-cli-haiku, claude-cli-fable, codex, codex-sol, codex-luna, codex-mini, gemini, grok, ollama, ollama-small."},
             "enabled":  {"type": "boolean", "description": "Default true. Set false to create-but-pause."},
             "notify_telegram": {"type": "boolean", "description": "Default false. If true, the result is also DM'd to the Captain via Telegram when the order fires (requires TELEGRAM_BOT_TOKEN configured)."},
         },
@@ -4949,10 +5395,27 @@ def _capture_screen_to_path(out_path: Path) -> tuple[int, int]:
         import importlib
         pil = importlib.import_module("PIL.ImageGrab")
         img = pil.grab()
+        if sys.platform == "darwin":
+            # Retina captures are 2x; scale to the point space clicks use.
+            _dc = _get_dc()
+            if _dc is not None and _dc.is_available():
+                img = _dc.to_click_space(img)
         img.save(str(out_path))
         return int(img.width), int(img.height)
     except Exception as e_pil:
-        log.info(f"[SCREENSHOT] PIL path unavailable ({e_pil}); falling back to PowerShell")
+        log.info(f"[SCREENSHOT] PIL path unavailable ({e_pil}); using the OS capture tool")
+    if sys.platform == "darwin":
+        # macOS: the built-in screencapture tool needs no Python packages.
+        # Without Pillow the image cannot be scaled, so report its real size.
+        result = subprocess.run(["screencapture", "-x", "-t", "png", str(out_path)],
+                                capture_output=True, text=True, timeout=15)
+        if result.returncode != 0 or not out_path.exists():
+            raise RuntimeError("Screenshot failed. Allow Screen Recording for the app "
+                               "running DATA in System Settings > Privacy & Security.")
+        head = out_path.read_bytes()[:24]
+        if head[:8] == b"\x89PNG\r\n\x1a\n":
+            return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+        return 0, 0
     # Fallback: PowerShell GDI capture.
     try:
         ps_path = str(out_path).replace("\\", "/")
@@ -5817,6 +6280,10 @@ def _marker_filter_sse(downstream):
     # are dropped on the floor so the runaway model output (post-marker
     # exploration, "let me also check…", etc.) never reaches the Captain.
     suppressed = [False]
+    # Read-only Auto turns block state-changing markers. Shared dict so token
+    # callbacks from any thread see the flag _route_auto sets on this thread.
+    marker_state = {"read_only": False}
+    _route_ctx.marker_state = marker_state
 
     def _flush_safe_prefix(text):
         # Hold a trailing partial that might be the start of an opening marker
@@ -5893,6 +6360,9 @@ def _marker_filter_sse(downstream):
             try:
                 payload = json.loads(json_text)
                 handler = _MARKER_HANDLERS.get(name)
+                if marker_state["read_only"] and name in _READ_ONLY_BLOCKED_MARKERS:
+                    log.warning(f"[marker] {name} blocked: read-only Auto turn")
+                    handler = None
                 if handler: handler(payload)
             except Exception as e:
                 log.exception(f"[marker] {name} parse failed: {e}")
@@ -7736,6 +8206,499 @@ def ask_hermes_cli(message: str, project_path: str = "") -> str:
         return f"CLI mode error, Captain. ({e})"
 
 
+# ── Per-reply usage tags + usage ledger ─────────────────────────────────────
+# Every CLI turn ends with a `meta` SSE event that the chat UI turns into a
+# small tag under the reply ("Opus 5.5 · 12k new · 98k cached · $0.21 API
+# value"). Each turn is also appended to users/<id>/usage_ledger.jsonl so the
+# Auto model router can later be measured against plain Opus with real
+# numbers instead of guesses.
+#
+# Token kinds (Claude Code `result` event):
+#   input_tokens        fresh, uncached input
+#   cache_write_tokens  input newly written to the prompt cache (~1.25x price)
+#   cache_read_tokens   input re-read from the cache (~0.1x price)
+#   output_tokens       generated text, including thinking
+# cost_usd is the CLI's own API list-price figure. On a subscription nothing
+# is charged; it is reported because it weights every token kind and every
+# model by price, which makes it the best single gauge of how much of the
+# usage window a turn consumed.
+USAGE_LEDGER_NAME = "usage_ledger.jsonl"
+_usage_ledger_lock = threading.Lock()
+
+
+def _empty_usage_meta(provider_id: str = "") -> dict:
+    return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
+            "cache_write_tokens": 0, "cost_usd": 0.0, "models": [],
+            "num_turns": 0, "duration_ms": 0, "provider": provider_id}
+
+
+def _cli_usage_meta(ev: dict, provider_id: str = "") -> dict:
+    """Condense a Claude Code `result` event into the per-reply usage meta.
+
+    Totals are summed from `modelUsage` when present, because that block
+    covers every model the turn touched (subagents on Sonnet or Haiku show up
+    as their own entries). The top-level `usage` block is the fallback."""
+    meta = _empty_usage_meta(provider_id)
+    try:
+        models = []
+        for mid, mu in (ev.get("modelUsage") or {}).items():
+            if not isinstance(mu, dict):
+                continue
+            models.append({
+                "model":              str(mu.get("canonicalModel") or mid),
+                "input_tokens":       int(mu.get("inputTokens") or 0),
+                "output_tokens":      int(mu.get("outputTokens") or 0),
+                "cache_read_tokens":  int(mu.get("cacheReadInputTokens") or 0),
+                "cache_write_tokens": int(mu.get("cacheCreationInputTokens") or 0),
+                "cost_usd":           round(float(mu.get("costUSD") or 0), 6),
+            })
+        models.sort(key=lambda m: m["cost_usd"], reverse=True)
+        if models:
+            for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+                meta[k] = sum(m[k] for m in models)
+        else:
+            u = ev.get("usage") or {}
+            meta["input_tokens"]       = int(u.get("input_tokens") or 0)
+            meta["output_tokens"]      = int(u.get("output_tokens") or 0)
+            meta["cache_read_tokens"]  = int(u.get("cache_read_input_tokens") or 0)
+            meta["cache_write_tokens"] = int(u.get("cache_creation_input_tokens") or 0)
+        meta["models"]      = models
+        meta["cost_usd"]    = round(float(ev.get("total_cost_usd") or 0), 6)
+        meta["num_turns"]   = int(ev.get("num_turns") or 0)
+        meta["duration_ms"] = int(ev.get("duration_ms") or 0)
+    except Exception as e:
+        log.warning(f"[USAGE] could not parse result usage: {e!r}")
+    return meta
+
+
+# ── Auto router: routing fields for the usage ledger ────────────────────────
+# Every turn that runs through _run_turn_with_failover carries a routing
+# record on its thread (docs/SPEC_auto_router.md Section 10). _log_usage
+# merges it into the ledger row, so each row says how its model was chosen.
+# Manual turns also record the tier Auto would have picked ("shadow mode":
+# rules only, no model call, no prompt text), which builds the always-Opus
+# baseline before Auto itself is switched on.
+try:
+    import auto_router as _auto_router
+except Exception as _ar_err:          # the router must never stop the bridge
+    _auto_router = None
+    log.warning(f"[ROUTER] auto_router unavailable: {_ar_err!r}")
+
+ROUTER_SETTINGS_NAME = "auto_router.json"
+_route_ctx = threading.local()
+_route_prev: dict = {}                # pane key -> {provider_id, ts, shadow_tier, shadow_category}
+_route_prev_lock = threading.Lock()
+_router_settings_cache = {"key": None, "data": None}
+
+# Tools that only read. Anything else (file writes, shell, sending, posting,
+# desktop control, unknown tools) counts as a write or exec tool.
+_READ_ONLY_TOOLS = frozenset({
+    # Claude Code
+    "Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoWrite", "ToolSearch",
+    "NotebookRead", "BashOutput",
+    # bridge tools (local models)
+    "web_search", "web_extract", "read_file", "list_directory", "recall_memory",
+    "read_clipboard", "take_screenshot", "load_skill", "search_history", "session_resume",
+    "pinterest_list_boards", "desktop_cursor_position", "desktop_screen_size",
+    "mail_inboxes", "mail_unread", "mail_search", "mail_read",
+    "calendar_list_calendars", "calendar_list_events", "calendar_free_busy",
+})
+
+# Ledger fields that /router/log returns. Never prompt text.
+_ROUTE_LOG_FIELDS = (
+    "ts", "turn_id", "kind", "route_mode", "auto_chosen", "requested", "chosen_provider",
+    "chosen_tier", "min_tier", "shadow_tier", "category", "categories", "rule_hits",
+    "confidence", "route_reason", "shadow_reason", "triage_used", "sticky", "escalated",
+    "escalated_from", "escalation_reason", "redo_of", "fallback", "cache_warm",
+    "write_tools_used", "read_only", "bias", "router_version", "catalog_version", "decided_ms",
+    "cost_usd", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
+)
+
+
+def _router_settings() -> dict:
+    """The active user's Auto settings (users/<id>/auto_router.json), merged
+    over defaults. Cached by file mtime; a missing or broken file means
+    defaults. The settings endpoint that writes this file is Task A5."""
+    if _auto_router is None:
+        return {}
+    try:
+        path = _user_dir() / ROUTER_SETTINGS_NAME
+        key = (str(path), path.stat().st_mtime_ns) if path.exists() else (str(path), None)
+        if _router_settings_cache["key"] != key:
+            raw = None
+            if key[1] is not None:
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                except Exception as e:
+                    log.warning(f"[ROUTER] ignoring unreadable {ROUTER_SETTINGS_NAME}: {e!r}")
+            _router_settings_cache.update(key=key, data=_auto_router.normalize_settings(raw))
+        return dict(_router_settings_cache["data"])
+    except Exception:
+        return _auto_router.normalize_settings(None)
+
+
+def _note_tool_use(name: str) -> None:
+    """Runners call this for every tool the model runs, so the ledger row can
+    say whether the turn wrote or executed anything."""
+    rec = getattr(_route_ctx, "rec", None)
+    if rec is not None and name and name not in _READ_ONLY_TOOLS:
+        rec["write_tools_used"] = True
+
+
+def _route_begin(provider_id: str, message: str, project_path: str, kind: str) -> dict:
+    """Build the routing record for one turn. Manual for now (Auto lands in
+    Task A7); the shadow decision runs the rules only and never calls a model."""
+    rec = {
+        "turn_id": uuid.uuid4().hex, "kind": kind, "route_mode": "manual",
+        "auto_chosen": False, "requested": provider_id, "chosen_provider": provider_id,
+        "chosen_tier": None, "min_tier": None, "category": None, "categories": [],
+        "rule_hits": [], "confidence": None, "route_reason": "manual", "shadow_reason": None,
+        "triage_used": False, "triage_result": None, "sticky": False, "escalated": False,
+        "escalated_from": None, "escalation_reason": None, "redo_of": None, "fallback": None,
+        "shadow_tier": None, "cache_warm": False, "write_tools_used": False, "bias": None,
+        "router_version": None, "catalog_version": None, "decided_ms": 0, "read_only": False,
+        "_logged": 0, "_pane": getattr(_history_state, "key", "") or "",
+    }
+    if _auto_router is None:
+        return rec
+    try:
+        now = time.time()
+        settings = _router_settings()
+        with _route_prev_lock:
+            last = dict(_route_prev.get(rec["_pane"]) or {})
+        window = settings.get("sticky_minutes", 10) * 60
+        recent = bool(last) and window > 0 and (now - float(last.get("ts") or 0)) <= window
+        rec["cache_warm"] = recent and last.get("provider_id") == provider_id
+        shadow_prev = None
+        if recent and last.get("shadow_tier"):
+            shadow_prev = {"tier": last["shadow_tier"], "category": last.get("shadow_category"),
+                           "provider_id": last.get("provider_id"), "ts": last.get("ts")}
+        kinds = [str(a.get("kind") or "") for a in (getattr(_request_attachments, "list", None) or [])
+                 if isinstance(a, dict)]
+        d = _auto_router.shadow(message or "", project_path or "", kinds,
+                                prev=shadow_prev, settings=settings, now=now)
+        rec.update(shadow_tier=d.tier, shadow_reason=d.reason_code, category=d.category,
+                   categories=list(d.categories), rule_hits=list(d.rule_hits),
+                   confidence=d.confidence, sticky=d.sticky, bias=d.bias,
+                   router_version=d.router_version, catalog_version=d.catalog_version,
+                   decided_ms=d.decided_ms, chosen_tier=_auto_router.provider_tier(provider_id))
+    except Exception as e:
+        log.warning(f"[ROUTER] shadow decision failed: {e!r}")
+    return rec
+
+
+def _route_finish(rec: dict, answered: str, message: str) -> None:
+    """Guarantee one ledger row per turn (runners that report no usage, and
+    turns that fail early, still get a row) and remember the pane's turn."""
+    if not rec["_logged"]:
+        _log_usage(_empty_usage_meta(answered or rec["requested"]), message)
+    with _route_prev_lock:
+        _route_prev[rec["_pane"]] = {"provider_id": answered or rec["requested"], "ts": time.time(),
+                                     "shadow_tier": rec.get("shadow_tier"),
+                                     "shadow_category": rec.get("category"),
+                                     "auto_tier": rec.get("_auto_tier"),
+                                     "auto_category": rec.get("category") if rec.get("_auto_tier") else None}
+        if len(_route_prev) > 500:
+            for k in list(_route_prev)[:100]:
+                _route_prev.pop(k, None)
+
+
+def _router_log(limit: int = 50) -> list:
+    """Newest-first routing fields from the tail of the usage ledger."""
+    path = _user_dir() / USAGE_LEDGER_NAME
+    if not path.exists():
+        return []
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 1_048_576))
+            tail = f.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    rows = []
+    for line in reversed(tail):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or "turn_id" not in row:
+            continue
+        rows.append({k: row.get(k) for k in _ROUTE_LOG_FIELDS})
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+# ── Auto candidates (Task A3) ───────────────────────────────────────────────
+# Spend class per family. Auto only ever uses subscription or local models;
+# anything metered or unknown is never a candidate.
+SPEND_CLASS = {"claude": "subscription", "codex": "subscription", "ollama": "local"}
+# Pinned versions and legacy duplicates stay out of Auto: it uses the latest
+# alias of each tier, so a pinned model is only used when picked by hand.
+_AUTO_EXCLUDED = {
+    "claude-cli-opus-5": "pinned version (Auto uses the latest Opus)",
+    "claude-cli-opus-48": "pinned version (Auto uses the latest Opus)",
+    "codex-mini": "older duplicate of the fast ChatGPT model",
+}
+_FAMILY_LABEL = {"claude": "Claude", "codex": "ChatGPT", "ollama": "Local model"}
+
+
+def _codex_auth_mode() -> str:
+    """'chatgpt', 'api_key' or 'unknown'. Codex on an API key bills per
+    token, so Auto never routes to it in that state."""
+    home = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
+    try:
+        cred = home / "auth.json"
+        if cred.is_file():
+            d = json.loads(cred.read_text(encoding="utf-8", errors="replace"))
+            tok = d.get("tokens") or {}
+            if tok.get("access_token") or tok.get("id_token") or tok.get("refresh_token"):
+                return "chatgpt"
+            if d.get("OPENAI_API_KEY"):
+                return "api_key"
+    except Exception:
+        pass
+    try:
+        cfg = (home / "config.toml").read_text(encoding="utf-8", errors="replace")
+        if re.search(r'^\s*forced_login_method\s*=\s*"chatgpt"', cfg, re.MULTILINE):
+            return "chatgpt"
+    except Exception:
+        pass
+    return "unknown"
+
+
+_ollama_tags_cache = {"ts": 0.0, "names": None}
+
+
+def _ollama_installed_models() -> set | None:
+    """Model tags the local Ollama daemon has, cached for 60 s. None when the
+    daemon does not answer (then local models are not offered to Auto)."""
+    now = time.time()
+    if _ollama_tags_cache["names"] is not None and now - _ollama_tags_cache["ts"] < 60:
+        return _ollama_tags_cache["names"]
+    names = None
+    try:
+        base = OLLAMA_CHAT_URL.rsplit("/api/", 1)[0]
+        with urllib.request.urlopen(base + "/api/tags", timeout=1.5) as r:
+            data = json.loads(r.read().decode("utf-8", errors="replace"))
+        names = set()
+        for m in data.get("models") or []:
+            n = str(m.get("name") or "")
+            if n:
+                names.add(n)
+                if n.endswith(":latest"):
+                    names.add(n[: -len(":latest")])
+    except Exception:
+        names = None
+    _ollama_tags_cache.update(ts=now, names=names)
+    return names
+
+
+def _auto_candidates(snap: dict | None = None) -> list:
+    """Every provider Auto knows about, with eligibility and the reason when
+    it is not eligible (shown in Settings). Cheap: no network, no model call."""
+    if _auto_router is None:
+        return []
+    try:
+        snap = snap if snap is not None else _failover.snapshot()
+    except Exception:
+        snap = {}
+    out = []
+    for pid, cfg in PROVIDERS.items():
+        tier = _auto_router.provider_tier(pid)
+        fam = _auto_router.provider_family(pid)
+        c = {"pid": pid, "label": cfg.get("label", pid), "family": fam, "tier": tier,
+             "eligible": False, "why_not": "", "vision": pid in _MULTIMODAL_PROVIDERS,
+             "local": fam == "ollama", "read_only_ok": fam in ("claude", "ollama"),
+             "headroom_pct": None, "cost_rank": 0, "spend_class": SPEND_CLASS.get(fam, "unknown")}
+        why = None
+        if tier is None:
+            why = "not rated for Auto"
+        elif pid in _AUTO_EXCLUDED:
+            why = _AUTO_EXCLUDED[pid]
+        elif fam not in SPEND_CLASS:
+            why = "not in the Auto pool"
+        elif not _provider_available(pid):
+            why = "not installed"
+        elif fam == "codex" and _codex_auth_mode() != "chatgpt":
+            why = "ChatGPT is not signed in with a subscription"
+        elif fam == "ollama" and "cloud" in str(cfg.get("model", "")).lower():
+            why = "cloud model"
+        elif fam == "ollama" and cfg.get("model") not in (_ollama_installed_models() or set()):
+            why = "local model not running or not downloaded"
+        else:
+            try:
+                if _failover.limited_until(fam):
+                    why = f"{_FAMILY_LABEL.get(fam, fam)} is at its usage limit"
+            except Exception:
+                pass
+            m = snap.get(fam) if isinstance(snap.get(fam), dict) else None
+            if m is not None:
+                if not why and m.get("blocked_reason"):
+                    why = m["blocked_reason"]
+                pcts = [w.get("pct", 0) for w in m.get("windows") or [] if w.get("live")]
+                if pcts:
+                    c["headroom_pct"] = max(0, 100 - max(pcts))
+        c["eligible"] = why is None
+        c["why_not"] = why or ""
+        out.append(c)
+    return out
+
+
+# ── Auto settings store (Task A5) ───────────────────────────────────────────
+def _save_router_settings(settings: dict) -> None:
+    path = _user_dir() / ROUTER_SETTINGS_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+    _router_settings_cache.update(key=None, data=None)
+
+
+def _merge_router_settings(data: dict) -> dict:
+    """A partial settings POST merged over the saved settings. The three
+    map settings merge key by key, and a null value removes that key so it
+    falls back to its default (the panel's "Default" choice)."""
+    current = _router_settings()
+    merged = {**current, **data}
+    for k in ("category_floor", "allowed", "model_overrides"):
+        if isinstance(data.get(k), dict):
+            merged[k] = {key: v for key, v in {**(current.get(k) or {}), **data[k]}.items()
+                         if v is not None}
+    return merged
+
+
+def _auto_mode_on() -> bool:
+    return _auto_router is not None and _router_settings().get("mode") == "auto"
+
+
+# ── Read-only below the top tier (Task A6) ──────────────────────────────────
+# Claude Code built-in tools a Fast or Standard turn may use. No Bash, no
+# file writes, no subagents, no WebFetch (it could reach local endpoints),
+# and --strict-mcp-config with no config means no MCP servers either.
+_CLAUDE_READ_ONLY_TOOLS = "Read,Grep,Glob,WebSearch"
+# Markers the bridge acts on that change state or start another turn.
+_READ_ONLY_BLOCKED_MARKERS = frozenset({"create_standing_order", "send_to_pane"})
+
+
+def _turn_read_only() -> bool:
+    rec = getattr(_route_ctx, "rec", None)
+    return bool(rec and rec.get("read_only"))
+
+
+def _claude_permission_args() -> list:
+    if _turn_read_only():
+        return ["--tools", _CLAUDE_READ_ONLY_TOOLS, "--strict-mcp-config",
+                "--dangerously-skip-permissions"]
+    return ["--dangerously-skip-permissions"]
+
+
+def _codex_permission_args() -> list:
+    if _turn_read_only():
+        return ["--sandbox", "read-only"]
+    return ["--dangerously-bypass-approvals-and-sandbox"]
+
+
+_READ_ONLY_DIRECTIVE = (
+    "\n\n[This turn runs in read-only mode: you can read and search, but you cannot edit "
+    "files, run commands, send anything, or schedule tasks. If the request needs any of "
+    "that, say in one line that it needs the strongest model, and stop.]")
+
+
+# ── Auto decision (Task A7) ─────────────────────────────────────────────────
+def _route_auto(rec: dict, message: str, project_path: str, sse, min_tier: str | None = None) -> str:
+    """Decide the model for an Auto turn, record it on the routing record,
+    emit the `route` event, and return the provider id to run. Any failure
+    falls back to the user's default model, never to an unknown id."""
+    fallback_pid = ACTIVE_PROVIDER
+    try:
+        now = time.time()
+        settings = _router_settings()
+        with _route_prev_lock:
+            last = dict(_route_prev.get(rec["_pane"]) or {})
+        prev = None
+        if last.get("auto_tier"):
+            prev = {"tier": last["auto_tier"], "category": last.get("auto_category"),
+                    "provider_id": last.get("provider_id"), "ts": last.get("ts")}
+        kinds = [str(a.get("kind") or "") for a in (getattr(_request_attachments, "list", None) or [])
+                 if isinstance(a, dict)]
+        if min_tier not in _auto_router.TIER_RANK:
+            min_tier = None
+        ctx = _auto_router.RouteContext(
+            message=message or "", project_path=project_path or "", attachments=tuple(kinds),
+            prev=prev, settings=settings, now=now, home_provider=ACTIVE_PROVIDER,
+            min_tier=min_tier, triage=None)
+        d = _auto_router.decide(ctx, _auto_candidates())
+        pid = d.provider_id if d.provider_id in PROVIDERS else fallback_pid
+        tier = d.tier if pid == d.provider_id else (_auto_router.provider_tier(pid) or _auto_router.TOP)
+        read_only = tier != _auto_router.TOP
+        rec.update(route_mode="auto", auto_chosen=True, chosen_provider=pid, chosen_tier=tier,
+                   min_tier=d.min_tier, category=d.category, categories=list(d.categories),
+                   rule_hits=list(d.rule_hits), confidence=d.confidence, route_reason=d.reason_code,
+                   triage_used=d.triage_used, sticky=d.sticky, fallback=d.fallback,
+                   cache_warm=d.cache_warm, bias=d.bias, router_version=d.router_version,
+                   catalog_version=d.catalog_version, decided_ms=d.decided_ms, read_only=read_only)
+        rec["_auto_tier"] = tier
+        if read_only:
+            ms = getattr(_route_ctx, "marker_state", None)
+            if isinstance(ms, dict):
+                ms["read_only"] = True
+        label, why = _auto_router.reason_copy(d.reason_code, d.limited_family or "")
+        try:
+            sse("route", json.dumps({
+                "turn_id": rec["turn_id"], "tier": tier,
+                "tier_name": _auto_router.TIER_NAMES.get(tier, tier),
+                "provider": pid, "model_label": PROVIDERS.get(pid, {}).get("label", pid),
+                "family": _auto_router.provider_family(pid), "reason": d.reason_code,
+                "reason_label": label, "reason_text": d.reason_text or why,
+                "category": d.category, "read_only": read_only, "fallback": d.fallback,
+                "show_model_names": bool(settings.get("show_model_names"))}))
+        except Exception:
+            pass
+        log.info(f"[ROUTER] auto -> {pid} tier={tier} reason={d.reason_code} "
+                 f"category={d.category} read_only={read_only} ms={d.decided_ms}")
+        return pid
+    except Exception as e:
+        log.warning(f"[ROUTER] auto decision failed, using default model: {e!r}")
+        rec.update(route_mode="auto", auto_chosen=False, route_reason="fallback_default",
+                   fallback="fallback_default", read_only=False)
+        return fallback_pid
+
+
+def _log_usage(meta: dict, message: str = "") -> None:
+    """Append one turn to the active user's usage ledger. Best effort: a
+    ledger hiccup must never affect the reply. Rows inside a routed turn are
+    written even at zero tokens, so every routing decision is logged."""
+    try:
+        route = getattr(_route_ctx, "rec", None)
+        if route is None and not (meta.get("input_tokens") or meta.get("output_tokens")
+                                  or meta.get("cache_read_tokens") or meta.get("cache_write_tokens")):
+            return
+        rec = {
+            "ts":           datetime.datetime.now().isoformat(timespec="seconds"),
+            "pane":         getattr(_history_state, "key", "") or "",
+            "prompt_chars": len(message or ""),
+            **meta,
+        }
+        if route is not None:
+            pid = meta.get("provider") or _current_provider_id()
+            fields = {k: v for k, v in route.items() if not k.startswith("_")}
+            fields["chosen_provider"] = pid
+            if _auto_router is not None:
+                fields["chosen_tier"] = _auto_router.provider_tier(pid)
+            if pid != route["requested"] and not fields.get("fallback"):
+                fields["fallback"] = "failover.midturn" if route["_logged"] else "failover.limit"
+            rec.update(fields)
+            route["_logged"] += 1
+        line = json.dumps(rec, ensure_ascii=False) + "\n"
+        with _usage_ledger_lock:
+            with open(_user_dir() / USAGE_LEDGER_NAME, "a", encoding="utf-8") as f:
+                f.write(line)
+    except Exception as e:
+        log.warning(f"[USAGE] ledger write failed: {e!r}")
+
+
 def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
     """
     Streaming CLI mode. Runs claude --print --output-format stream-json via Popen,
@@ -7841,7 +8804,7 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
             [claude_exe, "--print", "--output-format", "stream-json", "--verbose",
              "--model", cli_model,
              *effort_args,
-             "--dangerously-skip-permissions",
+             *_claude_permission_args(),
              "--system-prompt-file", soul_file_path],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -7878,6 +8841,8 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         return
 
     final_text = ""
+    # Per-reply usage tag, filled from the CLI's final `result` event.
+    usage_meta = _empty_usage_meta(_current_provider_id())
     # Set when Claude Code reports it is signed out ("Not logged in · Please run
     # /login", error=authentication_failed). The turn is then answered with
     # sign-in instructions instead of a raw error and is NOT saved to history.
@@ -7907,6 +8872,11 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
             log.debug(f"[CLI-STREAM] event type={etype!r}")
             if _crew:
                 _crew.claude_event(ev)
+
+            if etype == "system" and ev.get("subtype") == "init":
+                # Names the real model behind the alias (e.g. claude-opus-5-5),
+                # so the picker can show "Opus 5.5". Free: already in the stream.
+                _note_claude_model(ev.get("model", ""))
 
             if etype == "assistant" and ev.get("error") == "authentication_failed":
                 # Synthetic "Not logged in" message — handled at the result event.
@@ -7948,6 +8918,7 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                                 send_sse('token', text)
                     elif btype == "tool_use":
                         name = block.get("name", "")
+                        _note_tool_use(name)
                         inp  = block.get("input", {})
                         label  = _TOOL_LABELS.get(name, name.replace("_", " ").title())
                         detail = _format_cli_detail(name, inp)
@@ -7975,6 +8946,7 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
                 is_error    = ev.get("is_error", False)
                 subtype     = ev.get("subtype", "")
                 log.info(f"[CLI-STREAM] result event: is_error={is_error} subtype={subtype!r} result_text={result_text[:120]!r}")
+                usage_meta = _cli_usage_meta(ev, _current_provider_id())
                 if (is_error and _failover.claim_limit_text(result_text)) or _failover.handing_off():
                     # The partner provider finishes this turn.
                     continue
@@ -8069,7 +9041,10 @@ def ask_hermes_cli_stream(message: str, project_path: str, send_sse) -> None:
         _save_history(conversation_history)
         _session_turns += 1
 
-    send_sse('meta', json.dumps({'input_tokens': 0, 'output_tokens': 0}))
+    # The usage is real even on an abort or a failover handoff (the tokens
+    # were spent), so it is always logged and always sent.
+    _log_usage(usage_meta, message)
+    send_sse('meta', json.dumps(usage_meta))
     send_sse('done', '')
     # Clean up the temp soul-prompt file created at the top of this function
     if soul_file_path:
@@ -8140,7 +9115,7 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
             [exe, "exec", "--json", "--skip-git-repo-check",
              "-m", codex_model,
              *effort_args,
-             "--dangerously-bypass-approvals-and-sandbox"],
+             *_codex_permission_args()],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
             cwd=_active_cwd(), env=env,
@@ -8172,6 +9147,7 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
     error_text = ""
     input_tokens = 0
     output_tokens = 0
+    cached_tokens = 0
     terminal_received = False
 
     for line in proc.stdout:
@@ -8199,6 +9175,9 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
             # Codex 0.130 wraps text/tool-call/reasoning blocks here
             item = ev.get("item", {}) or {}
             itype = item.get("type", "")
+            if itype in ("function_call", "tool_call", "shell_command", "command_execution",
+                         "file_change", "mcp_tool_call"):
+                _note_tool_use(f"codex:{itype}")
             if itype == "agent_message":
                 text = item.get("text") or item.get("message") or ""
                 if text:
@@ -8234,6 +9213,8 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
             usage = ev.get("usage", {}) or {}
             input_tokens  = int(usage.get("input_tokens", 0))
             output_tokens = int(usage.get("output_tokens", 0))
+            # OpenAI counts cached input inside input_tokens.
+            cached_tokens = int(usage.get("cached_input_tokens", 0) or 0)
             terminal_received = True
             break  # Terminal event; inherited pipes may never reach EOF.
 
@@ -8296,7 +9277,19 @@ def ask_codex_cli_stream(message: str, project_path: str, send_sse) -> None:
         _save_history(conversation_history)
         _session_turns += 1
 
-    send_sse('meta', json.dumps({'input_tokens': input_tokens, 'output_tokens': output_tokens}))
+    usage_meta = _empty_usage_meta(_current_provider_id())
+    usage_meta.update({
+        "input_tokens":      max(0, input_tokens - cached_tokens),
+        "output_tokens":     output_tokens,
+        "cache_read_tokens": cached_tokens,
+        "models": [{"model": codex_model,
+                    "input_tokens": max(0, input_tokens - cached_tokens),
+                    "output_tokens": output_tokens,
+                    "cache_read_tokens": cached_tokens,
+                    "cache_write_tokens": 0, "cost_usd": 0.0}],
+    })
+    _log_usage(usage_meta, message)
+    send_sse('meta', json.dumps(usage_meta))
     send_sse('done', '')
 
 
@@ -8400,7 +9393,230 @@ def ask_gemini_cli_stream(message: str, project_path: str, send_sse) -> None:
         _save_history(conversation_history)
         _session_turns += 1
 
+    _log_usage(_empty_usage_meta(_current_provider_id()), message)
     send_sse('meta', json.dumps({'input_tokens': 0, 'output_tokens': 0}))
+    send_sse('done', '')
+
+
+def _grok_child_env() -> dict:
+    """Environment for Grok Build turns. XAI_API_KEY is removed so Grok can
+    only answer on the buyer's subscription sign-in, never metered API billing
+    (Grok falls back to that key when no session token is active)."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in (*_GROK_KEY_ENV, "ANTHROPIC_API_KEY", "OPENAI_API_KEY")}
+    env["GROK_DISABLE_AUTOUPDATER"] = "1"   # keep turns fast; updates stay manual
+    env["NO_COLOR"] = "1"
+    return env
+
+
+def ask_grok_cli_stream(message: str, project_path: str, send_sse) -> None:
+    """
+    xAI Grok Build CLI runner (headless mode).
+    Grok's headless mode does not read stdin, so the prompt goes through
+    --prompt-file (also dodges the Windows 32KB argv limit). Parses the
+    --output-format streaming-json events: text / thought / tool_call /
+    usage / end / error.
+    """
+    global _session_turns
+    exe = _provider_executable("grok")
+    if not exe:
+        send_sse('token', "Grok Build is not installed, Captain. Type `install grok` here, "
+                          "or install it from Settings > AI Connectors.")
+        send_sse('meta', json.dumps({'input_tokens': 0, 'output_tokens': 0}))
+        send_sse('done', '')
+        return
+    # Never spawn Grok without a subscription session: with no session, or with
+    # a saved API key, it would answer on metered xAI billing. Checked fresh on
+    # every turn rather than through the cached probe, because this is the
+    # money gate.
+    if not _grok_cli_authenticated():
+        if _grok_stored_api_key():
+            msg = ("Grok Build has an xAI API key saved, Captain, and DATA will not run Grok "
+                   "on pay-per-use billing. Run `grok logout`, then `grok login` with your "
+                   "SuperGrok account, and try again.")
+        else:
+            msg = ("Grok Build is not signed in, Captain. Run `grok login` and sign in "
+                   "with your SuperGrok account, then try again.")
+        log.warning("[GROK] refused turn: no subscription session, or an API key is saved")
+        send_sse('token', msg)
+        send_sse('meta', json.dumps({'input_tokens': 0, 'output_tokens': 0}))
+        send_sse('done', '')
+        return
+
+    soul   = _load_soul(mode="cli")
+    prompt = _build_history_prompt(message, project_path)
+    full_input = soul + "\n\n---\n\n" + prompt
+
+    import tempfile
+    fd, prompt_path = tempfile.mkstemp(prefix="data_grok_", suffix=".txt")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(full_input)
+
+    grok_model = PROVIDERS.get(_current_provider_id(), {}).get("model", "")
+    argv = [exe, "--prompt-file", prompt_path,
+            "--output-format", "streaming-json",
+            "--verbatim",          # no @file / slash-command expansion of DATA's prompt
+            "--yolo",              # auto-approve tools, same as the other CLI brains
+            "--no-auto-update",
+            "--cwd", _active_cwd()]
+    if grok_model:
+        argv += ["-m", grok_model]
+    send_sse('thinking', f"*Grok Mode ({grok_model or 'CLI default'}): invoking SuperGrok subscription*")
+    log.info(f"[GROK] subprocess starting model={grok_model or '(default)'} prompt_len={len(full_input)}")
+
+    try:
+        proc = subprocess.Popen(
+            argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+            cwd=_active_cwd(), env=_grok_child_env(),
+        )
+        _register_active_proc(proc)
+    except OSError as e:
+        try: os.unlink(prompt_path)
+        except OSError: pass
+        send_sse('token', f"Grok Build failed to launch, Captain ({e}).")
+        send_sse('meta', json.dumps({'input_tokens': 0, 'output_tokens': 0}))
+        send_sse('done', '')
+        return
+
+    from collections import deque
+    stderr_tail = deque(maxlen=128)
+    def drain_stderr():
+        try:
+            while True:
+                chunk = proc.stderr.read(4096)
+                if not chunk:
+                    break
+                stderr_tail.append(chunk)
+        except (OSError, ValueError):
+            pass
+    stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
+    stderr_thread.start()
+
+    final_text = ""
+    error_text = ""
+    input_tokens = 0
+    output_tokens = 0
+    terminal_received = False
+    in_thought = False
+
+    def _as_int(v) -> int:
+        try:
+            return int(v or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    # Any surprise mid-stream (an unexpected event shape, a dropped client)
+    # must still reach the cleanup below: the prompt file holds the full
+    # system prompt and history, and the process must be unregistered.
+    try:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                log.debug(f"[GROK] non-JSON: {line[:120]}")
+                continue
+            if not isinstance(ev, dict):
+                continue
+            etype = ev.get("type", "")
+
+            if etype == "text":
+                text = ev.get("data") or ""
+                if isinstance(text, str) and text:
+                    in_thought = False
+                    final_text += text
+                    send_sse('token', text)
+            elif etype == "thought":
+                if not in_thought:
+                    send_sse('thinking', "*Reasoning*")
+                    in_thought = True
+            elif etype == "tool_call":
+                in_thought = False
+                name = ev.get("title") or ev.get("toolName") or "tool"
+                raw = ev.get("rawInput") or {}
+                if isinstance(raw, dict):
+                    detail = str(raw.get("path") or raw.get("command") or raw.get("query")
+                                 or raw.get("url") or "")[:60]
+                else:
+                    detail = str(raw)[:60]
+                send_sse('thinking', f"Running {name}{': ' + detail if detail else ''}")
+            elif etype == "usage":
+                u = ev.get("usage") if isinstance(ev.get("usage"), dict) else {}
+                input_tokens  += _as_int(u.get("input_tokens"))
+                output_tokens += _as_int(u.get("output_tokens"))
+            elif etype == "error":
+                error_text += str(ev.get("message", "")) + " "
+            elif etype == "end":
+                u = ev.get("usage") or {}
+                if isinstance(u, dict) and (u.get("input_tokens") or u.get("output_tokens")):
+                    input_tokens  = _as_int(u.get("input_tokens"))
+                    output_tokens = _as_int(u.get("output_tokens"))
+                terminal_received = True
+                break   # `end` is always the last event
+    except Exception as e:
+        log.warning(f"[GROK] stream read failed: {e}")
+        error_text += f"stream error: {e} "
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+    try: os.unlink(prompt_path)
+    except OSError: pass
+    preempted    = getattr(proc, "_preempted", False)
+    user_stopped = getattr(proc, "_user_stopped", False)
+    was_killed = ((proc.returncode is not None and proc.returncode < 0)
+                  and not preempted and not terminal_received) or user_stopped
+    _unregister_active_proc(proc)
+    stderr_thread.join(timeout=0.2)
+    stderr = "".join(list(stderr_tail)).strip()
+    log.info(f"[GROK] done exit={proc.returncode} final_len={len(final_text)} in={input_tokens} "
+             f"out={output_tokens} preempted={preempted} error={error_text[:120]!r} stderr={stderr[:200]!r}")
+
+    if preempted:
+        send_sse('meta', json.dumps({'input_tokens': 0, 'output_tokens': 0}))
+        send_sse('done', '')
+        return
+
+    if was_killed:
+        msg = "Aborted, Captain."
+        if not final_text:
+            send_sse('token', msg); final_text = msg
+    elif not final_text.strip() and _failover.claim_limit_text(f"{error_text}\n{stderr}"):
+        # Grok hit its subscription limit and the backup model takes the turn.
+        error_text = error_text or "usage limit"
+    elif not final_text.strip():
+        if cli_console.looks_logged_out("grok", f"{error_text}\n{stderr}"):
+            final_text = _emit_login_needed(send_sse, "grok")
+            error_text = error_text or "auth"
+        else:
+            fallback = error_text.strip() or stderr[-1500:] or "Grok returned no output, Captain."
+            send_sse('token', fallback)
+            final_text = fallback
+
+    if not was_killed and not error_text:
+        conversation_history.append({"role": "user",      "content": message})
+        conversation_history.append({"role": "assistant", "content": final_text.strip()})
+        if len(conversation_history) > MAX_HISTORY:
+            del conversation_history[:-MAX_HISTORY]
+        _save_history(conversation_history)
+        _session_turns += 1
+
+    _log_usage({**_empty_usage_meta(_current_provider_id()),
+                "input_tokens": int(input_tokens or 0), "output_tokens": int(output_tokens or 0)}, message)
+    send_sse('meta', json.dumps({'input_tokens': input_tokens, 'output_tokens': output_tokens}))
     send_sse('done', '')
 
 
@@ -8514,11 +9730,16 @@ def ask_ollama_stream(message: str, project_path: str, send_sse) -> None:
     soul    = _load_soul(mode="cli")
     prompt  = _build_history_prompt(message, project_path)
     ollama_tools = _tools_for_ollama()
+    _ro = _turn_read_only()
+    if _ro:
+        ollama_tools = [t for t in ollama_tools if t["function"]["name"] in _READ_ONLY_TOOLS]
 
     send_sse('thinking', f"*Ollama Mode — {p['model']} ({len(ollama_tools)} tools)*")
     log.info(f"[OLLAMA] starting model={p['model']} tools={len(ollama_tools)} prompt_len={len(prompt)}")
 
     valid_tool_names = {t["name"] for t in TOOLS}
+    if _ro:
+        valid_tool_names &= _READ_ONLY_TOOLS
 
     messages = [
         {"role": "system", "content": soul},
@@ -8626,10 +9847,15 @@ def ask_ollama_stream(message: str, project_path: str, send_sse) -> None:
                 detail = ""
             send_sse('thinking', f"{label}{' ' + detail if detail else ''}")
 
-            try:
-                result = execute_tool(tool_name, tool_args)
-            except Exception as e:
-                result = f"Tool error: {e}"
+            _note_tool_use(tool_name)
+            if _ro and tool_name not in _READ_ONLY_TOOLS:
+                result = ("Blocked: this turn is read-only. Say that the request needs the "
+                          "strongest model and stop.")
+            else:
+                try:
+                    result = execute_tool(tool_name, tool_args)
+                except Exception as e:
+                    result = f"Tool error: {e}"
 
             preview = str(result).replace('\n', ' ').strip()[:90]
             if preview:
@@ -8663,6 +9889,8 @@ def ask_ollama_stream(message: str, project_path: str, send_sse) -> None:
         _session_turns += 1
 
     log.info(f"[OLLAMA] done loops={loop+1} final_len={len(final_text)} in={in_tokens} out={out_tokens}")
+    _log_usage({**_empty_usage_meta(_current_provider_id()),
+                "input_tokens": int(in_tokens or 0), "output_tokens": int(out_tokens or 0)}, message)
     send_sse('meta', json.dumps({'input_tokens': in_tokens, 'output_tokens': out_tokens}))
     send_sse('done', '')
 
@@ -8688,30 +9916,84 @@ def _provider_runner(provider_id: str):
         "codex-luna":        ask_codex_cli_stream,
         "codex-mini":        ask_codex_cli_stream,  # same runner; legacy id for fast tier
         "gemini":            ask_gemini_cli_stream,
+        "grok":              ask_grok_cli_stream,
         "ollama":            ask_ollama_stream,
         "ollama-small":      ask_ollama_stream,     # same runner; model read from PROVIDERS[active]['model']
     }.get(provider_id, ask_hermes_cli_stream)
 
 
+def _drop_redo_exchange(raw_message: str) -> bool:
+    """"Try a stronger model": remove the earlier answer and the question it
+    answered from this pane's history so the rerun does not see both. Only
+    acts when the last two entries are that exact question and its answer;
+    the permanent archive keeps both."""
+    hist = getattr(_history_state, "history", None)
+    if not isinstance(hist, list) or len(hist) < 2:
+        return False
+    u, a = hist[-2], hist[-1]
+    if not (isinstance(u, dict) and isinstance(a, dict)
+            and u.get("role") == "user" and a.get("role") == "assistant"):
+        return False
+    want = (raw_message or "").strip()
+    got = _normalize_content_to_string(u.get("content")).strip()
+    if not want or not got.endswith(want):
+        return False
+    del hist[-2:]
+    _save_history()
+    return True
+
+
 def _run_turn_with_failover(provider_id: str, message: str, project_path: str,
-                            sse, announce: bool = True) -> str:
+                            sse, announce: bool = True, kind: str = "chat",
+                            min_tier: str | None = None,
+                            redo_of: str | None = None) -> str:
     """Run one turn through provider_failover: a Claude, Codex or Gemini turn
     that hits its usage limit is finished by the backup model chosen in
     Settings (or the automatic partner), and later turns route around the
-    limit until it resets. Returns the provider id that answered last."""
+    limit until it resets. Returns the provider id that answered last.
+
+    Every turn also carries a routing record (see _route_begin) so the usage
+    ledger gets exactly one row per turn with its routing fields."""
     def _set_provider(pid):
         prev = getattr(_provider_override, "id", None)
         _provider_override.id = pid
         return prev
-    return _failover.run_turn(
-        provider_id, message, project_path, sse,
-        runner_for=_provider_runner,
-        set_provider=_set_provider,
-        provider_available=_provider_available,
-        history=conversation_history,
-        save_history=lambda: _save_history(conversation_history),
-        announce=announce,
-        default_provider=ACTIVE_PROVIDER)
+    prev_route = getattr(_route_ctx, "rec", None)
+    auto = _auto_router is not None and provider_id == _auto_router.AUTO_PROVIDER_ID
+    if provider_id == "auto" and not auto:
+        provider_id = ACTIVE_PROVIDER     # router unavailable: behave like Manual
+    route = _route_begin(ACTIVE_PROVIDER if auto else provider_id, message, project_path, kind)
+    _route_ctx.rec = route
+    if redo_of:
+        route["redo_of"] = redo_of
+    prev_override = getattr(_provider_override, "id", None)
+    if auto:
+        provider_id = _route_auto(route, message, project_path, sse, min_tier)
+        route["requested"] = provider_id
+        _provider_override.id = provider_id
+    answered = provider_id
+    try:
+        answered = _failover.run_turn(
+            provider_id, message, project_path, sse,
+            runner_for=_provider_runner,
+            set_provider=_set_provider,
+            provider_available=_provider_available,
+            history=conversation_history,
+            save_history=lambda: _save_history(conversation_history),
+            announce=announce,
+            default_provider=ACTIVE_PROVIDER) or provider_id
+        return answered
+    finally:
+        try:
+            _route_finish(route, answered, message)
+        except Exception as e:
+            log.warning(f"[ROUTER] could not finish routing record: {e!r}")
+        if auto:
+            _provider_override.id = prev_override
+            ms = getattr(_route_ctx, "marker_state", None)
+            if isinstance(ms, dict):
+                ms["read_only"] = False
+        _route_ctx.rec = prev_route
 
 
 def dispatch(message: str, project_path: str = "", pane_id: str = "") -> str:
@@ -9036,7 +10318,7 @@ def _voice_llm_stream(message: str, project_path: str = "", on_token=None,
         # announce=False: failover notes go to the thinking line, not into TTS.
         _run_turn_with_failover(provider, message, project_path,
                                 _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse,
-                                announce=False)
+                                announce=False, kind="voice")
         _crew_ok = True
     except Exception as e:
         log.exception(f"[voice-stream] {provider} failed: {e}")
@@ -10985,7 +12267,7 @@ class Handler(BaseHTTPRequestHandler):
                             cli_console.family_for_provider(_PENDING_CLI_AUTH) == fam and \
                             not str(ACTIVE_PROVIDER).startswith("ollama"):
                         _PENDING_CLI_AUTH = ""   # signed in and already on the CLI → no banner
-                elif spec["kind"] == "npm":
+                elif spec["kind"] in ("npm", "script"):
                     _bust_auth_cache()
                 log.info(f"[console] {spec['label']!r} exited code={val} authed={authed} "
                          f"stopped={sess.stopped} timed_out={sess.timed_out}")
@@ -11009,6 +12291,8 @@ class Handler(BaseHTTPRequestHandler):
         if remote_access.handle_http(self, REMOTE_ACCESS):
             return
         if advanced_tools.handle_http(self, _user_dir() / "advanced-tools", _detect_hardware):
+            return
+        if skill_library.handle_http(self):
             return
         if marketplace.handle_http(self):
             return
@@ -11044,6 +12328,8 @@ class Handler(BaseHTTPRequestHandler):
             "/pane_status.js": ("pane_status.js", "application/javascript; charset=utf-8"),
             "/slash_commands.js": ("slash_commands.js", "application/javascript; charset=utf-8"),
             "/pane_status.css": ("pane_status.css", "text/css; charset=utf-8"),
+            "/auto_settings.js": ("auto_settings.js", "application/javascript; charset=utf-8"),
+            "/auto_settings.css": ("auto_settings.css", "text/css; charset=utf-8"),
             "/offline_archive.js": ("offline_archive.js", "application/javascript; charset=utf-8"),
             "/":             ("index.html", "text/html; charset=utf-8"),
             "/index.html":   ("index.html", "text/html; charset=utf-8"),
@@ -11054,6 +12340,8 @@ class Handler(BaseHTTPRequestHandler):
             "/embedded_theme.js": ("embedded_theme.js", "application/javascript; charset=utf-8"),
             "/skill_search.js": ("skill_search.js", "application/javascript; charset=utf-8"),
             "/skill_search.css": ("skill_search.css", "text/css; charset=utf-8"),
+            "/skill_library.js": ("skill_library.js", "application/javascript; charset=utf-8"),
+            "/skill_library.css": ("skill_library.css", "text/css; charset=utf-8"),
             "/advanced_tools.js": ("advanced_tools.js", "application/javascript; charset=utf-8"),
             "/advanced_tools.css": ("advanced_tools.css", "text/css; charset=utf-8"),
             "/remote_access.js": ("remote_access.js", "application/javascript; charset=utf-8"),
@@ -11127,12 +12415,12 @@ class Handler(BaseHTTPRequestHandler):
             body = (
                 "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
                 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                "<title>DATA Daemon — Privacy Policy</title></head>"
+                "<title>D.A.T.A: Privacy Policy</title></head>"
                 "<body style='font-family:-apple-system,Segoe UI,sans-serif;"
                 "background:#0a0a0a;color:#ddd;max-width:720px;margin:0 auto;"
                 "padding:48px 24px;line-height:1.6'>"
                 "<h1 style='color:#00d4ff'>Privacy Policy</h1>"
-                "<p style='color:#888'>DATA Daemon &mdash; Dashboard for Analytical "
+                "<p style='color:#888'>D.A.T.A: Dashboard for Agentic "
                 "Thought and Action</p>"
                 "<p>DATA is a self-hosted, local-first dashboard application. "
                 "It runs entirely on the operator's own computer.</p>"
@@ -11251,7 +12539,15 @@ class Handler(BaseHTTPRequestHandler):
             info: dict = {
                 "enabled":   bool(dc and dc.is_enabled()),
                 "available": bool(dc and dc.is_available()),
+                "platform":  sys.platform,
             }
+            if not info["available"]:
+                info["hint"] = ("Screen control packages are missing. Settings > Upgrades > "
+                                "Skill Library > Install screen control.")
+            elif sys.platform == "darwin":
+                info["hint"] = ("If clicks do nothing or screenshots show only the wallpaper, allow "
+                                "Accessibility and Screen Recording for the app running DATA "
+                                "(usually Terminal) in System Settings > Privacy & Security.")
             if dc and dc.is_available():
                 try:
                     sz = dc.screen_size()
@@ -11409,6 +12705,28 @@ class Handler(BaseHTTPRequestHandler):
             # and every Claude turn keep it current).
             self._json(_failover.snapshot(ACTIVE_PROVIDER))
 
+        elif path == "/router/log":
+            # Auto router decisions from the usage ledger, newest first.
+            # Routing fields and token counts only; never prompt text.
+            _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try:
+                _limit = max(1, min(500, int((_q.get("limit") or ["50"])[0])))
+            except ValueError:
+                _limit = 50
+            self._json({"rows": _router_log(_limit),
+                        "router_version": getattr(_auto_router, "ROUTER_VERSION", None)})
+
+        elif path == "/router/settings":
+            # Auto settings plus the models Auto can use right now and why
+            # the others are not available. No model call, no network.
+            if _auto_router is None:
+                self._json({"error": "Auto is unavailable on this install"}, 503)
+                return
+            self._json({"settings": _router_settings(), "candidates": _auto_candidates(),
+                        "default_provider": ACTIVE_PROVIDER,
+                        "router_version": _auto_router.ROUTER_VERSION,
+                        "catalog_version": _auto_router.BUILTIN_CATALOG_VERSION})
+
         elif path == "/agents":
             # Editable per-officer personality files (~/.claude/agents/*.md),
             # surfaced in Settings → Crew Personalities. Display names come from
@@ -11449,6 +12767,14 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/llm/catalog":
             self._json(_llm_catalog_payload())
+
+        elif path == "/models/refresh":
+            # What the boot-time model refresh found (newest models per brain,
+            # download-list source, recent changes). POST re-runs it. Error
+            # text can name local paths, so only the dashboard may read it.
+            if self._dashboard_only():
+                return
+            self._json(_model_refresh_summary())
 
         elif path == "/upgrades/catalog":
             # Unified Upgrades store: models + connectors + skills/mcp/pip/
@@ -11617,7 +12943,7 @@ class Handler(BaseHTTPRequestHandler):
                 "model": "claude — per task", "available": True, "local": False,
             }]
             for pid, p in PROVIDERS.items():
-                if p.get("kind") == "http":   # ollama, ollama-small, ollama:<model>
+                if p.get("kind") == "http" and not p.get("hidden"):   # ollama, ollama-small, ollama:<model>
                     choices.append({
                         "id":           pid,
                         "label":        p.get("label", pid),
@@ -12046,6 +13372,8 @@ class Handler(BaseHTTPRequestHandler):
         if remote_access.handle_http(self, REMOTE_ACCESS):
             return
         if advanced_tools.handle_http(self, _user_dir() / "advanced-tools", _detect_hardware):
+            return
+        if skill_library.handle_http(self):
             return
         if marketplace.handle_http(self):
             return
@@ -13028,6 +14356,27 @@ class Handler(BaseHTTPRequestHandler):
             log.info(f"[EFFORT] switched to {ACTIVE_EFFORT or '(auto)'}")
             self._json({"active": ACTIVE_EFFORT, "levels": _provider_effort_levels(ACTIVE_PROVIDER)})
 
+        elif path == "/router/settings":
+            # Body: a full or partial settings object, merged over the current
+            # settings and validated strictly. Written atomically.
+            if _auto_router is None:
+                self._json({"error": "Auto is unavailable on this install"}, 503)
+                return
+            if not isinstance(data, dict):
+                self._json({"error": "settings must be a JSON object"}, 400)
+                return
+            new_settings, errs = _auto_router.validate_settings(_merge_router_settings(data))
+            if errs:
+                self._json({"error": "; ".join(errs), "errors": errs}, 400)
+                return
+            try:
+                _save_router_settings(new_settings)
+            except OSError as e:
+                self._json({"error": f"could not save settings: {e}"}, 500)
+                return
+            log.info(f"[ROUTER] settings saved: mode={new_settings['mode']} bias={new_settings['bias']}")
+            self._json({"settings": _router_settings()})
+
         elif path == "/usage/refresh":
             # Re-read both subscription meters now (Claude via the CLI's
             # get_usage control request, no tokens; Codex via session files).
@@ -13062,13 +14411,24 @@ class Handler(BaseHTTPRequestHandler):
                 log.info(f"[FAILOVER] switched {'on' if data['enabled'] else 'off'}")
             self._json(_failover.snapshot(ACTIVE_PROVIDER))
 
+        elif path == "/models/refresh":
+            if self._dashboard_only():
+                return
+            # Re-run the full model refresh now (synchronous; bounded by the
+            # 6 s catalog download and the 25 s `grok models` timeouts).
+            self._json(_run_model_refresh(network=True))
+
         elif path == "/llm/install":
+            # Starts installs (npm, Ollama pulls, the x.ai installer), so only
+            # the dashboard page itself may call it, never a drive-by POST.
+            if self._dashboard_only():
+                return
             # kind='ollama' → pull a local model;  kind='cli' → install a connector
             kind   = (data.get("kind") or "").strip()
             target = (data.get("target") or "").strip()
             if kind == "ollama":
                 valid = {m["model"] for m in OLLAMA_CATALOG}
-                if target not in valid:
+                if target not in valid or _mrefresh.is_cloud_model(target):
                     self._json({"error": f"unknown model '{target}'"}, 400); return
             elif kind == "cli":
                 # Only allow the exact install commands from our connector catalog
@@ -13083,6 +14443,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(job)
 
         elif path == "/upgrades/install":
+            if self._dashboard_only():
+                return
             # Install one catalog entry by id. Features flip instantly; every
             # other kind starts a background job polled via /llm/install_status.
             uid   = (data.get("id") or "").strip()
@@ -13270,6 +14632,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"model": MODEL})
 
         elif path == "/chat":
+            # The brain holds shell, file and mail tools: dashboard page only.
+            if self._dashboard_only():
+                return
             message = data.get("message", "")
             project_path = data.get("project_path", "")
             # Per-pane id — every browser chat pane sends one ("main" for the
@@ -13296,7 +14661,9 @@ class Handler(BaseHTTPRequestHandler):
             if not message and not attachments:
                 self._json({"error": "no message"}, 400)
                 return
-            if req_provider and req_provider not in PROVIDERS:
+            if not req_provider and _auto_mode_on():
+                req_provider = "auto"          # Auto mode: a blank choice means Auto
+            if req_provider and req_provider not in PROVIDERS and req_provider != "auto":
                 self._json({"error": f"unknown provider '{req_provider}'"}, 400)
                 return
             if attachments:
@@ -13317,7 +14684,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": f"Audio transcription failed: {e}"}, 500)
                     return
                 effective_pid = req_provider or ACTIVE_PROVIDER
-                if attachments and effective_pid not in _MULTIMODAL_PROVIDERS:
+                if attachments and effective_pid != "auto" and effective_pid not in _MULTIMODAL_PROVIDERS:
                     self._json({"error": (
                         f"Image / PDF / text attachments require a Claude provider. "
                         f"Active provider '{effective_pid}' is text-only — switch this "
@@ -13354,6 +14721,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"response": response})
 
         elif path == "/chat_stream":
+            if self._dashboard_only():
+                return
             message = data.get("message", "")
             project_path = data.get("project_path", "")
             # Per-pane id — see /chat for rationale. Two windows on the same
@@ -13365,6 +14734,11 @@ class Handler(BaseHTTPRequestHandler):
             # Per-request reasoning-effort override (pane effort dropdown).
             # None = inherit the globally selected level.
             req_effort = _normalize_effort(data.get("effort"))
+            # Auto "Try a stronger model": the lowest tier the router may use.
+            req_min_tier = data.get("min_tier") if data.get("min_tier") in ("light", "mid", "top") else None
+            # "Try a stronger model" sends the earlier turn id; only valid with min_tier.
+            req_redo_of = str(data.get("redo_of") or "")[:64] if req_min_tier else ""
+            req_raw_message = data.get("message", "")
             # Per-window response-style dial (length + technical depth sliders).
             # None = balanced default (no directive injected).
             req_style_len = _normalize_style_level(data.get("verbosity"))
@@ -13383,7 +14757,9 @@ class Handler(BaseHTTPRequestHandler):
             if not message and not attachments:
                 self._json({"error": "no message"}, 400)
                 return
-            if req_provider and req_provider not in PROVIDERS:
+            if not req_provider and _auto_mode_on():
+                req_provider = "auto"          # Auto mode: a blank choice means Auto
+            if req_provider and req_provider not in PROVIDERS and req_provider != "auto":
                 self._json({"error": f"unknown provider '{req_provider}'"}, 400)
                 return
             transcript_log_lines: list = []
@@ -13406,7 +14782,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Now gate the REMAINING (non-audio) attachments — those still
                 # need a multimodal provider.
                 effective_pid = req_provider or ACTIVE_PROVIDER
-                if attachments and effective_pid not in _MULTIMODAL_PROVIDERS:
+                if attachments and effective_pid != "auto" and effective_pid not in _MULTIMODAL_PROVIDERS:
                     self._json({"error": (
                         f"Image / PDF / text attachments require a Claude provider. "
                         f"Active provider '{effective_pid}' is text-only — switch to "
@@ -13471,6 +14847,8 @@ class Handler(BaseHTTPRequestHandler):
                     _bind_history(project_path, pane_id)
                     pid = req_provider or ACTIVE_PROVIDER
                     log.info(f"[DISPATCH-STREAM] provider={pid} history_key={_history_state.key!r}")
+                    if req_redo_of:
+                        _drop_redo_exchange(req_raw_message)
                     if _crew:
                         _crew_tid = _crew.begin_turn("chat", pane=_history_state.key, project=project_path,
                                                      provider=pid, officer=crew_officer, owner=crew_owner)
@@ -13484,7 +14862,7 @@ class Handler(BaseHTTPRequestHandler):
                     for _line in transcript_log_lines:
                         filtered_sse('thinking', _line)
                     prev_id = getattr(_provider_override, "id", None)
-                    if req_provider:
+                    if req_provider and req_provider != "auto":
                         _provider_override.id = req_provider
                     # Same pattern for the reasoning-effort dial — set on THIS
                     # worker thread so the CLI runners pick it up, cleared below.
@@ -13504,7 +14882,8 @@ class Handler(BaseHTTPRequestHandler):
                         try:
                             _run_turn_with_failover(
                                 pid, message, project_path,
-                                _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse)
+                                _crew.tap(filtered_sse, _crew_tid) if _crew_tid else filtered_sse,
+                                min_tier=req_min_tier, redo_of=req_redo_of or None)
                             ok = True
                         except Exception as runner_err:
                             # The runner exited via an uncaught exception
@@ -13835,9 +15214,15 @@ if __name__ == "__main__":
     # Cloudflare Tunnel — spawn detached so the public URL stays up regardless
     # of how the bridge was started (desktop shortcut, watchdog, IDE, etc.)
     _start_cloudflared_if_configured()
+    # Model refresh, local pass: point every brain at the newest model this
+    # machine's CLIs and Ollama report, before the active brain is restored.
+    _run_model_refresh(network=False)
     # Active brain: restore the persisted provider if it is still available
     # (so a connected local model survives a restart on a machine with no CLI).
     _load_active_provider()
+    # Model refresh, network pass (download list from GitHub + `grok models`)
+    # on a background thread so startup never waits on the internet.
+    _start_model_refresh_thread()
     # Usage meter + limit failover: restore state (any active limit and the
     # Settings switch), then poll both subscriptions in the background.
     _failover.init(PROJECT_DIR / "provider_failover_state.json")
@@ -13848,6 +15233,20 @@ if __name__ == "__main__":
     _load_mail_provider()
     # Standing orders: load from disk, recompute next_run for each, start scheduler
     _load_standing_orders()
+    # Bundled skills: copy any new or updated DATA-core skill (for example the
+    # Mac skills a self-update just delivered) into the live skill folders.
+    # Retail installs only; it never overwrites a skill the user edited.
+    if not (PROJECT_DIR / ".git").exists():
+        def _startup_skill_sync():
+            try:
+                import install_skills
+                res = install_skills.sync_quiet()
+                if res.get("installed") or res.get("refreshed"):
+                    log.info(f"[skills] bundle sync: installed {res.get('installed')}, "
+                             f"updated {res.get('refreshed')}")
+            except Exception as e:
+                log.warning(f"[skills] bundle sync skipped: {e}")
+        threading.Thread(target=_startup_skill_sync, daemon=True, name="skill-sync").start()
     # The Potential Upgrades scan was retired by the Captain — purge any copy a
     # prior version auto-seeded so it never runs or reappears. (The page lives
     # under Settings > UPGRADES now; the manual REFRESH button still works.)

@@ -1,0 +1,95 @@
+/* Auto model choice, Settings panel (spec Task A12). Theme-neutral: uses the
+   shared --accent-rgb triplet and inherits text colour, so it follows every
+   theme. The same file ships in every build of the dashboard. */
+#auto-settings-root {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(var(--accent-rgb, 255, 153, 0), 0.25);
+}
+#auto-settings-root[hidden] { display: none; }
+
+.auto-set-h4 {
+  margin: 14px 0 6px;
+  font-size: 0.82em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.auto-set-body.auto-set-paused { opacity: 0.6; }
+.auto-set-status { min-height: 1.2em; }
+.auto-set-status.auto-set-error { color: #ff6b6b; opacity: 1; }
+.auto-set-hint { margin: -2px 0 8px 24px; font-size: 0.85em; }
+.auto-set-dim { opacity: 0.6; }
+
+.auto-set-adv {
+  margin-top: 8px;
+  border: 1px solid rgba(var(--accent-rgb, 255, 153, 0), 0.25);
+  border-radius: 6px;
+  padding: 6px 12px 12px;
+}
+.auto-set-adv > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 0.85em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.auto-set-adv > summary:focus-visible { outline: 2px solid rgba(var(--accent-rgb, 255, 153, 0), 0.8); outline-offset: 2px; }
+
+.auto-set-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88em;
+  margin: 4px 0 8px;
+}
+.auto-set-table th {
+  text-align: left;
+  font-weight: 600;
+  opacity: 0.7;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(var(--accent-rgb, 255, 153, 0), 0.25);
+}
+.auto-set-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(var(--accent-rgb, 255, 153, 0), 0.08);
+  vertical-align: middle;
+}
+.auto-set-table tr.auto-set-locked td,
+.auto-set-table tr.auto-set-off td { opacity: 0.5; }
+.auto-set-table tr.auto-set-locked td:last-child { font-style: italic; }
+.auto-set-models td:first-child { width: 2.5em; }
+
+#auto-settings-root select,
+#auto-settings-root input[type="number"] {
+  background: rgba(var(--accent-rgb, 255, 153, 0), 0.08);
+  color: inherit;
+  border: 1px solid rgba(var(--accent-rgb, 255, 153, 0), 0.35);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 0.95em;
+}
+#auto-settings-root select option { color: #111; background: #fff; }
+#auto-settings-root input[type="number"] { width: 4.5em; }
+#auto-settings-root input[type="checkbox"] { accent-color: rgb(var(--accent-rgb, 255, 153, 0)); cursor: pointer; }
+
+.auto-set-toggle { display: flex; width: fit-content; margin: 6px 0 2px; }
+.auto-set-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+  font-size: 0.92em;
+}
+
+.auto-set-loghead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.auto-set-loghead .settings-opt { margin: 10px 0 0; }
+.auto-set-logwrap { max-height: 260px; overflow: auto; }
+.auto-set-log td { white-space: nowrap; }
+.auto-set-log td:last-child { white-space: normal; }

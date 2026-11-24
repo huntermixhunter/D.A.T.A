@@ -13,10 +13,13 @@ Captain wants to lock the keyboard down briefly without restarting.
 """
 import os
 import io
+import sys
 import json
+import site
 import time
 import base64
 import logging
+import importlib
 from pathlib import Path
 
 log = logging.getLogger("desktop_control")
@@ -63,11 +66,24 @@ def _gate():
         )
 
 
+_IS_MAC = sys.platform == "darwin"
+
+
 def _pg():
     """Lazy pyautogui import so the bridge boots even without it installed."""
     global _pyautogui
     if _pyautogui is None:
         try:
+            # Settings > Upgrades can install the packages while DATA runs.
+            # Drop stale import-finder caches, and add the per-user site dir
+            # if pip created it after startup, so no restart is needed.
+            importlib.invalidate_caches()
+            try:
+                user_site = site.getusersitepackages()
+                if user_site and os.path.isdir(user_site) and user_site not in sys.path:
+                    sys.path.append(user_site)
+            except Exception:
+                pass
             import pyautogui
             pyautogui.FAILSAFE = True   # mouse to (0,0) aborts any action
             pyautogui.PAUSE = 0.03
@@ -127,18 +143,60 @@ def mouse_drag(start_x, start_y, end_x, end_y, button: str = "left",
     return f"Dragged from ({start_x}, {start_y}) → ({end_x}, {end_y})"
 
 
+def _paste_text(pg, text: str) -> bool:
+    """Type through the clipboard. pyautogui.typewrite only knows ASCII keys,
+    so accented letters, other scripts and emoji would be silently dropped."""
+    try:
+        import pyperclip   # installed alongside pyautogui (via mouseinfo)
+    except ImportError:
+        return False
+    try:
+        try:
+            previous = pyperclip.paste()
+        except Exception:
+            previous = None
+        pyperclip.copy(text)
+        pg.hotkey("command" if _IS_MAC else "ctrl", "v")
+        time.sleep(0.15)
+        if previous is not None:
+            pyperclip.copy(previous)
+        return True
+    except Exception as e:
+        log.warning(f"Clipboard typing failed: {e}")
+        return False
+
+
 def type_text(text: str, interval: float = 0.02) -> str:
     _gate()
-    _pg().typewrite(text, interval=interval)
+    pg = _pg()
+    if not text.isascii() and _paste_text(pg, text):
+        return f"Typed {len(text)} char(s) via clipboard"
+    pg.typewrite(text, interval=interval)
     return f"Typed {len(text)} char(s)"
 
 
+# Key names models commonly use, mapped to what pyautogui expects on this OS.
+# On a Mac, "win"/"super"/"cmd" all mean the Command key and "alt" is Option.
+# On Windows/Linux, "cmd"/"command" means the shortcut key, which is Ctrl.
+_KEY_ALIASES_MAC = {"win": "command", "super": "command", "meta": "command",
+                    "cmd": "command", "windows": "command", "opt": "option",
+                    "alt": "option", "control": "ctrl", "esc": "escape"}
+_KEY_ALIASES_OTHER = {"cmd": "ctrl", "command": "ctrl", "super": "win", "meta": "win",
+                      "windows": "win", "opt": "alt", "option": "alt",
+                      "control": "ctrl", "esc": "escape", "return": "enter"}
+
+
+def _key_name(name: str) -> str:
+    name = name.strip().lower()
+    return (_KEY_ALIASES_MAC if _IS_MAC else _KEY_ALIASES_OTHER).get(name, name)
+
+
 def key_press(keys: str) -> str:
-    """'enter', 'ctrl+c', 'win+r', 'alt+tab', ... — comma-separate to chain."""
+    """'enter', 'ctrl+c', 'win+r', 'cmd+space', ... — comma-separate to chain."""
     _gate()
     pg = _pg()
     for combo in [k.strip() for k in keys.split(",") if k.strip()]:
-        parts = [p.strip().lower() for p in combo.split("+")]
+        parts = [_key_name(p) for p in combo.split("+") if p.strip()]
         if len(parts) == 1:
             pg.press(parts[0])
         else:
@@ -155,9 +213,28 @@ def scroll(amount: int, x=None, y=None) -> str:
     return f"Scrolled {amount} clicks"
 
 
+def to_click_space(img):
+    """Scale a screenshot to the coordinate space clicks use.
+
+    On a Retina Mac, captures come back at physical resolution (often 2x)
+    while pyautogui clicks in logical points. Without this, a model that
+    clicks what it sees lands at double the intended position. Only applied
+    on macOS; Windows captures already match the bridge's DPI-aware space."""
+    if not _IS_MAC or img is None:
+        return img
+    try:
+        w, h = _pg().size()
+        if (img.width, img.height) != (int(w), int(h)) and w and h:
+            from PIL import Image
+            img = img.resize((int(w), int(h)), Image.LANCZOS)
+    except Exception as e:
+        log.warning(f"Screenshot scaling skipped: {e}")
+    return img
+
+
 def screenshot_b64() -> str:
     """Full-screen PNG → base64."""
-    img = _pg().screenshot()
+    img = to_click_space(_pg().screenshot())
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii")
@@ -237,7 +314,7 @@ def execute_computer_action(action: str, **kwargs) -> dict:
             _gate()
             pg = _pg()
             dur = min(float(kwargs.get("duration", 1)), 5.0)
-            keys = [k.strip().lower() for k in (text or "").split("+") if k.strip()]
+            keys = [_key_name(k) for k in (text or "").split("+") if k.strip()]
             for k in keys: pg.keyDown(k)
             time.sleep(dur)
             for k in reversed(keys): pg.keyUp(k)

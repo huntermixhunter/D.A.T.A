@@ -307,13 +307,14 @@ To install one:
 
 These connect the dashboard to top-tier cloud models through **subscriptions you
 already use** or free-tier allowances. Plan limits, optional usage credits, and
-overage settings still apply. Three are built in:
+overage settings still apply. Four are built in:
 
 | Provider | Models | One-time setup |
 |---|---|---|
 | **Claude Code** (Anthropic) | Opus · Sonnet · Haiku · Fable | installed by the setup script → sign in with `claude`, then `/login` |
 | **Codex** (OpenAI) | GPT-6 Astra, Sol, Luna | `npm i -g @openai/codex`, then `codex login` (uses your ChatGPT plan) |
 | **Gemini CLI** (Google) | Gemini 3 Auto (3.1 Pro when available) | `npm i -g @google/gemini-cli`, then sign in (free tier available) |
+| **Grok Build** (xAI) | Newest Grok your plan offers | official installer, or type `install grok` in a chat window, then `grok login` (needs SuperGrok or X Premium+) |
 
 Each card shows a status dot:
 

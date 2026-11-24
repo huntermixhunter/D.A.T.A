@@ -230,6 +230,27 @@ def _backup_and_write(rel_from_root: str, data: bytes, backup_dir: Path) -> None
 # Files that require a bridge restart to take effect once changed.
 _RESTART_TRIGGERS = (".py",)
 
+_SKILLS_BUNDLE = "dashboard/skills_bundle/"
+
+
+def _sync_bundled_skills() -> dict:
+    """New or changed bundled skills only reach the skill folders DATA reads
+    once install_skills.py copies them there. Run it in a fresh process so
+    the just-downloaded installer (not this run's old copy) does the work."""
+    import subprocess
+    script = DASHBOARD_DIR / "install_skills.py"
+    if not script.exists():
+        return {"status": "skipped", "message": "install_skills.py not found"}
+    try:
+        proc = subprocess.run([sys.executable, str(script), "--sync"],
+                              capture_output=True, text=True, timeout=180,
+                              cwd=str(DASHBOARD_DIR))
+        tail = (proc.stdout or "").strip().splitlines()[-3:]
+        return {"status": "ok" if proc.returncode == 0 else "error",
+                "message": " ".join(line.strip() for line in tail if line.strip())}
+    except Exception as e:
+        return {"status": "error", "message": f"skill sync failed: {e}"}
+
 
 def run_update(dry_run: bool = False) -> dict:
     """Main entry. Returns a summary dict (JSON-serializable)."""
@@ -299,11 +320,15 @@ def run_update(dry_run: bool = False) -> dict:
     if result["updated"]:
         result["backup_dir"] = str(backup_dir)
         _save_state(synced)
+        if any(u["path"].startswith(_SKILLS_BUNDLE) for u in result["updated"]):
+            result["skills"] = _sync_bundled_skills()
     if result["errors"]:
         result["status"] = "partial" if result["updated"] else "error"
 
     n = len(result["updated"])
     msg = f"Applied {n} update(s) to the dashboard."
+    if result.get("skills", {}).get("status") == "ok":
+        msg += " Bundled skills synced."
     if result["restart_required"]:
         msg += " Restart DATA to activate the changes."
     if result["errors"]:

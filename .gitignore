@@ -17,6 +17,11 @@ provider_failover_state.tmp
 dashboard/provider_state.json.tmp
 provider_state.json
 recall_index.db
+# Boot-time model refresh: learned model names + downloaded model list (per install)
+model_refresh_state.json
+model_refresh_state.json.tmp
+model_catalog_cache.json
+model_catalog_cache.json.tmp
 dashboard/preview_7799.log
 dashboard/preview_static.log
 daily_briefing.json
@@ -80,3 +85,10 @@ Thumbs.db
 
 # self_update.py baseline (per-install state)
 dashboard/.update_state.json
+
+# Skill sync and Skill Library runtime files
+dashboard/skills_bundle/.install_state.json
+dashboard/.skill_library_backups/
+
+# Private design transcripts (kept in the private repo only)
+dashboard/docs/DESIGN_*conversation*.md

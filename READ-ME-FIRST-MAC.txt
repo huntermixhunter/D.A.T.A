@@ -139,7 +139,8 @@ TROUBLESHOOTING
 
 Mouse control or screenshots do not work:
   Desktop control is optional and its packages are separate from the DMG.
-  Once installed, macOS may ask you to enable Accessibility for control and
+  To add them, open Settings > Upgrades > Skill Library and click
+  Install screen control (free, about 15 MB). Once installed, macOS may ask you to enable Accessibility for control and
   Screen & System Audio Recording (or Screen Recording) for screenshots.
   In Privacy & Security, allow the app macOS identifies in that request,
   which may be Terminal or the helper running DATA, then restart it.

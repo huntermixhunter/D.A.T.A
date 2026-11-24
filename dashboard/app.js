@@ -1870,6 +1870,7 @@ async function _dispatchChatMessage(text, attachments) {
         effort:       mainWs ? (mainWs.effort || '') : (_lastKnownActiveEffort || ''),
         // Per-window response-style dial (length + technical depth).
         ..._paneStyleWire('main'),
+        ..._takeRedoWire('main'),   // Try a stronger model
         crew:         MAIN_CHAT_CREW,
         attachments:  attachments,
         ..._buildPaneRoster('main'),   // open_panes + self_pane for inter-pane comms
@@ -1920,6 +1921,8 @@ async function _dispatchChatMessage(text, attachments) {
             }
             _appendStreamToken(streamMsg, payload.text);
             if (speakReply) _speakStreamFeed(payload.text);
+          } else if (evType === 'route') {
+            try { _streamRoute = JSON.parse(payload.text); } catch { _streamRoute = null; }
           } else if (evType === 'meta') {
             try { _streamMeta = JSON.parse(payload.text); } catch { _streamMeta = null; }
           } else if (evType === 'needs_login') {
@@ -1934,6 +1937,9 @@ async function _dispatchChatMessage(text, attachments) {
             if (speakReply) _speakStreamEnd();
             const elapsed = ((Date.now() - _streamStartTime) / 1000).toFixed(1);
             if (streamMsg) _finalizeStreamBubble(streamMsg);
+            if (streamMsg) _attachUsageTag(streamMsg, _streamMeta);
+            if (streamMsg) _attachRouteBadge(streamMsg, _streamRoute,
+              { pane: 'main', text, hasFiles: attachments.length > 0 });
             const timerEl = thoughtEl.querySelector('.thought-timer');
             if (timerEl) {
               const fmt = n => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
@@ -2058,6 +2064,7 @@ function _createThoughtStream(winEl) {
   playDataSound('processing');
   _streamStartTime = Date.now();
   _streamMeta = null;
+  _streamRoute = null;
   const el = document.createElement('div');
   el.className = 'thought-stream';
   el.innerHTML =
@@ -2104,6 +2111,7 @@ let _streamAccum = '';
 let _streamStartTime = 0;
 let _streamTimerInterval = null;
 let _streamMeta = null;
+let _streamRoute = null;
 
 function _startStreamBubble(winEl) {
   _streamAccum = '';
@@ -2134,6 +2142,205 @@ function _appendStreamToken(streamMsg, token) {
   if (textEl) textEl.textContent = _streamAccum;
   if (win && wasPinned) win.scrollTop = win.scrollHeight;
   else if (win === document.getElementById('chat-window')) _updateJumpLatest(true);
+}
+
+// ── Per-reply usage tag ──────────────────────────────────
+// The bridge ends every CLI turn with a `meta` event carrying the real token
+// counts and model(s) for that reply. This turns it into a small persistent
+// line under the reply, e.g. "Opus 5.5 · 12.4k new · 98k cached · $0.21 API
+// value". "API value" is the pay-per-token list price of the same reply: a
+// subscription is not charged it, but it weights cache reads, output and each
+// model by price, so it is the fairest gauge of how much of the usage window
+// a reply used. Older bridges send only input/output; the tag still works.
+function _shortModelName(id) {
+  const m = /claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?!\d)/i.exec(id || '');
+  if (m) return m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() + ' ' + m[2] + (m[3] ? '.' + m[3] : '');
+  return String(id || '').replace(/^claude-/, '');
+}
+
+function _fmtTokens(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, '') + 'k';
+  return String(n);
+}
+
+function _fmtUsd(c) {
+  c = Number(c) || 0;
+  return '$' + (c > 0 && c < 0.01 ? c.toFixed(3) : c.toFixed(2));
+}
+
+// ── Auto model choice (spec Tasks A8, A9) ──────────────────────────────────
+// _autoAvailable: the bridge has the router. _autoMode: the main chat (with no
+// project loaded) lets Auto pick the model. Panes opt in with provider 'auto'.
+let _autoAvailable = false;
+let _autoMode = false;
+
+async function _loadAutoMode() {
+  try {
+    const res = await fetch(`${API_BASE}/router/settings`);
+    if (!res.ok) { _autoAvailable = false; _autoMode = false; return; }
+    const data = await res.json();
+    _autoAvailable = true;
+    _autoMode = data?.settings?.mode === 'auto';
+  } catch { _autoAvailable = false; }
+}
+
+async function _setAutoMode(on) {
+  try {
+    const res = await fetch(`${API_BASE}/router/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: on ? 'auto' : 'manual' }),
+    });
+    const data = await res.json();
+    if (data.error) { addLog(`Auto switch failed: ${data.error}`); return false; }
+    _autoMode = data?.settings?.mode === 'auto';
+    addLog(_autoMode ? 'Auto model choice on' : 'Auto model choice off');
+    return true;
+  } catch (e) {
+    addLog(`Auto switch error: ${e.message || e}`);
+    return false;
+  }
+}
+
+function _escOpt(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function _providerOptionsHTML(opts, selected) {
+  const rest = opts.filter(p => p.id !== 'auto').map(p => {
+    const off = p.available === false;
+    return `<option value="${_escOpt(p.id)}"${off ? ' disabled' : ''}${p.id === selected ? ' selected' : ''}>`
+      + `${_escOpt(p.label)}${off ? ' (n/a)' : ''}</option>`;
+  }).join('');
+  if (!_autoAvailable) return rest;
+  return `<option value="auto"${selected === 'auto' ? ' selected' : ''}>Auto (picks the model for you)</option>`
+    + `<optgroup label="Choose a model yourself">${rest}</optgroup>`;
+}
+
+// A real provider id for features that need one (console, effort list).
+function _realProvider(pid) {
+  return (pid && pid !== 'auto') ? pid : (_lastKnownActiveProvider || '');
+}
+
+function _attachRouteBadge(msgEl, route, redoCtx) {
+  if (!msgEl || !route || !route.tier_name) return;
+  const bubble = msgEl.querySelector('.bubble');
+  if (!bubble || bubble.querySelector('.route-badge')) return;
+  const b = document.createElement('div');
+  b.className = `route-badge route-${route.tier || 'top'}`;
+  b.textContent = `AUTO · ${String(route.tier_name).toUpperCase()}`
+    + (route.reason_label ? ` · ${route.reason_label}` : '');
+  const tip = [];
+  if (route.reason_text) tip.push(route.reason_text);
+  if (route.model_label) tip.push(`Answered by: ${route.model_label}`);
+  if (route.read_only) tip.push('This answer could read and search but not change anything. '
+    + 'If you need it to act, ask again and say "use the strongest model".');
+  b.title = tip.join('\n');
+  const tag = bubble.querySelector('.usage-tag');
+  const ts = bubble.querySelector('.timestamp');
+  if (tag) tag.insertAdjacentElement('beforebegin', b);
+  else if (ts) ts.insertAdjacentElement('afterend', b);
+  else bubble.appendChild(b);
+  _attachRedoLink(b, msgEl, route, redoCtx);
+}
+
+// "Try a stronger model" under an Auto reply below the strongest tier.
+// Resends the same question one tier up; the bridge drops the earlier
+// question and answer from this pane's history before rerunning, and the
+// earlier answer stays on screen, dimmed.
+const _redoPending = new Map();   // pane ('main' or wsId) -> {min_tier, redo_of}
+const _NEXT_TIER = { light: 'mid', mid: 'top' };
+
+function _takeRedoWire(pane) {
+  const r = _redoPending.get(pane);
+  if (!r) return {};
+  _redoPending.delete(pane);
+  return r;
+}
+
+function _attachRedoLink(badge, msgEl, route, ctx) {
+  const next = _NEXT_TIER[route && route.tier];
+  if (!badge || !next || !ctx || !ctx.text || ctx.hasFiles) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'route-redo';
+  btn.textContent = 'Try a stronger model';
+  btn.title = 'Ask the same question again with a stronger model. This answer stays here, dimmed.';
+  btn.addEventListener('click', () => _redoStronger(msgEl, route, ctx, next, btn));
+  badge.insertAdjacentElement('afterend', btn);
+}
+
+function _redoNotice(btn, msg) {
+  const label = 'Try a stronger model';
+  btn.textContent = msg;
+  setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 3000);
+}
+
+function _redoStronger(msgEl, route, ctx, nextTier, btn) {
+  const isMain = ctx.pane === 'main';
+  const ws = isMain ? null : _workspaces.get(ctx.pane);
+  if (!isMain && !ws) return;
+  if (isMain ? isThinking : ws.isThinking) { _redoNotice(btn, 'Wait for the reply to finish'); return; }
+  const input = isMain ? document.getElementById('chat-input')
+                       : document.getElementById(`pane-input-ws${ctx.pane}`);
+  if (!input) return;
+  const bucketKey = isMain ? 'main' : `ws${ctx.pane}`;
+  if (input.value.trim() || _getPendingForPane(bucketKey).length) {
+    _redoNotice(btn, 'Clear the message box first');
+    return;
+  }
+  _redoPending.set(ctx.pane, { min_tier: nextTier, redo_of: String(route.turn_id || '') });
+  msgEl.classList.add('route-superseded');
+  const note = document.createElement('span');
+  note.className = 'route-redo-note';
+  note.textContent = `Earlier answer, ${String(route.tier_name || 'fast').toLowerCase()} model`;
+  btn.replaceWith(note);
+  input.value = ctx.text;
+  if (isMain) sendMessage(); else sendProjectMessage(ctx.pane);
+}
+
+function _attachUsageTag(msgEl, meta) {
+  if (!msgEl || !meta) return;
+  const bubble = msgEl.querySelector('.bubble');
+  if (!bubble || bubble.querySelector('.usage-tag')) return;
+  const inp = meta.input_tokens || 0, out = meta.output_tokens || 0;
+  const cw = meta.cache_write_tokens || 0, cr = meta.cache_read_tokens || 0;
+  const fresh = inp + cw + out;
+  if (!fresh && !cr) return;
+  const models = Array.isArray(meta.models) ? meta.models : [];
+  const names = [...new Set(models.map(m => _shortModelName(m.model)).filter(Boolean))];
+  const parts = [];
+  if (names.length) parts.push(names.slice(0, 2).join(' + ') + (names.length > 2 ? ` +${names.length - 2}` : ''));
+  parts.push(`${_fmtTokens(fresh)} new`);
+  if (cr) parts.push(`${_fmtTokens(cr)} cached`);
+  if (meta.cost_usd > 0) parts.push(`${_fmtUsd(meta.cost_usd)} API value`);
+
+  const tip = ['Usage for this reply'];
+  for (const m of models) {
+    const bits = [`${_fmtTokens(m.input_tokens)} in`, `${_fmtTokens(m.output_tokens)} out`];
+    if (m.cache_read_tokens)  bits.push(`${_fmtTokens(m.cache_read_tokens)} cache read`);
+    if (m.cache_write_tokens) bits.push(`${_fmtTokens(m.cache_write_tokens)} cache write`);
+    tip.push(`${_shortModelName(m.model)}: ${bits.join(', ')}${m.cost_usd > 0 ? ` (${_fmtUsd(m.cost_usd)})` : ''}`);
+  }
+  tip.push(`Fresh input ${_fmtTokens(inp)} · output ${_fmtTokens(out)} · cache write ${_fmtTokens(cw)} · cache read ${_fmtTokens(cr)}`);
+  const extra = [];
+  if (meta.num_turns) extra.push(`${meta.num_turns} step${meta.num_turns === 1 ? '' : 's'}`);
+  if (meta.duration_ms) extra.push(`${(meta.duration_ms / 1000).toFixed(1)}s`);
+  if (extra.length) tip.push(extra.join(' · '));
+  tip.push('"New" is text the model had to read or write fresh. "Cached" is context it re-read cheaply (about a tenth of the cost).');
+  if (meta.cost_usd > 0) tip.push('"API value" is what this reply would cost on the pay-per-token API. Your subscription is not charged this; it is a rough gauge of how much of your usage window the reply used.');
+
+  const tag = document.createElement('div');
+  tag.className = 'usage-tag';
+  tag.textContent = parts.join(' · ');
+  tag.title = tip.join('\n');
+  const win = msgEl.parentElement;
+  const wasPinned = win ? _isPinnedToBottom(win) : false;
+  const ts = bubble.querySelector('.timestamp');
+  if (ts) ts.insertAdjacentElement('afterend', tag); else bubble.appendChild(tag);
+  if (win && wasPinned) win.scrollTop = win.scrollHeight;
 }
 
 function _finalizeStreamBubble(streamMsg) {
@@ -3165,7 +3372,9 @@ function openNewStandingOrderDialog(existing) {
   document.getElementById('orders-field-enabled').checked = existing ? !!existing.enabled : true;
   document.getElementById('orders-field-notify').checked  = existing ? !!existing.notify_telegram : false;
   const provSel = document.getElementById('orders-field-provider');
-  provSel.innerHTML = (_providersCache.length ? _providersCache : [{ id: 'claude-cli', label: 'claude-cli', available: true }])
+  const orderSel = existing?.provider || _lastKnownActiveProvider;
+  provSel.innerHTML = (_providersCache.length ? _providersCache.filter(p => !p.hidden || p.id === orderSel)
+                                              : [{ id: 'claude-cli', label: 'claude-cli', available: true }])
     .map(p => `<option value="${p.id}"${(existing?.provider || _lastKnownActiveProvider) === p.id ? ' selected' : ''}${p.available ? '' : ' disabled'}>${p.available ? p.label : p.label + ' — n/a'}</option>`)
     .join('');
   document.getElementById('orders-dialog').classList.remove('hidden');
@@ -3473,7 +3682,7 @@ const MEMORY_DATA = [
   {
     section: 'IDENTITY',
     entries: [
-      'Designation: DATA — Dashboard for Analytical Thought and Action',
+      'Designation: D.A.T.A, Dashboard for Agentic Thought and Action',
       'Role: self-hosted AI operations dashboard',
       'Primary directive: Assist the Captain with rigorous, complete work',
     ]
@@ -5392,7 +5601,7 @@ function convoState(state, label) {
   }
 }
 
-// ── DATA DAEMON face — SINGLE-STREAM SOURCE SWAP (idle ↔ speaking) ───────────
+// ── DATA face — SINGLE-STREAM SOURCE SWAP (idle ↔ speaking) ───────────
 // One <video> element, one decoder, ever. When Data speaks we swap the element's
 // src to the speaking loop; when he stops we swap back to the idle loop. Because
 // only ONE 720p stream is ever decoding, this carries NO added main-thread cost
@@ -6595,7 +6804,8 @@ const PROVIDER_PILL_MAP = {
   'codex-sol':         { text: 'CODEX GPT-6 SOL',      cls: 'green'  },
   'codex-luna':        { text: 'CODEX GPT-6 LUNA',     cls: 'green'  },
   'codex-mini':        { text: 'CODEX GPT-6 LUNA',     cls: 'green'  },
-  'gemini':            { text: 'GOOGLE GEMINI 2.5',    cls: 'blue'   },
+  'gemini':            { text: 'GOOGLE GEMINI 3',      cls: 'blue'   },
+  'grok':              { text: 'XAI GROK (LATEST)',    cls: 'orange' },
   'ollama':            { text: 'OLLAMA',               cls: 'purple' },
   'ollama-small':      { text: 'QWEN 3B (LOCAL)',      cls: 'teal'   },
 };
@@ -6604,8 +6814,13 @@ function _providerPillCfg(provider) {
   const base = PROVIDER_PILL_MAP[provider.id]
     || { text: (provider.label || provider.id).toUpperCase(), cls: 'orange' };
   // For ollama, prefer the running model name in the pill text
-  if (provider.id === 'ollama' && provider.model) {
+  if ((provider.id === 'ollama' || provider.id === 'ollama-small') && provider.model) {
     return { text: provider.model.toUpperCase(), cls: base.cls };
+  }
+  // The boot model refresh names the real model behind "latest" aliases
+  // (e.g. CLAUDE OPUS 5.5, CODEX GPT-6 ASTRA, GROK 4.7).
+  if (provider.display) {
+    return { text: String(provider.display).toUpperCase(), cls: base.cls };
   }
   return base;
 }
@@ -6669,6 +6884,7 @@ async function loadProviders() {
     const data = await res.json();
     _providersCache = data.providers || [];
     _lastKnownActiveProvider = data.active;
+    await _loadAutoMode();
     if (Array.isArray(data.effort_levels) && data.effort_levels.length) {
       _effortLevelsCache = data.effort_levels;
     }
@@ -6685,14 +6901,25 @@ async function loadProviders() {
     let activeProvider = null;
     // Selector shows ONLY connected/installed models. Discovery + install of
     // new ones lives on the AI Connectors page.
-    const connected = data.providers.filter(p => p.available);
+    const connected = data.providers.filter(p => p.available && (!p.hidden || p.id === data.active));
+    if (_autoAvailable) {
+      const autoItem = document.createElement('button');
+      autoItem.type = 'button';
+      autoItem.className = 'provider-menu-item' + (_autoMode ? ' active' : '');
+      autoItem.textContent = 'Auto (picks the model for you)';
+      autoItem.addEventListener('click', () => {
+        document.getElementById('provider-menu')?.classList.add('hidden');
+        setProvider('auto');
+      });
+      menu.appendChild(autoItem);
+    }
     for (const p of connected) {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'provider-menu-item';
       item.textContent = p.label;
       if (p.id === data.active) {
-        item.classList.add('active');
+        if (!_autoMode) item.classList.add('active');
         activeProvider = p;
       }
       item.addEventListener('click', () => {
@@ -6715,6 +6942,10 @@ async function loadProviders() {
     // Sync the title-bar pill and the sidebar model line
     _updateProviderPill(activeProvider);
     _updateVitalsModelLine(activeProvider);
+    if (_autoMode) {
+      const pillLabel = document.getElementById('provider-pill-label');
+      if (pillLabel) pillLabel.textContent = 'AUTO';
+    }
   } catch (e) {
     addLog(`Could not load providers: ${e.message || e}`);
   }
@@ -6734,7 +6965,7 @@ const _consoleActive = new Map();
 // Cheap client-side pre-filter. The bridge does the real parsing; anything it
 // doesn't recognise comes back `not_command` and (without `!`) goes to the AI.
 const _CONSOLE_CANDIDATE =
-  /^\s*(!\S|\/(login|logout|status)\s*$|(claude|codex|gemini|npm|install)(\s|$))/i;
+  /^\s*(!\S|\/(login|logout|status)\s*$|(claude|codex|gemini|grok|npm|install)(\s|$))/i;
 
 function _consoleEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -6795,7 +7026,7 @@ function _consoleSetState(card, label, cls) {
   card.state.className = `console-state ${cls || ''}`;
 }
 
-const _CONSOLE_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' };
+const _CONSOLE_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', grok: 'Grok Build' };
 
 function _consoleHint(card, html) {
   const pinned = _isPinnedToBottom(card.winEl);
@@ -7029,7 +7260,7 @@ function _mainConsoleCtx() {
   return {
     key: 'main',
     winEl: document.getElementById('chat-window'),
-    provider: mainWs?.provider || _lastKnownActiveProvider || '',
+    provider: _realProvider(mainWs?.provider),
     paneId: _paneId('main'),
     appendUser: (t) => { appendMessage('user', t); },
   };
@@ -7041,7 +7272,7 @@ function _paneConsoleCtx(wsId) {
   return {
     key: `ws${wsId}`,
     winEl,
-    provider: ws?.provider || _lastKnownActiveProvider || '',
+    provider: _realProvider(ws?.provider),
     paneId: _paneId(`ws${wsId}`),
     appendUser: (t) => { appendMessageToPane(winEl, 'user', t, ws?.crew); },
   };
@@ -7122,7 +7353,8 @@ function _renderAuthCta(needsAuth, providers, active) {
      </div>`;
   document.getElementById('auth-cta-signin')?.addEventListener('click', () => {
     const fam = String(pid).startsWith('codex') ? 'codex'
-              : String(pid).startsWith('gemini') ? 'gemini' : 'claude';
+              : String(pid).startsWith('gemini') ? 'gemini'
+              : String(pid).startsWith('grok') ? 'grok' : 'claude';
     _consoleRun(_mainConsoleCtx(), `${fam} login`);
   });
   const cmdEl = document.getElementById('auth-cta-cmd');
@@ -7138,6 +7370,12 @@ function _renderAuthCta(needsAuth, providers, active) {
 }
 
 async function setProvider(providerId) {
+  if (providerId === 'auto') {
+    await _setAutoMode(true);
+    loadProviders();
+    return;
+  }
+  if (_autoMode) await _setAutoMode(false);
   try {
     const res = await fetch(`${API_BASE}/provider`, {
       method: 'POST',
@@ -7183,7 +7421,7 @@ async function loadConnectors(force = false) {
     const data = await res.json();
     _renderHardware(data.hardware);
     _renderRecommendation(data);
-    _renderModels(data.models, data.ollama_installed);
+    _renderModels(data.models, data.ollama_installed, data.model_refresh);
     _renderConnectors(data.connectors);
     const pill = document.getElementById('connectors-active-pill');
     if (pill) pill.textContent = (_lastKnownActiveProvider || '—').toUpperCase();
@@ -7202,6 +7440,7 @@ async function loadConnectors(force = false) {
 // writes the backend registry so the dashboard uses it going forward.
 async function loadUpgrades(force = false) {
   if (window.AdvancedToolsUI) window.AdvancedToolsUI.load(force);
+  if (window.SkillLibraryUI) window.SkillLibraryUI.load(force);
   const btn = document.getElementById('connectors-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'SCANNING…'; }
   try {
@@ -7211,7 +7450,7 @@ async function loadUpgrades(force = false) {
     // Reuse the existing connector renderers for the shared sections
     _renderHardware(data.hardware);
     _renderRecommendation(data);
-    _renderModels(data.models, data.ollama_installed);
+    _renderModels(data.models, data.ollama_installed, data.model_refresh);
     _renderConnectors(data.connectors);
     const pill = document.getElementById('connectors-active-pill');
     if (pill) pill.textContent = (_lastKnownActiveProvider || '—').toUpperCase();
@@ -7408,12 +7647,31 @@ function _renderRecommendation(data) {
     </div>`;
 }
 
-function _renderModels(models, ollamaInstalled) {
+// What a catalog model is best at, for the card's meta line.
+const _MODEL_USE_LABEL = { code: 'coding', reason: 'reasoning', vision: 'images', chat: 'general' };
+
+// "checked 9:41 AM" style stamp from a unix time (seconds); '' when unknown.
+function _checkedStamp(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return 'checked ' + (sameDay
+    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
+}
+
+function _renderModels(models, ollamaInstalled, refresh) {
   const el = document.getElementById('conn-models');
   if (!el) return;
   let head = '';
+  const cat = (refresh && refresh.catalog) || {};
+  if (cat.updated) {
+    const src = cat.source === 'remote' ? 'downloaded fresh from GitHub'
+              : cat.source === 'cache' ? 'last download from GitHub' : 'built into this version';
+    head += `<div class="conn-card-meta" style="margin-bottom:8px">Model list updated ${_esc(cat.updated)} (${src}). DATA checks for a newer list every time it starts.</div>`;
+  }
   if (!ollamaInstalled) {
-    head = `<div class="conn-warn">Ollama (the free local-model runtime) is not installed yet — but you do not need to install it by hand.
+    head += `<div class="conn-warn">Ollama (the free local-model runtime) is not installed yet — but you do not need to install it by hand.
       Click <b>INSTALL</b> on any model below and DATA sets up Ollama automatically, then downloads the model and connects it.
       <a href="https://ollama.com" target="_blank" rel="noopener">Learn more</a></div>`;
   }
@@ -7440,7 +7698,7 @@ function _renderModels(models, ollamaInstalled) {
             ${m.installed ? '<span class="conn-pill teal">INSTALLED</span>' : ''}
           </div>
           <div class="conn-card-blurb">${_esc(m.blurb)}</div>
-          <div class="conn-card-meta">${m.params} · ${m.size_gb} GB · ${m.use === 'code' ? 'coding' : 'general'}</div>
+          <div class="conn-card-meta">${_esc(m.params)} · ${_esc(m.size_gb)} GB · ${_MODEL_USE_LABEL[m.use] || 'general'}</div>
         </div>
         <div class="conn-card-action" id="action-${_cssId(m.model)}">${action}</div>
       </div>`;
@@ -7464,7 +7722,7 @@ function _renderConnectors(connectors) {
         <div class="conn-card-main">
           <div class="conn-card-title">${_esc(c.name)}</div>
           <div class="conn-card-blurb">${_esc(c.blurb)}</div>
-          <div class="conn-card-meta">${_esc(c.models)}${c.available ? '' : ` · after install: <code>${_esc(c.login_cmd)}</code>`}</div>
+          <div class="conn-card-meta">${_esc(c.models)}${c.available && c.checked ? ` · ${_checkedStamp(c.checked)}` : ''}${c.available ? '' : ` · after install: <code>${_esc(c.login_cmd)}</code>`}</div>
         </div>
         <div class="conn-card-action" id="action-${_cssId(c.id)}">${action}</div>
       </div>`;
@@ -7549,7 +7807,8 @@ async function useModel(providerId) {
 function _cssId(s) { return String(s).replace(/[^a-zA-Z0-9]/g, '_'); }
 function _esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                  .replace(/'/g, '&#39;');
 }
 
 // ── Vitals ────────────────────────────────────────────────
@@ -8527,11 +8786,9 @@ function _populateWindowProviderSelect(wsId) {
   const sel = document.getElementById(`pane-provider-ws${wsId}`);
   const ws  = _workspaces.get(wsId);
   if (!sel || !ws) return;
-  const opts = (_providersCache.length ? _providersCache.filter(p => p.available)
+  const opts = (_providersCache.length ? _providersCache.filter(p => p.available && (!p.hidden || p.id === ws.provider))
                                        : [{ id: ws.provider, label: ws.provider, available: true }]);
-  sel.innerHTML = opts.map(p =>
-    `<option value="${p.id}"${p.id === ws.provider ? ' selected' : ''}>${p.label}</option>`
-  ).join('');
+  sel.innerHTML = _providerOptionsHTML(opts, ws.provider);
 }
 
 function _refreshAllWindowProviderDropdowns() {
@@ -8652,13 +8909,11 @@ function _populateMainProviderSelect() {
   const sel = document.getElementById('main-provider-select');
   if (!sel) return;
   const mainWs = [..._workspaces.values()].find(w => w.isMain);
-  const selected = mainWs?.provider || _lastKnownActiveProvider || 'claude-cli';
+  const selected = mainWs?.provider || (_autoMode ? 'auto' : (_lastKnownActiveProvider || 'claude-cli'));
   const opts = _providersCache.length
-    ? _providersCache.filter(p => p.available)
+    ? _providersCache.filter(p => p.available && (!p.hidden || p.id === selected))
     : [{ id: selected, label: selected, available: true }];
-  sel.innerHTML = opts.map(p =>
-    `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${p.label}</option>`
-  ).join('');
+  sel.innerHTML = _providerOptionsHTML(opts, selected);
 }
 
 async function setMainProvider(providerId) {
@@ -8670,7 +8925,15 @@ async function setMainProvider(providerId) {
     _populateMainEffortSelect();
     return;
   }
-  // No project loaded — flip the global ACTIVE_PROVIDER instead
+  // No project loaded: Auto is a mode, not a provider. ACTIVE_PROVIDER stays
+  // a real model (Auto's home model); picking a real model turns Auto off.
+  if (providerId === 'auto') {
+    await _setAutoMode(true);
+    _populateMainProviderSelect();
+    loadProviders();
+    return;
+  }
+  if (_autoMode) await _setAutoMode(false);
   try {
     const res = await fetch(`${API_BASE}/provider`, {
       method:  'POST',
@@ -9167,7 +9430,7 @@ async function openProjectWorkspace(path, opts = {}) {
   // multiple windows can talk to different models simultaneously.
   // `role` is set when Data spawns the pane via spawn_workspaces; it gets
   // prepended to every user message from that pane so the LLM stays in role.
-  const defaultProvider = _lastKnownActiveProvider || 'claude-cli';
+  const defaultProvider = _autoMode ? 'auto' : (_lastKnownActiveProvider || 'claude-cli');
   // Each pane gets its own agent — inherits whatever the main channel is set
   // to right now, then can be flipped independently from the pane's header.
   // `effort` inherits the bridge-wide reasoning level and can then be dialed
@@ -9588,6 +9851,7 @@ async function sendProjectMessage(wsId) {
         provider:     ws.provider,   // per-window model override
         effort:       ws.effort || '',   // per-window reasoning-effort override
         ..._paneStyleWire(`ws${wsId}`),  // per-window response-style dial
+        ..._takeRedoWire(wsId),   // Try a stronger model
         crew:         ws.crew,       // per-window agent (officer persona)
         attachments,
         ..._buildPaneRoster(`ws${wsId}`),   // open_panes + self_pane for inter-pane comms
@@ -9617,6 +9881,7 @@ async function sendProjectMessage(wsId) {
       let serverError = '';
       let streamDone = false;
       let paneMeta = null;
+      let paneRoute = null;
       let loginInfo = null;   // `needs_login` payload when the CLI is signed out
       while (true) {
         const { done, value } = await reader.read();
@@ -9637,6 +9902,7 @@ async function sendProjectMessage(wsId) {
             const payload = JSON.parse(evData);
             if (evType === 'token')        answer += payload.text || '';
             else if (evType === 'thinking') _addThoughtLine(thoughtEl, payload.text);
+            else if (evType === 'route')   { try { paneRoute = JSON.parse(payload.text); } catch { paneRoute = null; } }
             else if (evType === 'meta')    { try { paneMeta = JSON.parse(payload.text); } catch { paneMeta = null; } }
             else if (evType === 'needs_login') { try { loginInfo = JSON.parse(payload.text); } catch { loginInfo = null; } }
             else if (evType === 'error')   { serverError = payload.text || ''; streamDone = true; }
@@ -9653,7 +9919,10 @@ async function sendProjectMessage(wsId) {
         // No answer (error/empty) — pull the trail immediately, no fake history.
         removeThinkingFromPane(winEl);
       }
-      appendMessageToPane(winEl, 'data', finalText, ws.crew);
+      const _replyEl = appendMessageToPane(winEl, 'data', finalText, ws.crew);
+      if (answer) _attachUsageTag(_replyEl, paneMeta);
+      if (answer) _attachRouteBadge(_replyEl, paneRoute,
+        { pane: wsId, text, hasFiles: attachments.length > 0 });
       if (loginInfo) _renderLoginNeededCard(_paneConsoleCtx(wsId), loginInfo);
       psOutcome = loginInfo ? { needs: 'The model is signed out. Sign in to continue.' }
         : serverError ? { error: serverError }
@@ -10138,6 +10407,7 @@ function appendMessageToPane(winEl, role, text, crewId) {
   const wasPinned = _isPinnedToBottom(winEl);
   winEl.appendChild(msg);
   if (wasPinned) winEl.scrollTop = winEl.scrollHeight;
+  return msg;
 }
 
 function appendThinkingToPane(winEl, crewId) {
@@ -11722,13 +11992,13 @@ async function settingsSetModel(id) {
 // out at the same moment. Mirrors provider_failover.family().
 function _llmFamily(id) {
   id = id || '';
-  for (const f of ['claude', 'codex', 'gemini', 'ollama']) {
+  for (const f of ['claude', 'codex', 'gemini', 'grok', 'ollama']) {
     if (id.startsWith(f)) return f;
   }
   return null;
 }
 function _llmFamilyLabel(f) {
-  return ({ claude: 'Claude', codex: 'Codex', gemini: 'Gemini', ollama: 'Ollama' })[f] || f || '';
+  return ({ claude: 'Claude', codex: 'Codex', gemini: 'Gemini', grok: 'Grok', ollama: 'Ollama' })[f] || f || '';
 }
 
 function _settingsRenderBackup(providers, active, u) {
@@ -11737,7 +12007,7 @@ function _settingsRenderBackup(providers, active, u) {
   const choice = (u && u.backup) || 'auto';
   const defFam = _llmFamily(active);
   const auto = `<button class="settings-opt${choice === 'auto' ? ' active' : ''}" data-backup="auto" onclick="settingsSetBackup('auto')" title="Claude and Codex cover each other, matching speed tiers">AUTOMATIC</button>`;
-  row.innerHTML = auto + providers.filter(p => _llmFamily(p.id)).map(p => {
+  row.innerHTML = auto + providers.filter(p => _llmFamily(p.id) && (!p.hidden || p.id === choice)).map(p => {
     const same = _llmFamily(p.id) === defFam;
     const why = !p.available ? ' (not installed)' : same ? ' (same account as the default model)' : '';
     return `<button class="settings-opt${p.id === choice ? ' active' : ''}" ${p.available && !same ? '' : 'disabled'} data-backup="${p.id}" onclick="settingsSetBackup('${p.id}')" title="${escapeHtml((p.model || '') + why)}">${escapeHtml((p.label || p.id).toUpperCase())}</button>`;

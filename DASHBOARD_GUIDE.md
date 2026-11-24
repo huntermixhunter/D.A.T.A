@@ -1,4 +1,4 @@
-# Using DATA Daemon — The Full Guide
+# Using D.A.T.A: The Full Guide
 
 This guide picks up where the [README](README.md) leaves off. The README tells you
 what DATA *is* and how to install it. This one tells you how to *drive* it — how to
@@ -39,7 +39,7 @@ views. You move between them from the left rail / view switcher.
 | **Memory banks** | Persistent per-user memory plus a searchable archive of every conversation across every pane. |
 | **Standing orders** | Cron-scheduled AI tasks — briefings, checks, refreshes that fire on their own. |
 | **Crew Deck** | Live crew activity, collaborative missions, saved repeatable orders, and conversation settings. |
-| **AI Connectors** | Pick the "brains." Scans your hardware, recommends and installs local models, and connects cloud providers (Claude / Codex / Gemini). Whatever you connect here is what the model menu offers. |
+| **AI Connectors** | Pick the "brains." Scans your hardware, recommends and installs local models, and connects cloud providers (Claude / Codex / Gemini / Grok). Whatever you connect here is what the model menu offers. |
 | **Neural / Positronic Matrix** | A live node-graph of the system: skills, memory nodes, crew. The Memory Banks are a hub inside it. |
 | **System vitals** | Available RAM, battery charge, free disk space, and dashboard response time. Hover, focus, or tap a reading for its meaning and warning thresholds. |
 
@@ -322,7 +322,10 @@ The page reads top to bottom:
 |----------|----------------|----------------|
 | **Claude Code** | Opus · Sonnet · Haiku · Fable | install Claude Code, run `claude`, sign in |
 | **Codex** (OpenAI) | GPT-6 Astra · Sol · Luna | `npm i -g @openai/codex`, then `codex login` |
-| **Gemini CLI** (Google) | Gemini 2.5 Pro | `npm i -g @google/gemini-cli`, then sign in |
+| **Gemini CLI** (Google) | Gemini 3 Auto | `npm i -g @google/gemini-cli`, then sign in |
+| **Grok Build** (xAI) | Newest Grok your plan offers | official installer (`irm https://x.ai/cli/install.ps1 | iex` on Windows), then `grok login` (needs SuperGrok or X Premium+) |
+
+**Models stay current on their own.** Every time DATA starts it checks, for free, which models each brain can use: the newest Codex tiers your ChatGPT account lists, the real Claude version behind "latest" (shown as, for example, Opus 5.5 after your first message), the newest Grok your xAI account offers, and which local models are downloaded. A built-in local brain whose model is missing is pointed at one you actually have. The recommended local-model list is downloaded fresh from the DATA GitHub repo (the copy inside the app is used when you are offline), so new models show up without a new release. Nothing in this check costs anything.
 
 **RESCAN** (top-right) re-reads your hardware and re-checks what's installed — hit it
 after you install a model, sign in to a provider, or upgrade the machine. Sign-ins
@@ -384,8 +387,8 @@ one model stopped and the other continued.
   runs out and costs nothing.
 - Models that share the default's account are greyed out. Claude Opus and Claude
   Sonnet draw from the same Claude limit, so one cannot rescue the other.
-- **Gemini** has no automatic partner. If Gemini is your default, pick a backup by
-  hand, or the panel will say **NO BACKUP**.
+- **Gemini** and **Grok** have no automatic partner. If one of them is your default,
+  pick a backup by hand, or the panel will say **NO BACKUP**.
 
 **Failover on** (the checkbox under **Usage-limit failover** in the same tab) turns
 the whole feature on or off. It is on by default. The bottom of the meter always

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   DATA INTERFACE — Dashboard for Analytical Thought and Action
+   DATA INTERFACE: Dashboard for Agentic Thought and Action
    CYBER theme — dark, minimal, high-contrast
    ═══════════════════════════════════════════════════════════ */
 
@@ -977,6 +977,58 @@ html, body {
   font-family: var(--font-mono);
 }
 
+/* Per-reply usage tag (model, tokens, API value). Hover for the breakdown. */
+.usage-tag {
+  font-size: calc(9px * var(--chat-font-scale, 1));
+  color: #5a6470;
+  margin-top: 3px;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  cursor: help;
+  opacity: 0.85;
+}
+.usage-tag:hover { color: var(--lcars-blue, #9cf); opacity: 1; }
+
+/* Auto model choice badge (tier + reason). Hover for why and which model. */
+.route-badge {
+  display: inline-block;
+  font-size: calc(9px * var(--chat-font-scale, 1));
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  margin-top: 4px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  cursor: help;
+  color: #0b0f14;
+  background: #8a9bb0;
+  opacity: 0.85;
+}
+.route-badge.route-light { background: #7fc8a9; }
+.route-badge.route-mid   { background: #e3b25c; }
+.route-badge.route-top   { background: #b48ad6; }
+.route-badge:hover { opacity: 1; }
+.route-redo {
+  margin-left: 6px;
+  font-size: calc(9px * var(--chat-font-scale, 1));
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  padding: 0 7px;
+  border-radius: 8px;
+  border: 1px solid #e3b25c;
+  background: none;
+  color: #e3b25c;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.route-redo:hover { opacity: 1; background: rgba(227, 178, 92, 0.15); }
+.route-redo-note {
+  margin-left: 6px;
+  font-size: calc(9px * var(--chat-font-scale, 1));
+  font-family: var(--font-mono);
+  opacity: 0.7;
+}
+.route-superseded .bubble { opacity: 0.55; }
+
 /* Thinking indicator */
 .thinking-dots span {
   animation: blink 1.2s infinite;
@@ -1555,7 +1607,19 @@ button.matrix-file-card:hover,
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--data-orange2) transparent;
+  scrollbar-gutter: stable;
 }
+
+.data-right > * { flex-shrink: 0; }
+.data-right:focus-visible { outline: 2px solid var(--data-orange2); outline-offset: -2px; }
+.data-right::-webkit-scrollbar { width: 8px; }
+.data-right::-webkit-scrollbar-thumb { background: var(--data-orange2); border-radius: 8px; }
 
 .right-elbow-top {
   height: 48px;
@@ -3477,7 +3541,7 @@ mark.chat-find-hl.active {
   animation: convoVignetteIn 1.4s ease 0.15s forwards;
 }
 @keyframes convoVignetteIn { from { opacity: 0; } to { opacity: 1; } }
-/* DATA DAEMON face — SINGLE light 720p loop (crossfade retired). The speaking
+/* DATA face — SINGLE light 720p loop (crossfade retired). The speaking
    cue is the cheap CSS box-shadow glow on .convo-face.speaking. */
 .convo-face {
   position: absolute;

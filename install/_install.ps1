@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 Write-Host ""
-Write-Host "  DATA - Dashboard for Analytical Thought and Action" -ForegroundColor Cyan
+Write-Host "  D.A.T.A: Dashboard for Agentic Thought and Action" -ForegroundColor Cyan
 Write-Host "  Windows installer" -ForegroundColor Cyan
 Write-Host ""
 
@@ -70,13 +70,16 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
 
 # 3. Check for an AI provider CLI
 $providers = @()
-foreach ($p in @("claude", "codex", "gemini", "ollama")) {
+foreach ($p in @("claude", "codex", "gemini", "grok", "ollama")) {
     if (Get-Command $p -ErrorAction SilentlyContinue) { $providers += $p }
 }
+# Grok Build's installer puts grok.exe in %USERPROFILE%\.grok\bin, which only
+# reaches PATH in a new terminal.
+if (($providers -notcontains "grok") -and (Test-Path "$env:USERPROFILE\.grok\bin\grok.exe")) { $providers += "grok" }
 if ($providers.Count -gt 0) {
     Write-Host "  [OK] AI provider(s) found: $($providers -join ', ')"
 } else {
-    Write-Host "  [!!] No AI provider CLI found (claude / codex / gemini / ollama)." -ForegroundColor Yellow
+    Write-Host "  [!!] No AI provider CLI found (claude / codex / gemini / grok / ollama)." -ForegroundColor Yellow
     Write-Host "      The dashboard will load, but chat needs one. Recommended:"
     Write-Host "      https://docs.claude.com/en/docs/claude-code"
     Write-Host "      NOTE: install the Claude Code COMMAND-LINE tool, not the" -ForegroundColor Yellow
@@ -224,7 +227,7 @@ if ($makeShortcut) {
         $lnk.TargetPath       = "$root\start_data.vbs"
         $lnk.WorkingDirectory = $root
         $lnk.IconLocation     = "$root\dashboard\favicon.ico"
-        $lnk.Description      = "DATA - Dashboard for Analytical Thought and Action"
+        $lnk.Description      = "D.A.T.A: Dashboard for Agentic Thought and Action"
         $lnk.Save()
         Write-Host "  [OK] Desktop shortcut created: DATA"
     } catch {

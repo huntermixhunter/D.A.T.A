@@ -1,12 +1,12 @@
-# DATA Daemon — End User License Agreement (EULA)
+# D.A.T.A: End User License Agreement (EULA)
 
-**Product:** DATA Daemon — Dashboard for Analytical Thought and Action
+**Product:** D.A.T.A (Dashboard for Agentic Thought and Action)
 **Licensor:** Hunter Mix ("Licensor", "we", "us")
 **Effective:** upon purchase, download, installation, or use of the Software
 **Copyright (c) 2026 Hunter Mix. All rights reserved.**
 
 THIS IS A LEGAL AGREEMENT between you ("you", "Licensee") and the Licensor. By
-purchasing, downloading, installing, copying, or using the DATA Daemon software
+purchasing, downloading, installing, copying, or using the D.A.T.A software
 and any accompanying files, scripts, models, documentation, and updates
 (together, the "Software"), you agree to be bound by this Agreement and by the
 accompanying `LICENSE` and `DISCLAIMER.md`, which are incorporated by reference.
@@ -166,7 +166,7 @@ provision is not a waiver of it.
 
 ---
 
-*By purchasing, downloading, installing, or using the DATA Daemon Software, you
+*By purchasing, downloading, installing, or using the D.A.T.A Software, you
 acknowledge that you have read and agree to this End User License Agreement.*
 
 *This document is a license agreement, not legal advice to you.*

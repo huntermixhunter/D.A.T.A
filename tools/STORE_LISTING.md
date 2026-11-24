@@ -1,4 +1,4 @@
-# DATA Daemon — Lemon Squeezy listing copy
+# D.A.T.A: Lemon Squeezy listing copy
 
 Internal doc. NOT shipped to buyers (tools/ is export-ignored from release zips).
 Copy/paste the sections below into the Lemon Squeezy product form.
@@ -6,7 +6,7 @@ Copy/paste the sections below into the Lemon Squeezy product form.
 ---
 
 ## Product name
-DATA Daemon — Your Self-Hosted AI Command Center
+D.A.T.A: Your Self-Hosted AI Command Center
 
 ## Tagline / summary (one line)
 A dark, mission-control dashboard that turns your own AI subscription into a crew of specialist agents — running entirely on your machine.

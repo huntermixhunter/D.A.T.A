@@ -20,7 +20,7 @@
   #error You must pass /DStagingDir=<staged product tree>   (the build script does this)
 #endif
 
-#define AppName       "DATA Daemon"
+#define AppName       "D.A.T.A"
 #define AppDir        "DATA"
 #define AppPublisher  "Magimatix"
 #define AppURL        "https://magimatix.com"
@@ -60,12 +60,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
-; AI provider CLIs — all install via npm, so Node.js is installed once and
-; shared. Claude Code is the recommended default (ticked); the others are
+; AI provider CLIs. Claude Code, Codex and Gemini install via npm, so Node.js is
+; installed once and shared; Grok Build uses xAI's official installer and needs
+; no Node.js. Claude Code is the recommended default (ticked); the others are
 ; optional. Pick any combination; each still needs a one-time sign-in.
-Name: "provider";        Description: "Claude Code — Anthropic (recommended)";  GroupDescription: "AI provider CLIs (installs Node.js once, ~1-2 min, needs internet):"
-Name: "provider_codex";  Description: "Codex CLI — OpenAI";                     GroupDescription: "AI provider CLIs (installs Node.js once, ~1-2 min, needs internet):"; Flags: unchecked
-Name: "provider_gemini"; Description: "Gemini CLI — Google";                    GroupDescription: "AI provider CLIs (installs Node.js once, ~1-2 min, needs internet):"; Flags: unchecked
+Name: "provider";        Description: "Claude Code — Anthropic (recommended)";  GroupDescription: "AI provider CLIs (Claude, Codex and Gemini install Node.js once; about 1-2 min, needs internet):"
+Name: "provider_codex";  Description: "Codex CLI — OpenAI";                     GroupDescription: "AI provider CLIs (Claude, Codex and Gemini install Node.js once; about 1-2 min, needs internet):"; Flags: unchecked
+Name: "provider_gemini"; Description: "Gemini CLI — Google";                    GroupDescription: "AI provider CLIs (Claude, Codex and Gemini install Node.js once; about 1-2 min, needs internet):"; Flags: unchecked
+Name: "provider_grok";   Description: "Grok Build: xAI (needs a SuperGrok or X Premium+ plan)"; GroupDescription: "AI provider CLIs (Claude, Codex and Gemini install Node.js once; about 1-2 min, needs internet):"; Flags: unchecked
 
 [Files]
 ; The staged product tree (clean tracked files + the embedded runtime).
@@ -77,6 +79,13 @@ Source: "launchers\stop_data.bat";  DestDir: "{app}"; Flags: ignoreversion
 ; Provider bootstrap — extracted to {tmp} only during install, not shipped.
 Source: "setup_provider.ps1"; Flags: dontcopy
 
+[InstallDelete]
+; The app was named "DATA Daemon" before v1.0.67. Remove shortcuts left under the
+; old name so an upgrade does not show two launchers side by side.
+Type: files; Name: "{autodesktop}\DATA Daemon.lnk"
+Type: files; Name: "{group}\DATA Daemon.lnk"
+Type: files; Name: "{group}\Uninstall DATA Daemon.lnk"
+
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeVbs}"; WorkingDir: "{app}"; IconFilename: "{app}\dashboard\favicon.ico"; Comment: "Start DATA (runs in the background)"
 Name: "{group}\Stop DATA"; Filename: "{app}\stop_data.bat"; WorkingDir: "{app}"; IconFilename: "{app}\dashboard\favicon.ico"; Comment: "Stop DATA"
@@ -87,7 +96,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeVbs}"; WorkingDir: "{
 ; Install the bundled DATA-core skills using the embedded runtime (idempotent).
 Filename: "{app}\runtime\python\python.exe"; Parameters: """{app}\dashboard\install_skills.py"""; WorkingDir: "{app}"; StatusMsg: "Installing DATA-core skills..."; Flags: runhidden skipifdoesntexist
 ; Optional: install the selected AI provider CLIs (Node.js + any of Claude Code
-; / Codex / Gemini). Runs once with the chosen set, only if at least one ticked.
+; / Codex / Gemini, plus Grok Build). Runs once with the chosen set, only if at
+; least one is ticked.
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\setup_provider.ps1"" -Clis ""{code:GetSelectedClis}"""; StatusMsg: "Installing the selected AI provider CLIs (Node.js + CLIs)... this can take a minute."; Flags: waituntilterminated; Check: AnyProviderSelected
 ; Offer to launch DATA at the end.
 Filename: "{app}\{#AppExeVbs}"; Description: "Launch {#AppName} now"; Flags: postinstall nowait skipifsilent shellexec
@@ -136,6 +146,7 @@ begin
   if WizardIsTaskSelected('provider')        then s := s + 'claude,';
   if WizardIsTaskSelected('provider_codex')  then s := s + 'codex,';
   if WizardIsTaskSelected('provider_gemini') then s := s + 'gemini,';
+  if WizardIsTaskSelected('provider_grok')   then s := s + 'grok,';
   if (Length(s) > 0) and (s[Length(s)] = ',') then s := Copy(s, 1, Length(s) - 1);
   Result := s;
 end;
@@ -145,7 +156,8 @@ function AnyProviderSelected(): Boolean;
 begin
   Result := WizardIsTaskSelected('provider')
          or WizardIsTaskSelected('provider_codex')
-         or WizardIsTaskSelected('provider_gemini');
+         or WizardIsTaskSelected('provider_gemini')
+         or WizardIsTaskSelected('provider_grok');
 end;
 
 procedure InitializeWizard();

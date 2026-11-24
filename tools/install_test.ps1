@@ -136,7 +136,7 @@ except Exception as e:
 
 # --- 7. cleanup ---
 # Remove the throwaway install AND what the installer registered for it: a per-user
-# Apps & features entry and a "DATA Daemon" Start Menu group, both pointing into
+# Apps & features entry and a "D.A.T.A" Start Menu group, both pointing into
 # $testDir. Never run the test install's uninstaller to do this. Its [UninstallRun]
 # step executes stop_data.bat, which force-kills whatever listens on ports 7777 and
 # 7766, and on a development machine that is the live bridge. Matching is by the

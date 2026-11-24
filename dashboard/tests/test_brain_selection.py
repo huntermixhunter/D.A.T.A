@@ -474,6 +474,226 @@ class TestGeminiCliAuthenticated(AuthProbeTestBase):
         self.assertFalse(bs._gemini_cli_authenticated())
 
 
+class TestGrokCliAuthenticated(AuthProbeTestBase):
+    """Grok Build: only a browser-login session token counts. An xAI API key
+    alone bills per token, so it must read as 'not signed in'."""
+
+    def setUp(self):
+        super().setUp()
+        self._env = mock.patch.dict(os.environ, {}, clear=False)
+        self._env.start()
+        os.environ.pop("GROK_HOME", None)
+
+    def tearDown(self):
+        self._env.stop()
+        super().tearDown()
+
+    def test_missing_file_is_not_authenticated(self):
+        self.assertFalse(bs._grok_cli_authenticated())
+
+    def test_nested_session_token_is_authenticated(self):
+        self._write(".grok/auth.json", {"oauth": {"tokens": {"refresh_token": "r"}}})
+        self.assertTrue(bs._grok_cli_authenticated())
+
+    def test_camel_case_token_is_authenticated(self):
+        self._write(".grok/auth.json", {"accessToken": "a"})
+        self.assertTrue(bs._grok_cli_authenticated())
+
+    def test_api_key_only_is_not_authenticated(self):
+        self._write(".grok/auth.json", {"api_key": "xai-123", "XAI_API_KEY": "xai-123"})
+        self.assertFalse(bs._grok_cli_authenticated())
+
+    def test_session_plus_saved_api_key_is_not_authenticated(self):
+        """With a key saved, Grok may bill per token even with a session."""
+        self._write(".grok/auth.json", {"access_token": "a", "xai": {"apiKey": "xai-123456789"}})
+        self.assertTrue(bs._grok_stored_api_key())
+        self.assertFalse(bs._grok_cli_authenticated())
+
+    def test_session_plus_api_key_in_config_toml_is_not_authenticated(self):
+        self._write(".grok/auth.json", {"access_token": "a"})
+        self._write(".grok/config.toml", 'model = "grok-5"\napi_key = "xai-abcdef123456"\n')
+        self.assertFalse(bs._grok_cli_authenticated())
+
+    def test_empty_api_key_field_does_not_block(self):
+        self._write(".grok/auth.json", {"access_token": "a", "api_key": ""})
+        self.assertFalse(bs._grok_stored_api_key())
+        self.assertTrue(bs._grok_cli_authenticated())
+
+    def test_malformed_json_is_not_authenticated(self):
+        self._write(".grok/auth.json", "nope")
+        self.assertFalse(bs._grok_cli_authenticated())
+
+    def test_grok_home_override(self):
+        alt = self.home / "elsewhere"
+        alt.mkdir()
+        (alt / "auth.json").write_text(json.dumps({"access_token": "a"}), encoding="utf-8")
+        os.environ["GROK_HOME"] = str(alt)
+        self.assertTrue(bs._grok_cli_authenticated())
+
+
+class TestGrokWiring(unittest.TestCase):
+    def test_grok_is_a_registered_brain(self):
+        self.assertIn("grok", bs.PROVIDERS)
+        self.assertIs(bs._provider_runner("grok"), bs.ask_grok_cli_stream)
+        self.assertIn("grok", bs._CLI_PRIORITY)
+        self.assertTrue(any(c["id"] == "grok" for c in bs.CONNECTOR_CATALOG))
+
+    def test_grok_child_env_has_no_api_key(self):
+        with mock.patch.dict(os.environ, {"XAI_API_KEY": "xai-secret", "GROK_API_KEY": "g"}):
+            env = bs._grok_child_env()
+            self.assertNotIn("XAI_API_KEY", env)
+            self.assertNotIn("GROK_API_KEY", env)
+
+    def test_signed_in_grok_spawns_without_api_keys(self):
+        class Proc:
+            stdout = iter(['{"type": "text", "data": "hi"}\n', '{"type": "end"}\n'])
+            stderr = mock.Mock(read=mock.Mock(return_value=""))
+            returncode = 0
+            def wait(self, timeout=None): return 0
+        events = []
+        with mock.patch.dict(os.environ, {"XAI_API_KEY": "xai-secret", "GROK_API_KEY": "g"}),                 mock.patch.object(bs, "_provider_executable", return_value="grok.exe"),                 mock.patch.object(bs, "_grok_cli_authenticated", return_value=True),                 mock.patch.object(bs, "_build_history_prompt", return_value="p"),                 mock.patch.object(bs, "_load_soul", return_value="s"),                 mock.patch.object(bs, "_register_active_proc"),                 mock.patch.object(bs, "_unregister_active_proc"),                 mock.patch.object(bs.subprocess, "Popen", return_value=Proc()) as popen:
+            try:
+                bs.ask_grok_cli_stream("hi", "", lambda kind, data: events.append((kind, data)))
+            except Exception:
+                pass   # post-turn bookkeeping is out of scope; the spawn is what matters
+        popen.assert_called_once()
+        env = popen.call_args.kwargs["env"]
+        self.assertNotIn("XAI_API_KEY", env)
+        self.assertNotIn("GROK_API_KEY", env)
+        self.assertIn("--verbatim", popen.call_args.args[0])
+
+    def test_signed_out_grok_never_spawns(self):
+        """The money gate: no subscription session means no Grok process."""
+        events = []
+        for stored_key in (False, True):
+            with self.subTest(stored_key=stored_key), \
+                    mock.patch.object(bs, "_provider_executable", return_value="grok.exe"), \
+                    mock.patch.object(bs, "_grok_cli_authenticated", return_value=False), \
+                    mock.patch.object(bs, "_grok_stored_api_key", return_value=stored_key), \
+                    mock.patch.object(bs.subprocess, "Popen") as popen:
+                events.clear()
+                bs.ask_grok_cli_stream("hi", "", lambda kind, data: events.append((kind, data)))
+                popen.assert_not_called()
+                self.assertEqual(events[-1][0], "done")
+                text = " ".join(d for k, d in events if k == "token")
+                self.assertIn("API key" if stored_key else "not signed in", text)
+
+    def test_grok_install_cmd_is_allowlisted(self):
+        cmds = {c["install_cmd"] for c in bs.CONNECTOR_CATALOG if c["install_cmd"]}
+        self.assertTrue(any("x.ai/cli/install" in c for c in cmds))
+
+
+class TestModelRefreshApply(unittest.TestCase):
+    """The bridge side of the boot refresh: Codex tiers and Ollama re-point."""
+
+    def setUp(self):
+        self._snap = {k: dict(v) for k, v in bs.PROVIDERS.items()}
+        self._cat = list(bs.OLLAMA_CATALOG)
+
+    def tearDown(self):
+        bs.PROVIDERS.clear()
+        bs.PROVIDERS.update(self._snap)
+        bs.OLLAMA_CATALOG[:] = self._cat
+
+    def test_codex_tiers_follow_catalog(self):
+        fake = {s: {"slug": s} for s in ("gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna")}
+        changes = []
+        with mock.patch.object(bs, "read_codex_catalog", return_value=fake):
+            bs._apply_codex_refresh(changes)
+        self.assertEqual(bs.PROVIDERS["codex-sol"]["model"], "gpt-6.1-sol")
+        self.assertIn("GPT-6.1 Sol", bs.PROVIDERS["codex-sol"]["label"])
+
+    def test_codex_absent_keeps_defaults(self):
+        before = bs.PROVIDERS["codex"]["model"]
+        with mock.patch.object(bs, "read_codex_catalog", return_value={}):
+            bs._apply_codex_refresh([])
+        self.assertEqual(bs.PROVIDERS["codex"]["model"], before)
+
+    def test_ollama_repoint_hides_duplicate(self):
+        bs.PROVIDERS["ollama"]["model"] = "qwen2.5-coder:7b"
+        bs.PROVIDERS["ollama-small"]["model"] = "qwen2.5:3b"
+        sizes = {"qwen3.5:9b": 6.6, "qwen3.5:4b": 3.3}
+        hw = {"has_gpu": True, "vram_total_gb": 8.0, "ram_total_gb": 32.0}
+        with mock.patch.object(bs, "_provider_executable", return_value="ollama"), \
+             mock.patch.object(bs, "_ollama_installed_sizes", return_value=sizes), \
+             mock.patch.object(bs, "_ollama_installed_models", return_value=list(sizes)), \
+             mock.patch.object(bs, "_detect_hardware", return_value=hw):
+            changes = []
+            bs._apply_ollama_refresh(changes)
+        self.assertEqual(bs.PROVIDERS["ollama"]["model"], "qwen3.5:9b")
+        self.assertEqual(bs.PROVIDERS["ollama-small"]["model"], "qwen3.5:4b")
+        # The ollama:<model> ids still resolve but are hidden from the picker.
+        self.assertTrue(bs.PROVIDERS["ollama:qwen3.5:9b"]["hidden"])
+        self.assertEqual(len(changes), 2)
+        with mock.patch.object(bs, "_sync_ollama_providers"), \
+             mock.patch.object(bs, "_provider_available", return_value=True), \
+             mock.patch.object(bs, "_provider_authenticated", return_value=True):
+            listed = {p["id"]: p["hidden"] for p in bs._list_providers()}
+        self.assertFalse(listed["ollama"])
+        # Still listed (so a saved choice or window keeps resolving), but
+        # flagged so the pickers skip it unless it is their selection.
+        self.assertTrue(listed["ollama:qwen3.5:9b"])
+
+
+class TestModelRefreshOrchestrator(unittest.TestCase):
+    """_run_model_refresh: never raises, fails soft offline, never overlaps."""
+
+    def setUp(self):
+        self._snap = {k: dict(v) for k, v in bs.PROVIDERS.items()}
+        self._cat = list(bs.OLLAMA_CATALOG)
+        self._data = json.loads(json.dumps(bs._MODEL_REFRESH.data))
+        patches = [
+            mock.patch.object(bs._MODEL_REFRESH, "save"),
+            mock.patch.object(bs._mrefresh, "fetch_remote_catalog",
+                              return_value=(None, "offline")),
+            mock.patch.object(bs, "_apply_ollama_refresh"),
+            mock.patch.object(bs, "_refresh_connector_models"),
+            mock.patch.object(bs, "_brain_usable", return_value=False),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def tearDown(self):
+        bs.PROVIDERS.clear()
+        bs.PROVIDERS.update(self._snap)
+        bs.OLLAMA_CATALOG[:] = self._cat
+        bs._MODEL_REFRESH.data = self._data
+
+    def test_offline_keeps_bundled_list_and_records_error(self):
+        with mock.patch.object(bs, "_MODEL_CATALOG_CACHE", bs.Path("does-not-exist.json")):
+            out = bs._run_model_refresh(network=True)
+        self.assertEqual(out["catalog"]["source"], "bundled")
+        self.assertGreaterEqual(len(bs.OLLAMA_CATALOG), 3)
+        self.assertEqual(out["errors"].get("catalog"), "offline")
+
+    def test_a_failing_step_is_recorded_not_raised(self):
+        def _apply_codex_refresh(changes):   # same name the orchestrator records
+            raise RuntimeError("boom")
+        with mock.patch.object(bs, "_apply_codex_refresh", _apply_codex_refresh):
+            out = bs._run_model_refresh(network=False)
+        self.assertIn("boom", out["errors"].get("_apply_codex_refresh", ""))
+        self.assertGreater(out["last_run"], 0)
+
+    def test_overlapping_call_returns_at_once(self):
+        self.assertTrue(bs._model_refresh_lock.acquire(blocking=False))
+        try:
+            with mock.patch.object(bs, "_apply_codex_refresh") as step:
+                bs._run_model_refresh(network=True)
+            step.assert_not_called()
+        finally:
+            bs._model_refresh_lock.release()
+
+    def test_same_change_is_logged_once_across_boots(self):
+        def repoint(changes):
+            changes.append("codex: gpt-6-sol -> gpt-6.1-sol")
+        bs._MODEL_REFRESH.data["changes"] = []
+        with mock.patch.object(bs, "_apply_codex_refresh", side_effect=repoint):
+            bs._run_model_refresh(network=False)
+            bs._run_model_refresh(network=False)
+        self.assertEqual(len(bs._MODEL_REFRESH.data["changes"]), 1)
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # GROUP F - _provider_authenticated: TTL + credential-mtime cache freshness
 # ══════════════════════════════════════════════════════════════════════════
