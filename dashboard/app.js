@@ -2001,6 +2001,7 @@ async function _dispatchChatMessage(text, attachments) {
             if (speakReply) _speakStreamFeed(payload.text);
           } else if (evType === 'route') {
             try { _streamRoute = JSON.parse(payload.text); } catch { _streamRoute = null; }
+            _noteAutoEffort('main', _streamRoute);
           } else if (evType === 'escalate') {
             let info = null;
             try { info = JSON.parse(payload.text); } catch { info = null; }
@@ -2264,6 +2265,7 @@ function _fmtUsd(c) {
 // project loaded) lets Auto pick the model. Panes opt in with provider 'auto'.
 let _autoAvailable = false;
 let _autoMode = false;
+let _autoEffortOn = true;   // router setting "Pick the effort level for each request"
 
 async function _loadAutoMode() {
   try {
@@ -2272,7 +2274,29 @@ async function _loadAutoMode() {
     const data = await res.json();
     _autoAvailable = true;
     _autoMode = data?.settings?.mode === 'auto';
+    _autoEffortOn = data?.settings?.auto_effort !== false;
   } catch { _autoAvailable = false; }
+}
+
+// Auto picks the effort only while the chat's own effort is blank ("AUTO").
+// A level saved before Auto existed would silently block that, so turning
+// Auto on clears the main chat's saved level. A level chosen afterwards sticks.
+async function _clearGlobalEffortForAuto() {
+  if (!_lastKnownActiveEffort) return;
+  try {
+    const res = await fetch(`${API_BASE}/effort`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ effort: '' }),
+    });
+    const data = await res.json();
+    if (data.error) { addLog(`Effort reset failed: ${data.error}`); return; }
+    _lastKnownActiveEffort = data.active || '';
+    addLog('Reasoning effort → auto (Auto picks it per request)');
+  } catch (e) {
+    addLog(`Effort reset error: ${e.message || e}`);
+  }
+  _populateMainEffortSelect();
 }
 
 async function _setAutoMode(on) {
@@ -2314,6 +2338,17 @@ function _realProvider(pid) {
 }
 
 const _EFFORT_WORDS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
+
+// The level Auto picked for each chat's latest request, shown in that chat's
+// Effort dropdown as "EFFORT: AUTO · HIGH". Keyed 'main' or the workspace id.
+const _autoEffortPick = new Map();
+function _noteAutoEffort(paneKey, route) {
+  if (!route) return;
+  if (route.effort_auto && route.effort) _autoEffortPick.set(paneKey, route.effort);
+  else _autoEffortPick.delete(paneKey);
+  if (paneKey === 'main') _populateMainEffortSelect();
+  else _populateWindowEffortSelect(paneKey);
+}
 
 // Auto retry: a lighter model's first try was unsure, needed to act, or
 // failed, so the bridge is rerunning the turn one tier up in the same stream.
@@ -6997,6 +7032,12 @@ async function loadProviders() {
       _effortLevelsCache = data.effort_levels;
     }
     if (typeof data.effort === 'string') _lastKnownActiveEffort = data.effort;
+    // One time per install: a main-chat effort saved before Auto could pick
+    // effort is cleared, so Auto mode starts on AUTO effort.
+    if (_autoMode && _lastKnownActiveEffort && !localStorage.getItem('data-auto-effort-reset-v1')) {
+      localStorage.setItem('data-auto-effort-reset-v1', '1');
+      _clearGlobalEffortForAuto();
+    }
     // Sign-in CTA: render BEFORE any early return so it shows even when the
     // provider dropdown menu is not mounted in the current view.
     _renderAuthCta(data.needs_auth, data.providers || [], data.active);
@@ -7479,7 +7520,9 @@ function _renderAuthCta(needsAuth, providers, active) {
 
 async function setProvider(providerId) {
   if (providerId === 'auto') {
+    const wasAuto = _autoMode;
     await _setAutoMode(true);
+    if (!wasAuto && _autoMode) await _clearGlobalEffortForAuto();
     loadProviders();
     return;
   }
@@ -8907,6 +8950,8 @@ function _refreshAllWindowProviderDropdowns() {
 function setWindowProvider(wsId, providerId) {
   const ws = _workspaces.get(wsId);
   if (!ws) return;
+  if (providerId === 'auto' && ws.provider !== 'auto') ws.effort = '';   // Auto picks effort too
+  else if (providerId !== 'auto') _autoEffortPick.delete(wsId);
   ws.provider = providerId;
   addLog(`[${ws.name}] provider → ${providerId}`);
   // The effort dial is only live for Claude / Codex - re-evaluate on switch.
@@ -8927,9 +8972,11 @@ function _windowEffortSelectHTML(wsId) {
   return _effortSelectHTML(`pane-effort-ws${wsId}`, `setWindowEffort(${wsId}, this.value)`);
 }
 
-function _fillEffortSelect(sel, selected, providerId) {
+function _fillEffortSelect(sel, selected, providerId, autoPick) {
   if (!sel) return;
-  const p = (_providersCache || []).find(x => x.id === providerId);
+  // On Auto the level list comes from Auto's home model.
+  const isAuto = providerId === 'auto';
+  const p = (_providersCache || []).find(x => x.id === (isAuto ? _realProvider(providerId) : providerId));
   const levels = p?.effort_levels?.length ? p.effort_levels
     : (_effortLevelsCache.length ? _effortLevelsCache : EFFORT_LEVELS_FALLBACK);
   const supported = p ? p.supports_effort !== false : true;
@@ -8941,15 +8988,20 @@ function _fillEffortSelect(sel, selected, providerId) {
   sel.replaceChildren(...levels.map(l => {
     const option = document.createElement('option');
     option.value = l.id;
-    option.textContent = `EFFORT: ${l.short}`;
+    const picked = isAuto && l.id === '' && autoPick
+      ? (levels.find(x => x.id === autoPick)?.short || String(autoPick).toUpperCase()) : '';
+    option.textContent = picked ? `EFFORT: AUTO · ${picked}` : `EFFORT: ${l.short}`;
     option.selected = l.id === effective;
     return option;
   }));
   sel.disabled = !supported;
   sel.setAttribute('aria-label', 'Reasoning effort');
-  sel.title = supported
-    ? 'Reasoning effort: how deeply the model thinks. Auto uses CLI settings or its model default. Higher levels use more time and allowance. Ultra uses parallel agents.'
-    : 'This model does not offer a reasoning effort control.';
+  sel.title = !supported
+    ? 'This model does not offer a reasoning effort control.'
+    : (isAuto && _autoEffortOn)
+      ? 'Reasoning effort: how deeply the model thinks. On Auto it is picked for each request: quick ones think briefly, hard or risky ones think longer. Choose a level to pin it for this chat.'
+        + (effective === '' && autoPick ? ` Last request: ${_EFFORT_WORDS[autoPick] || autoPick}.` : '')
+      : 'Reasoning effort: how deeply the model thinks. Auto uses CLI settings or its model default. Higher levels use more time and allowance. Ultra uses parallel agents.';
   if (supported && effective !== (selected || '')) {
     sel.title += ` Saved ${selected} runs as ${effective || 'auto'} on this model.`;
   }
@@ -8958,7 +9010,8 @@ function _fillEffortSelect(sel, selected, providerId) {
 function _populateWindowEffortSelect(wsId) {
   const ws = _workspaces.get(wsId);
   if (!ws) return;
-  _fillEffortSelect(document.getElementById(`pane-effort-ws${wsId}`), ws.effort || '', ws.provider);
+  _fillEffortSelect(document.getElementById(`pane-effort-ws${wsId}`), ws.effort || '', ws.provider,
+    _autoEffortPick.get(wsId));
 }
 
 function _populateMainEffortSelect() {
@@ -8966,7 +9019,8 @@ function _populateMainEffortSelect() {
   if (!sel) return;
   const mainWs = [..._workspaces.values()].find(w => w.isMain);
   const selected = mainWs ? (mainWs.effort || '') : (_lastKnownActiveEffort || '');
-  _fillEffortSelect(sel, selected, mainWs?.provider || _lastKnownActiveProvider);
+  _fillEffortSelect(sel, selected, mainWs?.provider || (_autoMode ? 'auto' : _lastKnownActiveProvider),
+    _autoEffortPick.get('main'));
 }
 
 function _refreshAllEffortDropdowns() {
@@ -9028,6 +9082,8 @@ async function setMainProvider(providerId) {
   const mainWs = [..._workspaces.values()].find(w => w.isMain);
   if (mainWs) {
     // Per-workspace override — same as the inline dropdown when a project is loaded
+    if (providerId === 'auto' && mainWs.provider !== 'auto') mainWs.effort = '';
+    else if (providerId !== 'auto') _autoEffortPick.delete('main');
     mainWs.provider = providerId;
     addLog(`Main pane provider → ${providerId}`);
     _populateMainEffortSelect();
@@ -9036,7 +9092,9 @@ async function setMainProvider(providerId) {
   // No project loaded: Auto is a mode, not a provider. ACTIVE_PROVIDER stays
   // a real model (Auto's home model); picking a real model turns Auto off.
   if (providerId === 'auto') {
+    const wasAuto = _autoMode;
     await _setAutoMode(true);
+    if (!wasAuto && _autoMode) await _clearGlobalEffortForAuto();
     _populateMainProviderSelect();
     loadProviders();
     return;
@@ -9543,7 +9601,7 @@ async function openProjectWorkspace(path, opts = {}) {
   // to right now, then can be flipped independently from the pane's header.
   // `effort` inherits the bridge-wide reasoning level and can then be dialed
   // per window from the pane header.
-  _workspaces.set(wsId, { path, name, isThinking: false, projectNodes, isMain, provider: defaultProvider, effort: _lastKnownActiveEffort || '', role: '', crew: MAIN_CHAT_CREW });
+  _workspaces.set(wsId, { path, name, isThinking: false, projectNodes, isMain, provider: defaultProvider, effort: defaultProvider === 'auto' ? '' : (_lastKnownActiveEffort || ''), role: '', crew: MAIN_CHAT_CREW });
 
   addMatrixProjectTab(wsId, name, path, projectNodes);
 
@@ -10010,7 +10068,7 @@ async function sendProjectMessage(wsId) {
             const payload = JSON.parse(evData);
             if (evType === 'token')        answer += payload.text || '';
             else if (evType === 'thinking') _addThoughtLine(thoughtEl, payload.text);
-            else if (evType === 'route')   { try { paneRoute = JSON.parse(payload.text); } catch { paneRoute = null; } }
+            else if (evType === 'route')   { try { paneRoute = JSON.parse(payload.text); } catch { paneRoute = null; } _noteAutoEffort(wsId, paneRoute); }
             else if (evType === 'escalate') {
               let info = null;
               try { info = JSON.parse(payload.text); } catch { info = null; }
