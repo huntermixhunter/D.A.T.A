@@ -8702,7 +8702,7 @@ def _triage_usable(c: dict, settings: dict) -> bool:
             and (settings.get("model_overrides") or {}).get(c.get("pid")) != "off")
 
 
-def _triage_local(message: str, settings: dict, cands: list):
+def _triage_local(message: str, settings: dict, cands: list, context: str = ""):
     """Classify on an installed local model. Returns the parsed result or None."""
     for c in cands:
         if c.get("family") != "ollama" or not _triage_usable(c, settings):
@@ -8712,7 +8712,7 @@ def _triage_local(message: str, settings: dict, cands: list):
             "model": cfg.get("model"), "stream": False, "format": "json",
             "options": {"temperature": 0},
             "messages": [{"role": "system", "content": _auto_router.TRIAGE_SYSTEM},
-                         {"role": "user", "content": _auto_router.triage_prompt(message)}],
+                         {"role": "user", "content": _auto_router.triage_prompt(message, context)}],
         }).encode("utf-8")
         t0 = time.time()
         try:
@@ -8732,7 +8732,7 @@ def _triage_local(message: str, settings: dict, cands: list):
     return None
 
 
-def _triage_claude(message: str, settings: dict, cands: list):
+def _triage_claude(message: str, settings: dict, cands: list, context: str = ""):
     """Classify on Claude Haiku with all tools and MCP servers disabled, no
     session saved, run from a temp folder so no project files are read."""
     pid = "claude-cli-haiku"
@@ -8753,7 +8753,7 @@ def _triage_claude(message: str, settings: dict, cands: list):
             [exe, "--print", "--output-format", "json", "--model", model,
              "--tools", "", "--strict-mcp-config", "--no-session-persistence",
              "--system-prompt-file", sf.name],
-            input=_auto_router.triage_prompt(message), capture_output=True, text=True,
+            input=_auto_router.triage_prompt(message, context), capture_output=True, text=True,
             encoding="utf-8", env=env, cwd=tempfile.gettempdir(),
             timeout=_auto_router.TRIAGE_CLOUD_TIMEOUT)
         ev = json.loads((r.stdout or "").strip() or "{}")
@@ -8775,14 +8775,15 @@ def _triage_claude(message: str, settings: dict, cands: list):
     return result
 
 
-def _router_triage(message: str):
+def _router_triage(message: str, context: str = ""):
     """The triage function handed to the router. Cached for 10 minutes per
-    normalized message; only successful results are cached."""
+    normalized message and the conversation before it; only successful
+    results are cached."""
     if _auto_router is None:
         return None
     settings = _router_settings()
     backend = settings.get("triage_backend", "auto")
-    key = _auto_router.triage_cache_key(message)
+    key = _auto_router.triage_cache_key(message, context)
     now = time.time()
     with _triage_cache_lock:
         hit = _triage_cache.get(key)
@@ -8791,9 +8792,9 @@ def _router_triage(message: str):
     cands = _auto_candidates()
     result = None
     if backend in ("auto", "local"):
-        result = _triage_local(message, settings, cands)
+        result = _triage_local(message, settings, cands, context)
     if result is None and backend in ("auto", "claude"):
-        result = _triage_claude(message, settings, cands)
+        result = _triage_claude(message, settings, cands, context)
     if result is not None:
         with _triage_cache_lock:
             if len(_triage_cache) >= _TRIAGE_CACHE_MAX:
@@ -8843,12 +8844,12 @@ def _route_auto(rec: dict, message: str, project_path: str, sse, min_tier: str |
         if min_tier not in _auto_router.TIER_RANK:
             min_tier = None
 
-        def _triage(msg: str):
+        def _triage(msg: str, context: str = ""):
             try:
                 sse("thinking", "*Quick check: sizing up this request*")
             except Exception:
                 pass
-            return _router_triage(msg)
+            return _router_triage(msg, context)
 
         ctx = _auto_router.RouteContext(
             message=message or "", project_path=project_path or "", attachments=tuple(kinds),

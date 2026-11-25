@@ -49,13 +49,13 @@
   const REASON = {
     'unclear.safe': 'playing it safe', 'triage.down': 'quick check said simple',
     'triage.up': 'quick check said careful', 'follow.approval': 'carrying on',
-    'follow.context': 'carrying on', 'follow.offer': 'carrying on the work',
+    'follow.context': 'carrying on', 'follow.offer': 'carrying on the work', 'follow.pick': 'your choice',
     sticky: 'same conversation', 'user.request': 'you asked', redo: 'trying stronger',
     escalated: 'retried', 'limit.cross': 'a service was busy', 'limit.up': 'next level up',
     'limit.down': 'usage limits', fallback_default: 'your home model',
     'lock.security': 'about security', 'lock.money': 'about money',
     'lock.release': 'publishing or servers', 'lock.action': 'changes something',
-    'lock.code_change': 'changing code', 'lock.crisis': 'taking care',
+    'lock.code_change': 'changing code', 'lock.crisis': 'taking care', 'lock.tools': 'needs tools',
   };
   const ADV_KEY = 'data.router.advancedOpen';
 
