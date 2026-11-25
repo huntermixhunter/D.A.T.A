@@ -45,6 +45,13 @@ HIGH_RISK = [
     ("I want to end my life", "lock.crisis"),
     ("quick question about my password", "lock.security"),
     ("use haiku: delete my old emails", "lock.action"),
+    # A wish about software is a change request (2026-11-24 misroute).
+    ("shouldnt the effort say auto as well unless one is chosen? auto mode now picks "
+     "that for us as well i believe so itd be nice if the dashboards kinda reflected that",
+     "lock.code_change"),
+    ("is there any way we can improve this feature based on this interaction?", "lock.code_change"),
+    ("the dropdown should say auto by default", "lock.code_change"),
+    ("can we make the sidebar collapse on mobile", "lock.code_change"),
 ]
 
 # (message, expected tier on Balanced, expected reason code)
@@ -66,6 +73,7 @@ BALANCED = [
     ("I have chest pain when I run", TOP, "cat.health_legal"),
     ("can you help with my thing", TOP, "unclear.safe"),
     ("hmm", TOP, "unclear.safe"),
+    ("it'd be nice if it were warmer today", TOP, "unclear.safe"),   # no software noun: not code.wish
     ("fix the grammar: their going to the store tomorrow and they is happy about it", LIGHT, "cat.rewrite"),
 ]
 

@@ -732,6 +732,22 @@ class RetryTest(_Base):
             self.assertEqual(esc[0]["reason"], reason)
             self.assertEqual(len(self.seen), 2)
 
+    def test_needs_action_skips_straight_to_top(self):
+        # Every tier below the top is read-only, so a needs-action retry that
+        # stopped at Standard could not act either (2026-11-24 misroute).
+        self.replies = ["I need to edit files. <<auto_needs_action>>{}<</auto_needs_action>>", "done it"]
+        _, events = self.run_events("hi")
+        esc = [json.loads(d) for t, d in events if t == "escalate"]
+        self.assertEqual((esc[0]["from_tier"], esc[0]["to_tier"]), (ar.LIGHT, ar.TOP))
+        self.assertEqual(ar.provider_tier(self.seen[1]["provider"]), ar.TOP)
+        routes = [json.loads(d) for t, d in events if t == "route"]
+        self.assertFalse(routes[-1]["read_only"])
+
+    def test_unsure_from_standard_goes_to_top(self):
+        self.replies = ["<<auto_unsure>>{}<</auto_unsure>>", "fine"]
+        self.run_events("explain how vaccines work")
+        self.assertEqual([ar.provider_tier(x["provider"]) for x in self.seen], [ar.MID, ar.TOP])
+
     def test_confident_answer_not_retried(self):
         self.replies = ["hello!"]
         _, events = self.run_events("hi")

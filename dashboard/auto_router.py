@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field, asdict
 from typing import Callable, Iterable, Optional
 
-ROUTER_VERSION = "1.0.0"
+ROUTER_VERSION = "1.1.0"
 BUILTIN_CATALOG_VERSION = "builtin-2026-11-23"
 
 # ── Tiers ────────────────────────────────────────────────────────────────────
@@ -102,6 +102,10 @@ class Rule:
     pattern: str
 
 
+# Things a user builds or uses in software, for the code.wish rule.
+_SW_NOUN = (r"\b(?:dashboards?|apps?|site|website|web ?pages?|pages?|buttons?|dropdowns?|menus?|ui|"
+            r"screens?|features?|settings?|modes?|windows?|panes?|tabs?|labels?|panels?|toggles?|"
+            r"display|router|bots?|tools?|layout|sidebar|header|footer|forms?|notifications?)\b")
 _I = r"(?:^|(?<=[\s,.;:!?(]))"          # start of an imperative clause
 _ASK = r"(?:please\s+|can you\s+|could you\s+|would you\s+|go ahead and\s+|i want you to\s+|i need you to\s+|help me\s+|just\s+)?"
 
@@ -156,6 +160,17 @@ RULES: tuple = (
          r"\b(write|create|build|make|generate|code)\b.{0,30}\b(functions?|scripts?|programs?|class(?:es)?|apps?|websites?|web ?apps?|sites?|components?|endpoints?|apis?|bots?|extensions?|plugins?|test suites?|unit tests?)\b"),
     Rule("code.git", "code_change", "strong",
          r"\b(commit|pull request|merge (?:the|this|my) (?:branch|pr)|git push|push to (?:main|master|github)|rebase)\b"),
+    # A wish or suggestion about software is a change request in disguise:
+    # "shouldn't the dropdown say Auto", "it'd be nice if the dashboard showed
+    # it", "is there any way we can improve this feature". A software noun
+    # must be nearby, so "it'd be nice if it were warmer" does not match.
+    Rule("code.wish", "code_change", "strong",
+         r"\b(?:it'?d be|it would be|would(?:n'?t)? it be) (?:nice|great|cool|better|good) if\b.{0,80}" + _SW_NOUN +
+         r"|\b(?:shouldn'?t|should) (?:it|the|this|that|there)\b.{0,80}" + _SW_NOUN +
+         r"|\b(?:can|could|should) we (?:make|have|get|add|improve|change|fix|tweak|update|show)\b.{0,80}" + _SW_NOUN +
+         r"|\bis there (?:any )?way (?:we|to|i|you) (?:can |could )?(?:improve|make|add|change|fix|tweak|update|show)\b.{0,80}" + _SW_NOUN +
+         r"|\blet'?s (?:make|add|change|fix|improve|tweak|update)\b.{0,80}" + _SW_NOUN +
+         r"|" + _SW_NOUN + r".{0,40}\b(?:should|shouldn'?t|needs? to|ought to) (?:say|show|display|read|default|be|have|reflect|use|pick)\b"),
 
     # health and legal
     Rule("hl.crisis", "health_legal", "strong",
@@ -633,7 +648,11 @@ TRIAGE_SYSTEM = (
     "risk is high for anything about money, health, legal matters, security, or that "
     "could cause harm if wrong.\n"
     "takes_action is true if the request asks to change files, run commands, send "
-    "messages, buy, post, delete, or schedule anything.\n"
+    "messages, buy, post, delete, or schedule anything. It is also true when the "
+    "request suggests, wishes for, or complains about how an app, dashboard, site, "
+    "tool, or feature behaves (for example \"shouldn't the menu say Auto\", \"it'd be "
+    "nice if the page showed this\", \"can we improve this feature\"): that asks for "
+    "the software to change, so use category code_change.\n"
     "confidence is low if the request is too vague to judge.")
 
 
