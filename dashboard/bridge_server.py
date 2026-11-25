@@ -10229,11 +10229,15 @@ class _RetryTap:
 
 def _escalate_turn(route: dict, reason: str, first_pid: str, message: str,
                    project_path: str, sse, run) -> str:
-    """Rerun this turn one tier up after a lighter model's first try failed or
-    said it was unsure. Exactly one retry: the rerun streams straight to the
-    browser with no tap, so it cannot trigger another."""
+    """Rerun this turn after a lighter model's first try failed or said it was
+    unsure. Unsure or empty goes one tier up. Needs-action goes straight to
+    the top tier: every tier below it runs read-only, so a middle step could
+    not act either and would spend the one retry for nothing. Exactly one
+    retry: the rerun streams straight to the browser with no tap, so it
+    cannot trigger another."""
     from_tier = route.get("_auto_tier") or _auto_router.LIGHT
-    to_tier = _auto_router.tier_up(from_tier)
+    to_tier = (_auto_router.TOP if reason == "needs_action"
+               else _auto_router.tier_up(from_tier))
     reset = getattr(sse, "reset", None)
     if callable(reset):
         try:
