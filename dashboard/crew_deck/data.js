@@ -322,7 +322,8 @@
           duties.push({ key: 'turn:' + t.id, role: t.role, room: CD.ROLES[t.role].home, kind: order ? 'order' : voice ? 'voice' : 'chat',
             label: order ? t.label || 'Standing order' : voice ? 'On a voice call with you' : `Talking with you${t.project ? ' in ' + t.project : ''}`,
             detail: t.doing || 'Listening', since: (t.started_at || 0) * 1000, priority: 6, exact: true,
-            source: { type: 'turn', id: t.id, project: t.project, pane: t.pane, provider: t.provider } });
+            source: { type: 'turn', id: t.id, project: t.project, pane: t.pane, provider: t.provider,
+                      orderId: order ? t.order_id : '' } });
         } else {
           core.turns += 1;
           if ((t.last_event_at || 0) >= core.last) {
@@ -343,6 +344,102 @@
       }
     }
     return { duties, roomAlerts, inflight, exact: !!crew, inferred: duties.some((d) => !d.exact), core };
+  };
+
+  // ------------------------------------------------- needs attention
+  // Work that went wrong or stopped moving, each with the place to go fix it.
+  // Failures stay listed for a day unless acknowledged. A stuck item's key
+  // carries its last progress time, so a fresh stall is flagged again.
+  CD.STUCK_MS = 12 * 60e3;        // one step with no progress for this long
+  CD.ATTN_WINDOW_MS = 24 * 3600e3;
+  // Native standing orders record failures as "(... failed: ...)" or a
+  // nonzero exit; LLM orders that fail are caught through the crew feed.
+  const ORDER_FAIL = /^\([^)]*?\b(failed|error)\b|^instagram poster exited [1-9]/i;
+  CD.orderFailed = (o) => ORDER_FAIL.test(String((o && o.last_result) || '').trim());
+  CD.tailLines = (text, n = 6) => String(text || '').replace(/\s+$/, '').split(/\r?\n/).slice(-n).join('\n');
+  CD.baseName = (p) => String(p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
+  // Where to send the Captain for a duty's source, or null.
+  CD.targetFor = (src) => {
+    if (!src) return null;
+    if (src.type === 'job') return { kind: 'job', id: String(src.id) };
+    if (src.type === 'order') return { kind: 'order', id: String(src.id) };
+    if (src.type === 'mission') return { kind: 'mission' };
+    if (src.type === 'turn' && src.orderId) return { kind: 'order', id: String(src.orderId) };
+    if (src.type === 'agent' || src.type === 'turn') return { kind: 'pane', pane: String(src.pane || ''), project: String(src.project || '') };
+    return null;
+  };
+
+  CD.deriveAttention = (snap, now, acks) => {
+    const out = [];
+    const recent = (ms) => ms > 0 && now - ms < CD.ATTN_WINDOW_MS;
+    const add = (it) => { if (!acks[it.key]) out.push(it); };
+    const roleOf = (r) => (CD.isOfficerRole(r) ? r : 'core');
+
+    for (const j of snap.jobs || []) {
+      const end = (j.finished_at || 0) * 1000;
+      if ((j.status !== 'failed' && j.status !== 'timeout') || !recent(end)) continue;
+      // Keyed by job id alone: the deck's older job-alert ACKNOWLEDGE uses it too.
+      add({ key: j.id, role: CD.classifyJob(j).role, level: 'error', kind: 'failed',
+        label: `${j.status === 'timeout' ? 'Job timed out' : 'Job failed'}: ${j.label || j.id}`,
+        detail: `exit ${j.exit_code ?? '?'}`, since: end, log: CD.tailLines(j.stderr || j.stdout),
+        target: { kind: 'job', id: String(j.id) } });
+    }
+
+    const flaggedOrders = new Set();
+    for (const o of snap.orders || []) {
+      const last = (o.last_run || 0) * 1000;
+      if (!recent(last) || !CD.orderFailed(o)) continue;
+      flaggedOrders.add(String(o.id));
+      add({ key: `order:${o.id}:${o.last_run}`, role: CD.classifyOrder(o).role, level: 'error', kind: 'failed',
+        label: `Standing order failed: ${o.name}`, detail: CD.short(String(o.last_result || '').split('\n')[0], 160),
+        since: last, target: { kind: 'order', id: String(o.id) } });
+    }
+
+    const crew = snap.crew && snap.crew.available ? snap.crew : null;
+    if (crew) {
+      for (const a of crew.recent_agents || []) {
+        const end = (a.ended_at || 0) * 1000;
+        if (a.status !== 'failed' || !recent(end)) continue;
+        add({ key: 'agent:' + a.id, role: roleOf(a.role), level: 'error', kind: 'failed',
+          label: `Task failed: ${a.description || a.type}`, detail: CD.short(a.summary || '', 200), since: end,
+          target: { kind: 'pane', pane: String(a.pane || ''), project: String(a.project || '') } });
+      }
+      for (const t of crew.recent_turns || []) {
+        const end = (t.ended_at || 0) * 1000;
+        if (t.ok !== false || !recent(end)) continue;
+        const order = t.source === 'order' && t.order_id;
+        if (order && flaggedOrders.has(String(t.order_id))) continue;
+        add({ key: 'turn:' + t.id, role: roleOf(t.role), level: 'error', kind: 'failed',
+          label: order ? `Standing order failed: ${t.label || t.order_id}` : `Chat ended with an error${t.project ? ' in ' + t.project : ''}`,
+          detail: t.provider ? `via ${t.provider}` : '', since: end,
+          target: order ? { kind: 'order', id: String(t.order_id) }
+            : { kind: 'pane', pane: String(t.pane || ''), project: String(t.project || '') } });
+      }
+      // Stalls. Waiting on a helper is not a stall: the helper is checked itself.
+      const running = crew.agents || [];
+      const busyParents = new Set(running.map((a) => a.parent).filter(Boolean));
+      const busyTurns = new Set(running.map((a) => a.turn).filter(Boolean));
+      const stall = (x, what, target) => {
+        const quiet = now - (x.last_event_at || 0) * 1000;
+        if (!x.last_event_at || quiet < CD.STUCK_MS) return;
+        add({ key: `stuck:${x.id}:${x.last_event_at}`, role: roleOf(x.role), level: 'warn', kind: 'stuck',
+          label: `No progress: ${what}`,
+          detail: `Quiet for ${CD.fmtDur(quiet)}${x.doing ? ` on "${CD.short(x.doing, 60)}"` : ''}`,
+          since: x.last_event_at * 1000, target });
+      };
+      for (const a of running) {
+        if (busyParents.has(a.id)) continue;
+        stall(a, a.description || a.type, { kind: 'pane', pane: String(a.pane || ''), project: String(a.project || '') });
+      }
+      for (const t of crew.turns || []) {
+        if (busyTurns.has(t.id)) continue;
+        const order = t.source === 'order' && t.order_id;
+        stall(t, order ? `standing order ${t.label || ''}`.trim() : `chat${t.project ? ' in ' + t.project : ''}`,
+          order ? { kind: 'order', id: String(t.order_id) } : { kind: 'pane', pane: String(t.pane || ''), project: String(t.project || '') });
+      }
+    }
+    out.sort((a, b) => (a.level === b.level ? 0 : a.level === 'error' ? -1 : 1) || b.since - a.since);
+    return out;
   };
 
   // ---------------------------------------------------- change events

@@ -287,7 +287,9 @@
     firstSeen: new Map(), acks: loadAcks(), roomSt: {}, summarized: false,
     demo: null,
     exact: false, inferred: false, core: null, crewState: 'pending', crewScope: null,
+    attn: [], attnByRole: {}, attnSeen: null,
   };
+  const EMBEDDED = window.parent !== window;
   function loadAcks() { try { return JSON.parse(localStorage.getItem('crewdeck.acks') || '{}'); } catch (e) { return {}; } }
   function saveAcks() { try { localStorage.setItem('crewdeck.acks', JSON.stringify(S.acks)); } catch (e) { /* private mode */ } }
 
@@ -785,7 +787,13 @@
       const a = t / (900 - act * 400) + (i * PI * 2) / n;
       ci(ctx, cx + Math.cos(a) * 24, cy + Math.sin(a) * 24, 2.2, true);
     }
-    const show = S.labels || S.coreLabel || (S.hover && S.hover.type === 'core') || (S.sel && S.sel.type === 'core');
+    const coreFlag = attnLevel('core');
+    if (coreFlag) {
+      const p = 0.5 + 0.5 * Math.sin(t / 240);
+      ctx.strokeStyle = coreFlag === 'error' ? `rgba(255,70,70,${(0.5 + 0.45 * p).toFixed(3)})` : `rgba(255,204,0,${(0.45 + 0.4 * p).toFixed(3)})`;
+      ctx.lineWidth = 2; ci(ctx, cx, cy, 30 + 2 * p);
+    }
+    const show = S.labels || S.coreLabel || coreFlag || (S.hover && S.hover.type === 'core') || (S.sel && S.sel.type === 'core');
     if (show) queueLabel(S.coreLabel ? `${assistantName()} · ${S.coreLabel}` : assistantName(), cx, cy + 40, '#66E0FF');
   }
 
@@ -842,6 +850,13 @@
         ctx.strokeStyle = '#6ef08a'; ctx.lineWidth = 1.7;
         ctx.beginPath(); ctx.ellipse(c.x, fy, 15, 5.2, 0, 0, PI * 2); ctx.stroke();
       }
+      const flag = attnLevel(c.role);
+      if (flag) {
+        const p = 0.5 + 0.5 * Math.sin(t / 240);
+        ctx.strokeStyle = flag === 'error' ? `rgba(255,70,70,${(0.45 + 0.5 * p).toFixed(3)})` : `rgba(255,204,0,${(0.4 + 0.45 * p).toFixed(3)})`;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.ellipse(c.x, fy, 17 + 3 * p, 6 + p, 0, 0, PI * 2); ctx.stroke();
+      }
       let frame = 0, bob = 0;
       if (c.moving) frame = 1 + (Math.floor((t + c.phase * 100) / 140) % 2);
       else if (c.mode === 'work') bob = Math.sin(t / 160 + c.phase) > 0.2 ? -0.8 : 0;
@@ -873,8 +888,26 @@
           queueLabelZ(c.x + 7 + u * 6, c.y - 16 - u * 14, 1 - u);
         }
       }
-      if (hov || sel || S.labels) queueLabel(c.name, c.x, c.y - DH / 2 - (working ? 13 : 7), c.text);
+      if (flag) attnMarks.push({ x: c.x, y: c.y - DH / 2 - (working ? 14 : 8), level: flag });
+      if (hov || sel || S.labels || flag) queueLabel(c.name, c.x, c.y - DH / 2 - (working ? 13 : 7) - (flag ? 10 : 0), flag === 'error' ? '#ff7777' : flag ? '#FFCC00' : c.text);
     }
+  }
+  // "!" badges above flagged officers, drawn in screen space so they stay crisp.
+  let attnMarks = [];
+  function flushAttnMarks(t) {
+    if (!attnMarks.length) return;
+    ctx.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
+    const on = Math.sin(t / 240) > -0.4;
+    for (const m of attnMarks) {
+      const x = V.ox + m.x * V.s, y = V.oy + m.y * V.s;
+      ctx.fillStyle = m.level === 'error' ? '#ff4444' : '#FFCC00';
+      ctx.globalAlpha = on ? 1 : 0.55;
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#07080e'; ctx.font = '700 11px "Share Tech Mono", monospace'; ctx.textAlign = 'center';
+      ctx.fillText('!', x, y + 4);
+    }
+    attnMarks = [];
   }
   let zQueue = [];
   function queueLabelZ(x, y, a) { zQueue.push({ x, y, a }); }
@@ -903,6 +936,7 @@
     drawCrew(t);
     flushZ();
     flushLabels();
+    flushAttnMarks(t);
   }
 
   // -------------------------------------------------------------- input
@@ -928,7 +962,11 @@
   }
   function tooltipHTML(h) {
     if (!h) return '';
-    if (h.type === 'crew') { const c = crewByRole[h.role]; return `<b>${esc(c.name)}</b> · ${esc(statusOf(c).text)}`; }
+    if (h.type === 'crew') {
+      const c = crewByRole[h.role], a = (S.attnByRole[h.role] || [])[0];
+      const hint = bestTarget(h.role) ? '<br><span class="tip-hint">Double-click to go to this work</span>' : '';
+      return `<b>${esc(c.name)}</b> · ${esc(statusOf(c).text)}${a ? `<br><span class="tip-attn ${a.level}">${esc(a.label)}</span>` : ''}${hint}`;
+    }
     if (h.type === 'core') return `<b>${esc(assistantName())}</b> · ${S.inflight} chat turn${S.inflight === 1 ? '' : 's'} in flight${S.exact && S.coreLabel ? ` · ${esc(S.coreLabel.toLowerCase())}` : ''}`;
     const r = rooms[h.id], m = metricFor(r.id);
     const n = S.roomSt[r.id] ? S.roomSt[r.id].crew.length : 0;
@@ -948,6 +986,11 @@
   });
   canvas.addEventListener('mouseleave', () => { S.hover = null; tooltip.style.display = 'none'; });
   canvas.addEventListener('click', (ev) => select(hitTest(toImage(ev))));
+  canvas.addEventListener('dblclick', (ev) => {
+    const h = hitTest(toImage(ev));
+    if (h && h.type === 'crew') jumpFor(h.role);
+    else if (h && h.type === 'core') jumpFor('core');
+  });
   window.addEventListener('keydown', (e) => {
     if (document.querySelector('dialog[open]') || (e.target && (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) || e.target.isContentEditable))) return;
     if (e.key === 'l' || e.key === 'L') toggleLabels();
@@ -959,11 +1002,7 @@
   $('#toggle-labels').addEventListener('click', toggleLabels);
   $('#mode-live').addEventListener('click', () => setMode('live'));
   $('#mode-demo').addEventListener('click', () => setMode('demo'));
-  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
-    document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
-    $('#tab-log').classList.toggle('on', b.dataset.tab === 'log');
-    $('#tab-duty').classList.toggle('on', b.dataset.tab === 'duty');
-  }));
+  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
   // ------------------------------------------------------ readouts / UI
   function statusOf(c) {
@@ -1029,6 +1068,9 @@
       info.innerHTML = '<div class="nm"></div><div class="tt"></div><div class="st"></div>';
       card.append(stripe, makePortrait(c.img), info);
       card.addEventListener('click', () => select({ type: 'crew', role: c.role }));
+      card.addEventListener('dblclick', () => jumpFor(c.role));
+      const badge = document.createElement('b'); badge.className = 'attn-badge'; badge.hidden = true;
+      card.appendChild(badge);
       rosterList.appendChild(card);
       c.card = card;
     }
@@ -1041,6 +1083,13 @@
       const st = c.card.querySelector('.st');
       st.textContent = s.text; st.className = 'st ' + s.cls; st.title = s.text;
       c.card.classList.toggle('sel', !!(S.sel && S.sel.type === 'crew' && S.sel.role === c.role));
+      const mine = S.attnByRole[c.role] || [], lvl = attnLevel(c.role);
+      c.card.classList.toggle('attn', lvl === 'error');
+      c.card.classList.toggle('attn-warn', lvl === 'warn');
+      const badge = c.card.querySelector('.attn-badge');
+      badge.hidden = !mine.length; badge.textContent = mine.length ? `! ${mine.length}` : '';
+      badge.title = mine.map((a) => a.label).join('\n');
+      if (mine.length) { st.textContent = mine[0].label; st.className = 'st alert'; st.title = mine[0].label; }
     }
     $('#roster-mode').textContent = roster().label;
   }
@@ -1070,6 +1119,8 @@
     let h = `<div class="head">${picture}
       <div><h2 style="color:${c.text}">${esc(c.name)}</h2><div class="sub">${esc(c.def.title)}</div>
       <div class="sub">Home: ${esc(rooms[c.def.home].name)} · Now: ${esc(rooms[c.room].name)}</div></div></div>`;
+    const flagged = S.attnByRole[c.role] || [];
+    if (flagged.length) h += `<h3 class="attn-h">NEEDS ATTENTION (${flagged.length})</h3>` + flagged.map(attnCardHTML).join('');
     h += '<h3>CURRENT</h3>';
     if (d) {
       const cls = d.kind === 'alert' ? 'alert' : d.kind === 'standby' ? 'standby' : '';
@@ -1078,6 +1129,7 @@
         ${d.source && d.source.summary ? `<div class="det">${esc(d.source.summary)}</div>` : ''}
         <div class="src">${d.source ? esc(sourceText(d.source)) + ' · ' : ''}${S.mode === 'demo' ? 'scripted' : d.exact ? 'reported officer' : 'assigned by rule'}</div></div>`;
       if (d.kind === 'alert' && d.source && d.source.type === 'job' && S.mode === 'live') h += `<button class="btn" data-ack="${esc(d.source.id)}">ACKNOWLEDGE</button>`;
+      h += jumpButtonHTML(S.mode === 'live' ? CD.targetFor(d.source) : null, 'GO TO WORK');
     } else {
       h += `<div class="duty standby"><div class="lbl">${esc(s.text)}</div><div class="det">No live duty right now.</div></div>`;
     }
@@ -1121,6 +1173,8 @@
     let x = `<h2 style="color:#66E0FF">${esc(assistantName())}</h2><div class="sub">Main computer · Computer Core</div>
       <div class="colorbar" style="background:#66E0FF"></div>
       <div class="about">The ship itself: every officer is summoned from here. The core brightens and gains an orbiting light for each chat turn in flight across your panes.</div>`;
+    const coreFlags = S.attnByRole.core || [];
+    if (coreFlags.length) x += `<h3 class="attn-h">NEEDS ATTENTION (${coreFlags.length})</h3>` + coreFlags.map(attnCardHTML).join('');
     x += `<h3>LIVE</h3><div class="kv"><span class="k">Channels</span><span class="v">${S.inflight} in flight</span>`;
     if (m && m.llm) x += `<span class="k">Provider</span><span class="v">${esc(m.llm.provider_label)}</span><span class="k">Model</span><span class="v">${esc(m.llm.model)}</span>`;
     if (st) x += `<span class="k">Main channel</span><span class="v">${esc(st.step === 'idle' ? 'idle' : `${st.step}${st.detail ? ': ' + st.detail : ''}`)}</span>`;
@@ -1132,7 +1186,7 @@
       const who = (t) => (CD.isOfficerRole(t.role) ? crewByRole[t.role].name : assistantName());
       const ts = cr.turns || [];
       x += `<h3>CHANNELS (${ts.length})</h3>` + (ts.length
-        ? `<ul class="mini-list">${ts.map((t) => `<li><span class="t">${esc(CD.fmtDur(Date.now() - t.started_at * 1000))}</span>${esc(t.source === 'order' ? 'Order: ' + t.label : paneTag(t))} · <b>${esc(who(t))}</b>: ${esc(t.doing || '')}${t.provider ? ` <span class="t">${esc(t.provider)}</span>` : ''}</li>`).join('')}</ul>`
+        ? `<ul class="mini-list">${ts.map((t) => `<li class="jumpable" data-jump="${esc(JSON.stringify(t.source === 'order' && t.order_id ? { kind: 'order', id: String(t.order_id) } : { kind: 'pane', pane: String(t.pane || ''), project: String(t.project || '') }))}" title="Go to this chat"><span class="t">${esc(CD.fmtDur(Date.now() - t.started_at * 1000))}</span>${esc(t.source === 'order' ? 'Order: ' + t.label : paneTag(t))} · <b>${esc(who(t))}</b>: ${esc(t.doing || '')}${t.provider ? ` <span class="t">${esc(t.provider)}</span>` : ''}</li>`).join('')}</ul>`
         : '<div class="sub">No channels open.</div>');
       const hs = (cr.agents || []).filter((a) => !a.role || a.role === 'core');
       if (hs.length) {
@@ -1161,6 +1215,8 @@
       <li><b>Reported officer</b> identifies the actual chat or subagent runner and its current step.</li>
       <li><b>Assigned by rule</b> means a visual assignment for jobs, alerts or native orders; it does not identify their actual runner.</li>
       <li>A <b>glowing room</b> is an active system. <b>Pulsing red</b> needs you.</li>
+      <li>A red <b>!</b> over an officer means their work failed; amber means it has stalled. The <b>ATTENTION</b> tab lists every one.</li>
+      <li><b>Double-click</b> an officer, or press <b>GO TO WORK</b>, to open the chat, job or standing order they are on.</li>
       <li>The core gains <b>one orbiting light per chat turn</b> in flight.</li>
       <li>Off-duty crew roam and gather in the lounge. When the ship goes quiet they rest in quarters.</li>
       <li><b>L</b> toggles labels, <b>D</b> runs the demo mission, <b>Esc</b> clears selection.</li></ul>`;
@@ -1184,15 +1240,129 @@
     });
   }
   detail.addEventListener('click', (e) => {
+    if (handleActionClick(e)) return;
+    const chip = e.target.closest('[data-crew]');
+    if (chip) select({ type: 'crew', role: chip.dataset.crew });
+  });
+
+  // ------------------------------------------------- needs attention
+  function attnLevel(role) {
+    const list = S.attnByRole[role];
+    if (!list || !list.length) return null;
+    return list.some((a) => a.level === 'error') ? 'error' : 'warn';
+  }
+  const ownerName = (role) => (role === 'core' ? assistantName() : crewByRole[role] ? crewByRole[role].name : role);
+  function jumpButtonHTML(target, text) {
+    if (!target) return '';
+    const label = text || (target.kind === 'order' ? 'OPEN STANDING ORDER' : target.kind === 'job' ? 'GO TO JOB' : target.kind === 'mission' ? 'OPEN MISSIONS' : 'GO TO CHAT');
+    return `<button class="btn jump" data-jump="${esc(JSON.stringify(target))}">${esc(label)}</button>`;
+  }
+  function attnCardHTML(a) {
+    let h = `<div class="attn-card ${a.level}"><div class="lbl"><span class="who">${esc(ownerName(a.role))}</span>${esc(a.label)}</div>
+      <div class="det">${a.detail ? esc(a.detail) + ' · ' : ''}${esc(CD.fmtAgo(a.since))}</div>`;
+    if (a.log) h += `<pre class="attn-log">${esc(a.log)}</pre>`;
+    h += '<div class="attn-actions">';
+    h += jumpButtonHTML(a.target);
+    if (a.target && a.target.kind === 'job') h += jumpButtonHTML({ kind: 'job', id: a.target.id, log: true }, 'OPEN LOG');
+    if (S.mode === 'live') h += `<button class="btn" data-ack="${esc(a.key)}">ACKNOWLEDGE</button>`;
+    return h + '</div></div>';
+  }
+  function setAttention(list) {
+    S.attn = list;
+    S.attnByRole = {};
+    for (const a of list) (S.attnByRole[a.role] = S.attnByRole[a.role] || []).push(a);
+    // Call out stalls once as they appear; failures already reach the log
+    // from the job, order and crew feeds.
+    if (S.attnSeen && S.mode === 'live') {
+      for (const a of list) {
+        if (S.attnSeen.has(a.key) || a.kind !== 'stuck') continue;
+        log(`${a.role === 'core' ? ownerName('core') + ' ' : ''}has stalled: ${a.label.replace(/^No progress: /, '')} (${a.detail})`,
+          { role: a.role === 'core' ? null : a.role, room: a.role === 'core' ? 'core' : null, level: 'warn' });
+      }
+    }
+    S.attnSeen = new Set(list.map((a) => a.key));
+    renderAttention();
+  }
+  const attnList = $('#attn-list');
+  let lastAttn = '';
+  function renderAttention() {
+    const n = S.attn.length, errs = S.attn.filter((a) => a.level === 'error').length;
+    const tab = $('#attn-tab-count');
+    tab.textContent = n ? String(n) : ''; tab.hidden = !n;
+    tab.className = 'tab-count' + (errs ? ' error' : ' warn');
+    const ro = $('#ro-attn'), box = $('#ro-attn-box');
+    ro.textContent = String(n);
+    box.className = 'ro attn' + (errs ? ' error' : n ? ' warn' : '');
+    box.title = n ? `${n} item${n === 1 ? '' : 's'} need you. Click to list them.` : 'Nothing needs you right now.';
+    const html = n
+      ? S.attn.map(attnCardHTML).join('')
+      : `<div class="sub attn-empty">${S.mode === 'demo' ? 'Demo mission: nothing flagged right now.' : 'Nothing needs you. Failed work and anything stuck on one step for over ' + Math.round(CD.STUCK_MS / 60e3) + ' minutes shows up here.'}</div>`;
+    if (html === lastAttn) return;
+    lastAttn = html;
+    attnList.innerHTML = html;
+  }
+  function showTab(name) {
+    document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x.dataset.tab === name));
+    document.querySelectorAll('.inspector .tab').forEach((x) => x.classList.toggle('on', x.id === 'tab-' + name));
+  }
+  $('#ro-attn-box').addEventListener('click', () => showTab('attn'));
+  $('#ro-attn-box').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showTab('attn'); } });
+  // The best place to send the Captain for an officer: what needs them first,
+  // then what they are working on right now.
+  function bestTarget(role) {
+    if (S.mode !== 'live') return null;
+    const a = (S.attnByRole[role] || []).find((x) => x.target);
+    if (a) return a.target;
+    if (role === 'core') {
+      const cr = S.exact && bridge.snap.crew;
+      const t = cr && (cr.turns || []).filter((x) => !CD.isOfficerRole(x.role)).sort((x, y) => (y.last_event_at || 0) - (x.last_event_at || 0))[0];
+      return t ? (t.source === 'order' && t.order_id ? { kind: 'order', id: String(t.order_id) } : { kind: 'pane', pane: String(t.pane || ''), project: String(t.project || '') }) : null;
+    }
+    const c = crewByRole[role];
+    return c && c.duty ? CD.targetFor(c.duty.source) : null;
+  }
+  function jumpFor(role) {
+    const target = bestTarget(role);
+    if (!target) { log(`${ownerName(role)} has no live work to open`, { level: 'info' }); return; }
+    jump(target);
+  }
+  function jump(target) {
+    if (!target || typeof target !== 'object') return;
+    if (target.kind === 'mission') {
+      const b = $('#crew-missions-toggle');
+      if (b && b.getAttribute('aria-expanded') !== 'true') b.click();
+      return;
+    }
+    if (!EMBEDDED) { log('Open Crew Deck from the dashboard to jump to work', { level: 'warn' }); return; }
+    const clean = { kind: String(target.kind) };
+    for (const k of ['id', 'pane', 'project']) if (target[k] != null) clean[k] = String(target[k]).slice(0, 300);
+    if (target.log) clean.log = true;
+    window.parent.postMessage({ type: 'crew-deck-open', target: clean }, location.origin);
+    const what = clean.log ? 'the job log' : clean.kind === 'order' ? 'the standing order' : clean.kind === 'job' ? 'the chat that started the job' : `the chat${clean.project ? ' in ' + clean.project : ''}`;
+    log(`Opening ${what}`, { level: 'info' });
+  }
+  // Shared by every list that carries jump or acknowledge buttons.
+  function handleActionClick(e) {
+    const j = e.target.closest('[data-jump]');
+    if (j) {
+      try { jump(JSON.parse(j.dataset.jump)); } catch (_) { /* malformed target */ }
+      return true;
+    }
     const ack = e.target.closest('[data-ack]');
     if (ack) {
       S.acks[ack.dataset.ack] = Date.now(); saveAcks();
       log('Alert acknowledged', { level: 'ok' });
       recomputeLive(); renderDetail(true);
-      return;
+      return true;
     }
-    const chip = e.target.closest('[data-crew]');
-    if (chip) select({ type: 'crew', role: chip.dataset.crew });
+    return false;
+  }
+  attnList.addEventListener('click', (e) => {
+    if (handleActionClick(e)) return;
+    const card = e.target.closest('.attn-card');
+    const i = card ? [...attnList.children].indexOf(card) : -1;
+    const a = S.attn[i];
+    if (a) select(a.role === 'core' ? { type: 'core' } : { type: 'crew', role: a.role });
   });
 
   // Duty roster tab
@@ -1322,7 +1492,7 @@
   function recomputeLive() {
     if (S.mode !== 'live') return;
     const snap = bridge.snap;
-    if (!snap.online) { S.inflight = 0; S.roomAlerts = {}; S.coreLabel = ''; S.coreTarget = null; S.exact = false; S.core = null; S.inferred = false; applyDuties(missionDuties()); return; }
+    if (!snap.online) { S.inflight = 0; S.roomAlerts = {}; S.coreLabel = ''; S.coreTarget = null; S.exact = false; S.core = null; S.inferred = false; applyDuties(missionDuties()); setAttention([]); return; }
     const r = CD.deriveLive(snap, Date.now(), S.acks);
     S.inflight = r.inflight;
     S.roomAlerts = r.roomAlerts;
@@ -1343,6 +1513,7 @@
       S.coreTarget = statusRoom(st);
     }
     applyDuties([...r.duties, ...missionDuties()]);
+    setAttention(CD.deriveAttention(snap, Date.now(), S.acks));
     updateQuiet();
   }
   function trackingText() {
@@ -1466,6 +1637,8 @@
       S.coreTarget = null;
       S.cond = 'green';
       S.roomAlerts = D.alert ? { [D.alert.room]: [{ key: 'demo', text: D.alert.text, since: Date.now() }] } : {};
+      setAttention(D.alert ? [{ key: 'demo', role: 'engineering', level: 'error', kind: 'failed', label: D.alert.text,
+        detail: 'Scripted demo failure', since: Date.now(), target: null }] : []);
       applyDuties(D.duties);
     }
   }
@@ -1480,6 +1653,8 @@
     $('#mode-demo').classList.toggle('on', m === 'demo');
     S.firstSeen.clear(); S.roomAlerts = {}; S.coreLabel = ''; S.coreTarget = null; S.quiet = false;
     for (const c of crew) { c.duty = null; c.queue = []; if (c.mode === 'work' || c.mode === 'sleep') c.mode = 'idle'; c.idleUntil = nowMs() + rand(200, 2500); }
+    S.attnSeen = null;
+    setAttention([]);
     if (m === 'demo') {
       S.demo = { start: nowMs(), idx: 0, cycle: 0, duties: [], inflight: 0, core: '', alert: null };
       log('Demo mission started (scripted)', { level: 'info' });
@@ -1501,7 +1676,7 @@
   window.addEventListener("pagehide", () => bridge.stop());
   if (params.get('mode') === 'demo') setMode('demo');
   refreshTop(); refreshRoster(); refreshSystems(); renderDetail(true); updateBanner();
-  window.__crewDeck = { S, V, crew, rooms, doors, planPath, setMode, select, bridge, toggleLabels };
+  window.__crewDeck = { S, V, crew, rooms, doors, planPath, setMode, select, bridge, toggleLabels, jump, jumpFor, bestTarget, showTab };
   if (window.CrewControls?.state) receiveMissionState(window.CrewControls.state);
 
   let last = nowMs(), uiAcc = 0;
@@ -1518,7 +1693,7 @@
     draw(t, dt);
     updateBubbles(t);
     uiAcc += dt;
-    if (uiAcc > 0.5) { uiAcc = 0; refreshTop(); refreshRoster(); refreshSystems(); renderDetail(false); }
+    if (uiAcc > 0.5) { uiAcc = 0; refreshTop(); refreshRoster(); refreshSystems(); renderDetail(false); renderAttention(); }
     requestAnimationFrame(loop);
   }
   S.roomSt = roomState();

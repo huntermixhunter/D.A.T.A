@@ -41,6 +41,15 @@
     status.hidden = true;
     frame.hidden = false;
   });
+  // The deck asks the dashboard to bring a piece of work into view. Only plain
+  // identifiers cross the frame; the dashboard looks up paths itself.
+  window.addEventListener('message', event => {
+    if (event.source !== frame.contentWindow || event.origin !== new URL(window.getCrewDeckContext().base).origin || event.data?.type !== 'crew-deck-open') return;
+    const t = event.data.target;
+    if (!t || typeof t !== 'object' || !['pane', 'job', 'order'].includes(t.kind)) return;
+    const str = v => (typeof v === 'string' ? v.slice(0, 300) : '');
+    window.openCrewTarget?.({ kind: t.kind, id: str(t.id), pane: str(t.pane), project: str(t.project), log: t.log === true });
+  });
   window.CrewDeckHost = { show, reset };
   window.addEventListener('pagehide', reset);
   if (location.hash === '#crew-deck') showPanel('crew-deck');

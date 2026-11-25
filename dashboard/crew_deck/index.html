@@ -33,6 +33,7 @@
 
     <div class="readouts">
       <div class="pill" id="condition">CONDITION</div>
+      <div class="ro attn" id="ro-attn-box" role="button" tabindex="0" title="Nothing needs you right now."><span class="k">ATTENTION</span><span class="v" id="ro-attn">0</span></div>
       <div class="ro" id="ro-tracking-box" title="How officer movement is decided"><span class="k">TRACKING</span><span class="v" id="ro-tracking">-</span></div>
       <div class="ro" title="Chat turns in flight across every pane"><span class="k">CHANNELS</span><span class="v" id="ro-channels">-</span></div>
       <div class="ro" title="Background jobs running"><span class="k">JOBS</span><span class="v" id="ro-jobs">-</span></div>
@@ -69,9 +70,11 @@
     <nav class="tabs">
       <button data-tab="log" class="on">SHIP'S LOG</button>
       <button data-tab="duty">DUTY ROSTER</button>
+      <button data-tab="attn">ATTENTION<span id="attn-tab-count" class="tab-count" hidden></span></button>
     </nav>
     <section id="tab-log" class="tab on"><ol id="log-list"></ol></section>
     <section id="tab-duty" class="tab"><div id="duty-list"></div></section>
+    <section id="tab-attn" class="tab"><div id="attn-list"></div></section>
   </aside>
 
   <footer class="systems" id="systems"></footer>
