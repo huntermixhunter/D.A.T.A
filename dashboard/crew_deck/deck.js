@@ -361,7 +361,7 @@
     } else if (r < 0.84) {
       dest = CD.pick(VISIT.filter((v) => v !== c.room)); activity = `Checking ${rooms[dest].name.toLowerCase()}`;
     } else {
-      const pals = crew.filter((o) => o !== c && !o.duty && !o.path.length && o.mode !== 'sleep');
+      const pals = shipBusy() ? [] : crew.filter((o) => o !== c && !o.duty && !o.path.length && o.mode !== 'sleep');
       if (pals.length) {
         const p = CD.pick(pals);
         dest = p.room; near = { x: p.x, y: p.y }; c.chatWith = p; activity = `Catching up with ${p.name}`;
@@ -382,8 +382,19 @@
     return { room: rooms[c.room]?.name || c.room, mission: run?.title || '',
       activity: c.activity, condition: S.cond, jobs: runningJobs().length, orders: ordersSummary().active };
   }
+  // Ambient scenes are personality talk, not work. They stay quiet whenever
+  // anything real is running, and are rate limited by the banter interval.
+  let lastAmbient = -Infinity;
+  const shipBusy = () => S.inflight > 0 || runningJobs().length > 0 ||
+    crew.some((o) => o.duty && o.duty.kind !== 'standby');
+  function ambientAllowed() {
+    if (!dialogue || !missionState || deckSettings().banter_enabled === false || S.mode !== 'live') return false;
+    if (shipBusy()) return false;
+    return nowMs() - lastAmbient >= (deckSettings().banter_interval_seconds || 60) * 1000;
+  }
   function ambientExchange(c, mate) {
-    if (!dialogue || !missionState || deckSettings().banter_enabled === false || S.mode !== 'live') return;
+    if (!ambientAllowed()) return;
+    lastAmbient = nowMs();
     const lines = dialogue.exchange(c.agentId, mate.agentId, dialogueContext(c));
     const epoch = dialogueEpoch, room = c.room;
     lines.forEach((line, i) => {
@@ -405,35 +416,43 @@
       case 'mission': return `${CD.short(d.label, 42)}: ${CD.short(d.detail, 60)}`;
       case 'job': return `${CD.short(d.label, 30)}: ${el} in.`;
       case 'agent': return step && step !== 'Working' ? `${CD.short(step, 40)}.` : `${CD.short(d.label, 30)}. ${el} in.`;
-      case 'voice': return CD.pick(['Still on the line.', `Listening to ${capt()}.`]);
-      case 'chat':
-        if (d.exact) return step && step !== 'Listening' ? `${CD.short(step, 40)}.` : CD.pick([`Talking with ${capt()}.`, 'Working the channel.']);
-        return CD.pick(['Channels are busy.', `Monitoring the line with ${capt()}.`, 'Keeping the helm steady.']);
-      case 'alert': return 'Still tracing it.';
-      case 'standby': return 'Standing by.';
+      case 'voice': return null;
+      case 'chat': return d.exact && step && step !== 'Listening' ? `${CD.short(step, 40)}.` : null;
+      case 'alert': return null;
+      case 'standby': return null;
       default: return `${CD.short(d.label, 30)}. ${el} in.`;
     }
   }
 
+  // Officers who finished real work recently may mention it once while idle.
+  function recapLine(c, mate) {
+    const r = c.lastTask;
+    if (!r || Date.now() - r.at > 3 * 3600e3) return null;
+    c.lastTask = null;
+    const lead = mate ? `${mate.name}, ` : '';
+    return r.status === 'completed' ? `${lead}${r.from} had me ${r.what}. That one is done.`
+      : `${lead}${r.from} had me ${r.what}. It did not finish.`;
+  }
   let nextChatter = nowMs() + 4000;
   function chatterTick(t) {
     if (t < nextChatter) return;
-    const interval = (deckSettings().banter_interval_seconds || 18) * 1000;
-    nextChatter = t + rand(interval * 0.8, interval * 1.2);
-    if (S.mode !== 'live' || deckSettings().banter_enabled === false) return;
-    if (bubbles.size >= 3) return;
+    nextChatter = t + rand(10000, 16000);
+    if (S.mode !== 'live' || bubbles.size >= 3) return;
     const working = crew.filter((c) => c.duty && c.mode === 'work' && !c.bubble);
-    const idle = crew.filter((c) => !c.duty && !c.path.length && !c.bubble && c.mode !== 'sleep');
-    if (working.length && (Math.random() < 0.35 || !idle.length)) {
+    if (working.length) {
       const c = CD.pick(working), text = progressLine(c);
-      if (c.lastSpokenWork !== text) { c.lastSpokenWork = text; say(c, text); }
+      if (text && c.lastSpokenWork !== text) { c.lastSpokenWork = text; say(c, text); }
       return;
     }
-    if (!idle.length || !dialogue || !missionState) return;
+    if (!ambientAllowed()) return;
+    const idle = crew.filter((c) => !c.duty && !c.path.length && !c.bubble && c.mode !== 'sleep');
+    if (!idle.length) return;
     const c = CD.pick(idle);
     const mate = idle.find((o) => o !== c && o.room === c.room);
+    const recap = recapLine(c, mate);
+    if (recap) { lastAmbient = nowMs(); say(c, recap, (deckSettings().bubble_seconds || 7) * 1000, 'ambient'); return; }
     if (mate) ambientExchange(c, mate);
-    else say(c, dialogue.solo(c.agentId, dialogueContext(c)), (deckSettings().bubble_seconds || 7) * 1000, 'ambient');
+    else { lastAmbient = nowMs(); say(c, dialogue.solo(c.agentId, dialogueContext(c)), (deckSettings().bubble_seconds || 7) * 1000, 'ambient'); }
   }
 
   // ---------------------------------------------------- speech bubbles
@@ -506,7 +525,39 @@
   }
   function emitEvent(ev) {
     log(ev.log, { role: ev.role, room: ev.room, level: ev.level });
-    if (ev.say && ev.role && S.mode === 'live') say(crewByRole[ev.role], ev.say);
+    if (S.mode !== 'live') return;
+    if (ev.handoff) handoffExchange(ev.handoff);
+    else if (ev.say && ev.role) say(crewByRole[ev.role], ev.say);
+  }
+  // The main computer has no avatar, so its lines are anchored on the core.
+  const coreSpeaker = { name: '', color: '#66E0FF', x: CORE[0], y: CORE[1], duty: null, bubble: null };
+  const speaker = (role) => role === 'core' ? Object.assign(coreSpeaker, { name: assistantName() }) : crewByRole[role];
+  const lowerFirst = (s) => (/^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+  // What the delegator and the officer actually said to each other: the task
+  // text the delegator wrote, and the officer's own summary when it reports back.
+  function handoffExchange(h) {
+    const to = speaker(h.to), from = speaker(h.from) || speaker('core');
+    if (!to) return;
+    const what = CD.short(lowerFirst(String(h.what || 'the task').replace(/[.\s]+$/, '')), 70);
+    let lines;
+    if (h.phase === 'start') {
+      lines = [[from, `${to.name}, ${what}.`], [to, CD.pick(['On it.', 'Understood. Starting now.', 'Acknowledged.'])]];
+    } else {
+      to.lastTask = { what, status: h.status, from: from.name, at: Date.now() };
+      if (h.status === 'completed') {
+        const report = h.summary ? CD.short(h.summary, 120) : `finished: ${what}.${h.took ? ` Took ${h.took}.` : ''}`;
+        lines = [[to, `${from.name}, ${report}`], [from, CD.pick(['Received.', 'Got it. Thank you.', 'Noted.'])]];
+      } else if (h.status === 'failed') {
+        lines = [[to, `${from.name}, ${what} failed.`], [from, 'Understood.']];
+      } else return;
+    }
+    if (from === to) lines = lines.slice(h.phase === 'start' ? 1 : 0, h.phase === 'start' ? 2 : 1);
+    const epoch = dialogueEpoch;
+    lines.forEach(([who, text], i) => {
+      const speak = () => { if (epoch === dialogueEpoch && S.mode === 'live') say(who, text, 8000); };
+      if (!i) speak();
+      else { const timer = setTimeout(() => { conversationTimers.delete(timer); speak(); }, i * 1900); conversationTimers.add(timer); }
+    });
   }
 
   // ---------------------------------------------------------- rendering

@@ -398,6 +398,14 @@
     const agents = new Map([...(next.agents || []), ...(next.recent_agents || [])].map((a) => [a.id, a]));
     const turns = new Map([...(next.turns || []), ...(next.recent_turns || [])].map((t) => [t.id, t]));
     const home = (role) => CD.ROLES[role].home;
+    // Who handed the officer the task: a parent officer, else the officer the
+    // Captain is talking to on that pane, else the main computer.
+    const delegator = (a, t) => {
+      const p = a && a.parent ? agents.get(a.parent) : null;
+      if (p && CD.isOfficerRole(p.role)) return p.role;
+      const owner = t || (a ? turns.get(a.turn) : null);
+      return owner && CD.isOfficerRole(owner.role) ? owner.role : 'core';
+    };
     for (const e of fresh) {
       const a = e.agent ? agents.get(e.agent) : null;
       const t = e.turn ? turns.get(e.turn) : null;
@@ -406,7 +414,7 @@
         const what = (a && a.description) || String(e.text || '').replace(/^started: /, '');
         if (officer) {
           ev.push({ role: officer, room: home(officer), level: 'info', log: `summoned: ${what}`,
-            say: CD.pick([`On it: ${CD.short(what, 34)}.`, 'Acknowledged. On my way.', `${CD.short(what, 34)}. Starting now.`]) });
+            handoff: { phase: 'start', from: delegator(a, t), to: officer, what } });
         } else {
           ev.push({ role: null, room: 'core', level: 'info', log: `${CD.helperLabel(e.type)} launched: ${what}` });
         }
@@ -418,8 +426,8 @@
         const took = a && a.ended_at && a.started_at ? ` (${CD.fmtDur((a.ended_at - a.started_at) * 1000)})` : '';
         if (officer) {
           ev.push({ role: officer, room: home(officer), level, log: `${verb}: ${what}${took}`,
-            say: st === 'completed' ? CD.pick([`${CD.short(what, 30)}: done.`, 'Done. Reporting back.'])
-              : st === 'failed' ? `${CD.short(what, 30)} failed.` : null });
+            handoff: { phase: 'end', from: delegator(a, t), to: officer, what, status: st,
+              summary: (a && a.summary) || '', took: took.replace(/[()]/g, '').trim() } });
         } else {
           ev.push({ role: null, room: 'core', level, log: `${CD.helperLabel(e.type)} ${verb}: ${what}${took}` });
         }
