@@ -585,7 +585,7 @@
     catch (err) { errorAt('#crew-handoff-error', err); }
   }
 
-  const settingDefaults = { banter_enabled: true, banter_interval_seconds: 18, banter_variety: .8, bubble_seconds: 7, reduced_motion: false, personality_evolution: false, evolution_every_rounds: 1, mission_interval_seconds: 60, turn_timeout_seconds: 300, provider: 'codex', local_model: '', max_rounds: 12 };
+  const settingDefaults = { banter_enabled: true, banter_interval_seconds: 60, banter_variety: .8, bubble_seconds: 7, reduced_motion: false, personality_evolution: false, evolution_every_rounds: 1, mission_interval_seconds: 60, turn_timeout_seconds: 300, provider: 'codex', local_model: '', max_rounds: 12 };
   function openSettings() {
     const settings = { ...settingDefaults, ...(state?.settings || {}) };
     for (const [name, value] of Object.entries(settings)) {

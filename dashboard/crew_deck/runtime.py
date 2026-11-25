@@ -39,7 +39,7 @@ ROSTER = [
 ]
 OFFICERS = {oid: (name, role) for oid, name, role in ROSTER}
 DEFAULTS = {
-    "banter_enabled": True, "banter_interval_seconds": 18,
+    "banter_enabled": True, "banter_interval_seconds": 60,
     "banter_variety": 0.8, "bubble_seconds": 7, "reduced_motion": False,
     "personality_evolution": False, "evolution_every_rounds": 1,
     "mission_interval_seconds": 60, "turn_timeout_seconds": 300,
@@ -386,6 +386,8 @@ class CrewRuntime:
         self.db.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, data TEXT NOT NULL)")
         self.db.commit()
         self.settings = {**DEFAULTS, **(self._get("settings", "current") or {})}
+        if self.settings.get("banter_interval_seconds") == 18:  # old default, before 2026-11-24
+            self.settings["banter_interval_seconds"] = DEFAULTS["banter_interval_seconds"]
         self.runs = {r["id"]: r for r in self._list("run")}
         self.cancels, self.worker = {}, None
         self._cap_cache, self._cap_at = {}, 0

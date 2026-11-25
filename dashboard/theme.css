@@ -7126,3 +7126,10 @@ body[data-marketplace-preview].vitals-preview [data-sidebar-item="remote-access"
 }
 
 #settings-crew-save:disabled { opacity: .45; cursor: default; }
+
+/* Crew Deck jump-to-work: briefly outline the pane or standing order it opened. */
+.crew-jump-flash { animation: crew-jump-flash 2.4s ease-out; }
+@keyframes crew-jump-flash {
+  0%, 30% { outline: 2px solid #6ef08a; outline-offset: -2px; box-shadow: 0 0 18px rgba(110, 240, 138, .45); }
+  100% { outline: 2px solid transparent; outline-offset: -2px; box-shadow: none; }
+}

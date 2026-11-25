@@ -709,6 +709,84 @@ document.getElementById('init-timestamp').textContent =
 
 // ── Panel navigation ──────────────────────────────────────
 window.getCrewDeckContext = () => ({ scope: _activeCaptain, token: _authToken, base: API_BASE });
+
+// ── Crew Deck: jump to the work an officer is on ─────────────
+// The deck sends plain identifiers (see crew-deck/host.js). Pane ids carry this
+// page's session tag, so a pane from an earlier dashboard load falls back to an
+// open pane on the same project folder, and otherwise says it is closed.
+function _crewFlash(el) {
+  if (!el) return;
+  el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  el.classList.remove('crew-jump-flash');
+  void el.offsetWidth;
+  el.classList.add('crew-jump-flash');
+  setTimeout(() => el.classList.remove('crew-jump-flash'), 2600);
+}
+function _crewFindPane(pane, project) {
+  const id = String(pane || '').trim().toLowerCase().split('::').pop();
+  const visible = el => (el && !el.hidden ? el : null);
+  if (id) {
+    if (id === _paneId('main').toLowerCase()) return visible(document.getElementById('pane-main'));
+    for (const [wsId, w] of _workspaces.entries()) {
+      if (_paneId(w.isMain ? 'main' : `ws${wsId}`).toLowerCase() === id) {
+        return visible(document.getElementById(w.isMain ? 'pane-main' : `pane-ws${wsId}`));
+      }
+    }
+  }
+  const folder = String(project || '').trim().toLowerCase();
+  if (folder) {
+    for (const [wsId, w] of _workspaces.entries()) {
+      const base = String(w.path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop().toLowerCase();
+      if (!w.isMain && base === folder) return visible(document.getElementById(`pane-ws${wsId}`));
+    }
+  }
+  // No pane and no project, or a main-channel id from an earlier page load,
+  // means the work came from the main channel.
+  if ((!id && !folder) || (/-main$/.test(id) && !folder)) return visible(document.getElementById('pane-main'));
+  return null;
+}
+function _crewFocusPane(pane, project) {
+  const el = _crewFindPane(pane, project);
+  if (!el) {
+    addLog(`Crew Deck: that chat${project ? ' in ' + project : ''} is not open in this dashboard window.`);
+    playDataSound('error');
+    return false;
+  }
+  showPanel('chat');
+  _crewFlash(el);
+  el.querySelector('textarea')?.focus({ preventScroll: true });
+  return true;
+}
+async function _crewOpenOrder(id) {
+  showPanel('orders');
+  const sel = `.order-row[data-order-id="${CSS.escape(String(id))}"]`;
+  for (let i = 0; i < 30; i++) {
+    const row = document.querySelector(sel);
+    if (row) { _crewFlash(row); return; }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  addLog('Crew Deck: that standing order no longer exists.');
+}
+async function openCrewTarget(target) {
+  if (!target || typeof target !== 'object') return;
+  if (target.kind === 'pane') { _crewFocusPane(target.pane, target.project); return; }
+  if (target.kind === 'order' && target.id) { await _crewOpenOrder(target.id); return; }
+  if (target.kind !== 'job' || !target.id) return;
+  let job = null;
+  try {
+    const r = await fetch(`${API_BASE}/jobs/${encodeURIComponent(target.id)}`);
+    if (r.ok) job = await r.json();
+  } catch (_) { /* reported below */ }
+  if (!job || job.error) { addLog('Crew Deck: that background job is no longer on record.'); return; }
+  if (target.log) {
+    const p = String(job.stderr || '').trim() ? job.stderr_path : job.stdout_path;
+    if (p) openPath(p);
+    return;
+  }
+  const folder = String(job.project_path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+  _crewFocusPane(job.pane || '', folder);
+}
+window.openCrewTarget = openCrewTarget;
 window.getArcadeProfile = () => _activeCaptain;
 
 function showPanel(name) {
@@ -3359,6 +3437,7 @@ async function refreshStandingOrders() {
     for (const o of orders) {
       const row = document.createElement('div');
       row.className = 'order-row' + (o.enabled ? '' : ' disabled');
+      row.dataset.orderId = o.id;
       const nextTxt = o.next_run ? `NEXT ${new Date(o.next_run * 1000).toLocaleString()}` : '';
       row.innerHTML = `
         <div class="order-info">
